@@ -1,19 +1,19 @@
 ---
 name: eden-bench
 description: >
-  Drive the Eden macOS browser from the repo-root ./bench command: open
+  Drive the Eden macOS browser from the apps/macos/bench command: open
   flask-marked bench tabs, wait for load, read text, run JavaScript, click,
   type, submit, screenshot the page, probe window chrome, and install or
   press Chrome extensions. Use when the user asks to test Eden, drive the
   browser, run ./bench, open a page in Eden, screenshot a tab, check a
   panel, or exercise an extension, and when they run /eden-bench.
 metadata:
-  short-description: Drive Search with ./bench
+  short-description: Drive Eden with ./bench
 ---
 
 # Eden bench
 
-Eden is a native Mac browser in this repo. Drive the running app with `./bench` from the repo root. `./bench help` is the command syntax. This file is how to use it without touching the browser a person has open.
+Eden is a native Mac browser in this repo. Drive the running app with `./bench` from `apps/macos`. `./bench help` is the command syntax. This file is how to use it without touching the browser a person has open.
 
 ## Which process
 

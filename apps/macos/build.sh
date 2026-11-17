@@ -91,7 +91,7 @@ if [ "$DEV" = 1 ]; then
     *) SHOWN="$NAME-$FEATURE" ;;
   esac
 fi
-VERSION="$(tr -d '[:space:]' < VERSION)"
+VERSION="$(tr -d '[:space:]' < ../../VERSION)"
 # A build number that only ever goes up, so the updater can tell newer from
 # older without parsing version strings.
 BUILD="$(date +%Y%m%d%H%M)"

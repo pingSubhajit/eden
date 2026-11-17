@@ -25,7 +25,7 @@ for FILE in "${FILES[@]}"; do
   [ -f "$FROM/$FILE" ] || { echo "$FROM/$FILE is missing — ./build.sh release dmg makes it" >&2; exit 1; }
 done
 # This version's files, for this chip — not ones left from an earlier build.
-VERSION="$(tr -d '[:space:]' < VERSION)"
+VERSION="$(tr -d '[:space:]' < ../../VERSION)"
 grep -q "\"version\": \"$VERSION\"" "$FROM/appcast.json" \
   || { echo "$FROM/appcast.json isn't $VERSION — build it again first" >&2; exit 1; }
 CHIP="$(mktemp -d)"
