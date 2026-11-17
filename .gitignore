@@ -13,3 +13,7 @@ __pycache__/
 *.provisionprofile
 *.p12
 *.mobileprovision
+
+# A developer's own overrides of the iOS app's signing (Base.xcconfig
+# includes it when it is there).
+apps/ios/Configuration/Local.xcconfig
