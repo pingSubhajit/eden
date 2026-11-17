@@ -180,6 +180,9 @@ if CommandLine.arguments.count > 2 {
     // A dev build keeps its yellow in Dark too: the plate yellow in light,
     // the mark yellow on ink in dark.
     let plate = dev ? yellow : white
+    // macOS alone for the Mac's build; every square platform when the iOS
+    // app's icon is written (apps/ios/scripts/make-icon.sh, EDEN_ICON_SHARED=1).
+    let squares = ProcessInfo.processInfo.environment["EDEN_ICON_SHARED"] == "1" ? #""shared""# : #"[ "macOS" ]"#
     let json = """
     {
       "fill" : \(plate),
@@ -206,7 +209,7 @@ if CommandLine.arguments.count > 2 {
           "translucency" : { "enabled" : false, "value" : 0.5 }
         }
       ],
-      "supported-platforms" : { "squares" : [ "macOS" ] }
+      "supported-platforms" : { "squares" : \(squares) }
     }
     """
     try json.write(to: doc.appendingPathComponent("icon.json"), atomically: true, encoding: .utf8)
