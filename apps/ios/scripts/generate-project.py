@@ -57,9 +57,18 @@ config_ref = file('Configuration/Base.xcconfig', 'text.xcconfig')
 plist_ref = file('Configuration/Info.plist', 'text.plist.xml')
 entitlements_ref = file('Configuration/Eden.entitlements', 'text.plist.entitlements')
 
+# The unit tests (Swift Testing), run inside the app as their host.
+test_refs, test_builds = [], []
+for source in sorted(root.glob('Tests/**/*.swift')):
+    relative = os.path.relpath(source, root)
+    reference = file(relative, 'sourcecode.swift')
+    test_refs.append(reference)
+    test_builds.append(add('test-build:' + relative, isa='PBXBuildFile', fileRef=reference))
+
 product = add('product', isa='PBXFileReference', explicitFileType='wrapper.application', path='Eden.app', sourceTree='BUILT_PRODUCTS_DIR')
-products = add('products', isa='PBXGroup', name='Products', children=[product], sourceTree='<group>')
-main = add('main', isa='PBXGroup', children=refs + [icon_ref, privacy_ref, config_ref, plist_ref, entitlements_ref, products], sourceTree='<group>')
+test_product = add('test-product', isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='EdenTests.xctest', sourceTree='BUILT_PRODUCTS_DIR')
+products = add('products', isa='PBXGroup', name='Products', children=[product, test_product], sourceTree='<group>')
+main = add('main', isa='PBXGroup', children=refs + test_refs + [icon_ref, privacy_ref, config_ref, plist_ref, entitlements_ref, products], sourceTree='<group>')
 
 sources_phase = add('sources-phase', isa='PBXSourcesBuildPhase', buildActionMask='2147483647', files=builds, runOnlyForDeploymentPostprocessing='0')
 resources_phase = add('resources-phase', isa='PBXResourcesBuildPhase', buildActionMask='2147483647', files=[icon_build, privacy_build], runOnlyForDeploymentPostprocessing='0')
@@ -88,14 +97,34 @@ for mode, debug in [('Debug', True), ('Release', False)]:
         'LD_RUNPATH_SEARCH_PATHS': '$(inherited) @executable_path/Frameworks',
     }))
 
+test_configs = []
+for mode, debug in [('Debug', True), ('Release', False)]:
+    test_configs.append(add('test-' + mode, isa='XCBuildConfiguration', name=mode, baseConfigurationReference=config_ref, buildSettings={
+        'PRODUCT_NAME': 'EdenTests', 'PRODUCT_BUNDLE_IDENTIFIER': '$(EDEN_BUNDLE_IDENTIFIER).tests',
+        'MARKETING_VERSION': version, 'CURRENT_PROJECT_VERSION': '1', 'GENERATE_INFOPLIST_FILE': 'YES',
+        'TEST_HOST': '$(BUILT_PRODUCTS_DIR)/Eden.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Eden', 'BUNDLE_LOADER': '$(TEST_HOST)',
+        'TARGETED_DEVICE_FAMILY': '1,2', 'SUPPORTED_PLATFORMS': 'iphoneos iphonesimulator', 'SUPPORTS_MACCATALYST': 'NO',
+        'LD_RUNPATH_SEARCH_PATHS': '$(inherited) @executable_path/Frameworks @loader_path/Frameworks',
+    }))
+
 project_list = add('project-configs', isa='XCConfigurationList', buildConfigurations=project_configs, defaultConfigurationIsVisible='0', defaultConfigurationName='Release')
 target_list = add('target-configs', isa='XCConfigurationList', buildConfigurations=target_configs, defaultConfigurationIsVisible='0', defaultConfigurationName='Release')
 target = add('app-target', isa='PBXNativeTarget', name='Eden', productName='Eden', productType='com.apple.product-type.application',
              productReference=product, buildConfigurationList=target_list,
              buildPhases=[sources_phase, frameworks_phase, resources_phase], dependencies=[], buildRules=[])
-project = add('project', isa='PBXProject', attributes={'LastUpgradeCheck': '2720', 'BuildIndependentTargetsInParallel': '1'},
+test_list = add('test-configs', isa='XCConfigurationList', buildConfigurations=test_configs, defaultConfigurationIsVisible='0', defaultConfigurationName='Release')
+test_sources_phase = add('test-sources-phase', isa='PBXSourcesBuildPhase', buildActionMask='2147483647', files=test_builds, runOnlyForDeploymentPostprocessing='0')
+test_frameworks_phase = add('test-frameworks-phase', isa='PBXFrameworksBuildPhase', buildActionMask='2147483647', files=[], runOnlyForDeploymentPostprocessing='0')
+test_resources_phase = add('test-resources-phase', isa='PBXResourcesBuildPhase', buildActionMask='2147483647', files=[], runOnlyForDeploymentPostprocessing='0')
+test_proxy = add('test-proxy', isa='PBXContainerItemProxy', containerPortal=oid('project'), proxyType='1', remoteGlobalIDString=target, remoteInfo='Eden')
+test_dependency = add('test-dependency', isa='PBXTargetDependency', target=target, targetProxy=test_proxy)
+test_target = add('test-target', isa='PBXNativeTarget', name='EdenTests', productName='EdenTests', productType='com.apple.product-type.bundle.unit-test',
+                  productReference=test_product, buildConfigurationList=test_list,
+                  buildPhases=[test_sources_phase, test_frameworks_phase, test_resources_phase], dependencies=[test_dependency], buildRules=[])
+project = add('project', isa='PBXProject', attributes={'LastUpgradeCheck': '2720', 'BuildIndependentTargetsInParallel': '1',
+                                                    'TargetAttributes': {test_target: {'TestTargetID': target}}},
               buildConfigurationList=project_list, compatibilityVersion='Xcode 14.0', developmentRegion='en',
-              knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[target])
+              knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[target, test_target])
 
 folder = root / 'Eden.xcodeproj'
 folder.mkdir(exist_ok=True)
@@ -103,9 +132,11 @@ folder.mkdir(exist_ok=True)
 schemes = folder / 'xcshareddata/xcschemes'
 schemes.mkdir(parents=True, exist_ok=True)
 ref = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{target}" BuildableName="Eden.app" BlueprintName="Eden" ReferencedContainer="container:Eden.xcodeproj"/>'
+test_ref = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{test_target}" BuildableName="EdenTests.xctest" BlueprintName="EdenTests" ReferencedContainer="container:Eden.xcodeproj"/>'
 (schemes / 'Eden.xcscheme').write_text(f'''<?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="2720" version="1.3">
-  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{ref}</BuildActionEntry></BuildActionEntries></BuildAction>
+  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{ref}</BuildActionEntry><BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">{test_ref}</BuildActionEntry></BuildActionEntries></BuildAction>
+  <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES"><Testables><TestableReference skipped="NO">{test_ref}</TestableReference></Testables></TestAction>
   <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" debugServiceExtension="internal" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0">{ref}</BuildableProductRunnable></LaunchAction>
   <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" savedToolIdentifier="" useCustomWorkingDirectory="NO" debugDocumentVersioning="YES"><BuildableProductRunnable runnableDebuggingMode="0">{ref}</BuildableProductRunnable></ProfileAction>
   <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
