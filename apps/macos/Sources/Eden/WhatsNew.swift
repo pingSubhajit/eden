@@ -38,6 +38,9 @@ enum WhatsNew {
         Toggle(title: "AI on pages", detail: "Summarize a page or ask about it. Choose where it runs in Settings › AI.",
                since: "0.1.0", get: { $0.ai }, set: { $0.ai = $1 }),
     ] : []) + [
+        Toggle(title: "Hand off pages to your other devices", detail: "Pick up the page in front on your iPhone, iPad or another Mac, with Handoff.",
+               since: "0.2.0", get: { $0.handsOff }, set: { $0.handsOff = $1 }),
+
         Toggle(title: "Commands in the address field", detail: "Type the name of any menu command or setting, as in Arc's Command Bar.",
                since: "0.1.0", get: { $0.commandBar }, set: { $0.commandBar = $1 }),
         Toggle(title: "Capture", detail: "View › Capture… takes a picture of part of a page, or all of it.",

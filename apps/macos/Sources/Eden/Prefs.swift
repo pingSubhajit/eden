@@ -333,6 +333,12 @@ final class Preferences: ObservableObject {
     @Published var closeGoesBack: Bool {
         didSet { store.set(closeGoesBack, forKey: "tabs.closeGoesBack") }
     }
+    /// The page in front offered to your other devices with Handoff (see
+    /// Handoff.swift). Off unless asked for: the address and title of that
+    /// page then go to them, through Apple.
+    @Published var handsOff: Bool {
+        didSet { store.set(handsOff, forKey: "handoff") }
+    }
     /// ⌘Z reopens the tab just closed, as in Safari, while closing it is
     /// still the last thing done (Browser.lastClose). Off unless asked for.
     @Published var undoReopensTab: Bool {
@@ -953,6 +959,7 @@ final class Preferences: ObservableObject {
         lazyTabs = store.bool(forKey: "tabs.lazy")
         newTabAfterLast = store.bool(forKey: "tabs.newAfterLast")
         closeGoesBack = store.bool(forKey: "tabs.closeGoesBack")
+        handsOff = store.bool(forKey: "handoff")
         undoReopensTab = store.bool(forKey: "tabs.undoReopens")
         switcherBehindFirst = store.bool(forKey: "tabs.switcherBehindFirst")
         switcherLeavesOutPins = store.bool(forKey: "tabs.switcherLeavesOutPins")

@@ -195,6 +195,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleScriptEnabled</key><true/>
   <key>OSAScriptingDefinition</key><string>Eden.sdef</string>
+  <!-- Handoff (Handoff.swift): Eden's own activity, a page in Eden, and the
+       system's for a web page, as Safari and other browsers offer it. The
+       iOS app lists the same (apps/ios/Configuration/Info.plist). -->
+  <key>NSUserActivityTypes</key>
+  <array><string>com.subhajit.eden.beta.browsing</string><string>NSUserActivityTypeBrowsingWeb</string></array>
   <!-- Owning http and https is what sends a link clicked in Mail here.
        Appearing in Desktop & Dock → Default web browser also needs the
        XHTML document type below. -->

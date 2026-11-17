@@ -804,12 +804,16 @@ struct ContentView: View {
         )
     }
 
-    /// The window held, dressed and named for the page in front (see
-    /// WindowTitle.swift).
+    /// The window held, dressed, named for the page in front (see
+    /// WindowTitle.swift) and offering it to your other devices (see
+    /// Handoff.swift).
     private var windowSetup: some View {
         ZStack {
             WindowSetup(ready: setUp)
-            if let tab = browser.active { WindowTitle(tab: tab, window: window).id(tab.id) }
+            if let tab = browser.active {
+                WindowTitle(tab: tab, window: window).id(tab.id)
+                Handoff.Offer(tab: tab, prefs: browser.prefs, browser: browser, window: window).id(tab.id)
+            }
         }
     }
 
@@ -1099,12 +1103,15 @@ struct ContentView: View {
         view.isHidden = NSApp.isActive
     }
 
-    /// The window, once there is one: held, dressed, and named for the page
-    /// in front so its name doesn't wait for the next change.
+    /// The window, once there is one: held, dressed, named for the page in
+    /// front and offering it, so neither waits for the next change.
     private func setUp(_ window: NSWindow) {
         held.window = window
         dress(window)
-        if let tab = browser.active { WindowTitle.set(tab, in: window) }
+        if let tab = browser.active {
+            WindowTitle.set(tab, in: window)
+            Handoff.apply(tab, in: browser, window: window)
+        }
     }
 
     private func dress(_ window: NSWindow) {

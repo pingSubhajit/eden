@@ -189,6 +189,21 @@ final class Links: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A page handed over from another device with Handoff (see
+    /// Handoff.swift): Eden says yes to its own activity and to a web
+    /// page's, so macOS shows the page coming, and opens the page itself.
+    func application(_ application: NSApplication, willContinueUserActivityWithType userActivityType: String) -> Bool {
+        Handoff.taken.contains(userActivityType)
+    }
+
+    func application(_ application: NSApplication, continue userActivity: NSUserActivity,
+                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        // A test run takes nothing from outside it, as with links; the bench
+        // hands it one through `continuing` instead.
+        guard !Store.testing else { return false }
+        return Links.continuing(userActivity)
+    }
+
     /// The Dock icon clicked with the window closed: bring the window back
     /// rather than doing nothing, which is what a hidden-title-bar SwiftUI
     /// window does by default.
@@ -322,6 +337,28 @@ final class Links: NSObject, NSApplicationDelegate {
 
     /// A link as another app hands one over, for the bench.
     static func arrived(_ url: URL) { take(url) }
+
+    /// An activity another device handed over: its page opened, when it is
+    /// one Eden takes (Handoff.received). False for anything else.
+    @discardableResult
+    static func continuing(_ activity: NSUserActivity) -> Bool {
+        guard let url = Handoff.received(activity) else { return false }
+        continued(url)
+        return true
+    }
+
+    /// A page another device handed over (Handoff): into the window in
+    /// front, as a link from another app goes, but never into the small
+    /// window — it is a page being read, coming back to the browser. Before
+    /// the window is up it waits with the links that came early.
+    static func continued(_ url: URL) {
+        if let deliver {
+            deliver(url)
+        } else {
+            waiting.append(url)
+            DispatchQueue.main.async { summon() }
+        }
+    }
 
     private static func take(_ url: URL) {
         if MainActor.assumeIsolated({ little(url) }) { return }
