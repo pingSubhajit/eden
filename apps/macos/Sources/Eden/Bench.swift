@@ -3393,6 +3393,27 @@ final class Bench {
                 answer(worked ? ["saved": file.path] : ["error": "page wasn't exported"])
             }
 
+        case "handoff":
+            // Handoff (Handoff.swift). With no action: what this window offers
+            // your other devices, empty when nothing. "continue": a page as
+            // another device hands one over — `type` the activity's (Eden's
+            // own unless given), `url` its page — taken as the app takes one,
+            // on a test run only.
+            if request["action"] as? String == "continue" {
+                guard Store.testing else { answer(["error": "handoff continue only works on a --test run"]); return }
+                let activity = NSUserActivity(activityType: request["type"] as? String ?? Handoff.browsing)
+                // NSUserActivity raises on a webpageURL that isn't http or
+                // https, so no device can hand one over: neither can this.
+                let url = (request["url"] as? String).flatMap(URL.init(string:))
+                if let url, ["http", "https"].contains(url.scheme?.lowercased()) { activity.webpageURL = url }
+                let taken = Links.continuing(activity)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { answer(["taken": taken]) }
+                return
+            }
+            let offered = browser.window.flatMap(Handoff.offered(in:))
+            answer(["url": offered?.address.absoluteString ?? "", "title": offered?.title ?? "",
+                    "type": offered == nil ? "" : Handoff.browsing])
+
         case "update":
             // The updater, for a test run pointed at its own feed: `check`
             // is the menu's Check for Updates…, `disk` the Download button.

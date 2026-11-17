@@ -29,6 +29,9 @@
     ./bench pdf PATH                   test run: export the page on screen as a continuous, screen-layout PDF
     ./bench close ID | all             only tabs the bench opened
     ./bench probe                      the window's own state: panels, modal, windows
+    ./bench handoff                    what the window offers your other devices with Handoff
+    ./bench handoff continue URL [TYPE]  --test runs only: a page handed over by another device,
+                                       of activity TYPE (Eden's own unless given), taken as the app takes one
     ./bench extensions                 installed extensions, loaded or not, with their warnings
     ./bench little URL|keep|close      a small window for a link (made unseen), kept into the row, or closed
     ./bench site PATH [security]       the site card for the tab on screen, drawn to a PNG
@@ -609,6 +612,12 @@ def main(argv):
         elif args[0] == "picture" and len(args) == 2: request["path"] = args[1]
         elif args[0] == "check" and len(args) == 2: request["text"] = args[1]
         else: sys.exit(usage)
+    elif verb == "handoff":
+        if args and (args[0] != "continue" or len(args) not in (2, 3)) or len(args) == 1:
+            sys.exit("usage: bench handoff [continue URL [TYPE]]")
+        if args:
+            request["action"], request["url"] = "continue", args[1]
+            if len(args) == 3: request["type"] = args[2]
     elif verb == "answer":
         if args not in (["once"], ["always"], ["no"], ["screen"], ["window"], ["noscreen"]):
             sys.exit("usage: bench answer once|always|no|screen|window|noscreen")
