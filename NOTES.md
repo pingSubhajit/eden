@@ -1,0 +1,1 @@
+The first version of Eden: a small, fast, quiet browser for the Mac, made of the WebKit already in macOS. Tabs down the side or across the top, pins, spaces and Split View; one field for addresses and searches; ads and trackers blocked before they load; passwords and passkeys in your keychain; Chrome extensions on macOS 15.4 or later.
