@@ -6,27 +6,37 @@ build goes to anyone else. Each item names where it is in the code.
 ## Before a public release
 
 - [ ] **Developer ID certificate** A Developer ID Application certificate
-  for Techaboard (team `HMJX9736KN`), made by the account holder, in the
-  login keychain of the Mac that ships. build.sh finds it on its own
+  for Techaboard (team `HMJX9736KN`), in the login keychain of the Mac that
+  ships. An Admin can make it under Certificates, Identifiers & Profiles
+  once the Account Holder has given Admins access to Developer ID
+  certificates; otherwise the Account Holder makes it. build.sh finds it on its own
   (`EDEN_SIGN_IDENTITY` names one). Until then builds are ad-hoc signed.
 - [ ] **Notarization** `xcrun notarytool store-credentials "eden"` with an
   Apple ID of the team, for `./build.sh release ship`.
 - [ ] **Passkeys entitlement** Ask Apple for
   `com.apple.developer.web-browser.public-key-credential` for
   `com.subhajit.eden.beta`, then a Developer ID provisioning profile that
-  carries it, saved as `Eden.provisionprofile` next to build.sh
+  carries it, saved as `Eden.provisionprofile` next to apps/macos/build.sh
   (git-ignored). Without it the app is signed with `Eden.entitlements`
   and passkeys aren't offered.
-- [ ] **App ID** Register `com.subhajit.eden.beta` (and
-  `com.subhajit.eden.beta.ai-engine`) under the team, shared with the iOS
-  app to come.
+- [x] **App ID** `com.subhajit.eden.beta` registered under the team, with
+  the iCloud container `iCloud.com.subhajit.eden.beta`, by the iOS app's
+  automatic signing (18 November 2026). Its development profile covers the
+  team's devices.
+- [ ] **The AI engine's App ID** `com.subhajit.eden.beta.ai-engine`, when
+  the AI add-on ships (apps/macos/engine.sh signs it).
+- [ ] **The iOS default-browser entitlement** Ask Apple for
+  `com.apple.developer.web-browser` for `com.subhajit.eden.beta`, so Eden
+  can be the default browser on iPhone and iPad (Phase 3).
+- [ ] **A physical iPhone or iPad** on the same Apple Account as the Mac,
+  for Handoff (Phase 1): Simulator can't hand off.
 
 ## Updates (off)
 
 - [ ] **A signed feed of Eden's own** Host what `./build.sh release ship`
   makes (`appcast.json`, `appcast.json.zip`, `Eden.zip`, `Eden.dmg`, and
   `intel/` for the Intel build) at `Brand.updateFeed`
-  (Sources/Eden/Brand.swift), with `EDEN_DOWNLOAD_URL` pointing at the same
+  (apps/macos/Sources/Eden/Brand.swift), with `EDEN_DOWNLOAD_URL` pointing at the same
   folder. `./publish.sh <folder>` copies them.
 - [ ] **Turn updates on** `Brand.updatesEnabled = true`. That brings back
   Check for Updates… in the Eden menu and the Updates rows in Settings, and
@@ -35,8 +45,9 @@ build goes to anyone else. Each item names where it is in the code.
 ## Brand
 
 - [ ] **A designed mark** The icon and the logomark are the pill Search
-  cut its S from, with an E (Icon/icon.swift, `Logomark` in
-  Sources/Eden/Design.swift). Both draw the same path.
+  cut its S from, with an E (apps/macos/Icon/icon.swift, `Logomark` in
+  apps/macos/Sources/Eden/Design.swift and apps/ios/Sources/Logomark.swift).
+  `apps/ios/scripts/make-icon.sh` writes the iOS icon from the same script.
 - [ ] **A site** `Brand.website`, the download link in README.md, and
   `Brand.aiCallback` (OpenRouter's sign-in, never loaded) move to Eden's
   own domain.
