@@ -14,6 +14,9 @@ own changelog.
 
 ## Unreleased
 
+- Hand off pages to your other devices, off until you turn it on in Settings › General: the page in front can be picked up on your iPhone, iPad or another Mac with Handoff, in Eden there or in its browser. Never a private tab's. A page handed over from another device, from Eden there or from Safari once Eden is your browser, opens in a tab here, whatever the switch says.
+- Eden for iPhone and iPad opens a page handed over to it, and offers the page it shows back to your other devices.
+
 ## 0.1.0 — 18 November 2026
 
 The first version of Eden.

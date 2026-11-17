@@ -23,6 +23,7 @@ It was built by a design studio that spends its whole day in a browser and was t
 - **Keep an important site running.** Enable Keep selected sites awake in Settings › Tabs, then choose Keep This Site Awake in the site card. It prevents sleeping and automatic closure, even under memory pressure, at the cost of more memory. Private choices last only in that tab; manual closing still works.
 - **Two pages side by side.** Turn on Split View in Settings › Tabs, then drag a tab onto a page or choose Tabs › Split Current Page. Drag the divider to resize the panes; the outlined pane receives page commands. Pairs and their widths come back with their Space, including after a restart.
 - **Reading mode.** `⇧⌘R` strips a page down to the article.
+- **Pick up where you left off.** Turn on Settings › General › Hand off pages to your other devices, and the page in front can be picked up on your iPhone, iPad or another Mac with Handoff: in Eden there, or in its browser. A page handed over from them opens in a tab here.
 - **Hide anything, for good.** `⇧⌘H`, then click a cookie banner, a newsletter overlay, a rail of "related" nonsense — it goes, and it is still gone on that site next time, before the page has drawn a single frame.
 - **An ad blocker that runs before the page.** Third-party trackers and ad networks are stopped at the network level, so there is nothing to render and nothing to slow down. On by default, off per site if something breaks.
 - **Video that follows you.** `⇧⌘P` lifts the video out of the page into a small window that stays above everything, including other apps.
@@ -37,7 +38,7 @@ On purpose:
 
 - No extension you have to install to feel at home. Blocking ads, hiding clutter, reading mode, picture-in-picture and passwords are built in; extensions are there for everything else.
 - No account and no cloud of Eden's own. Your tabs, history and passwords are on your Mac; sync between your Macs, off unless you turn it on, goes through a folder you choose and never carries history, passwords or open tabs.
-- No telemetry, no analytics, no crash reports sent anywhere. The only things that leave your Mac are the pages you ask for and their icons.
+- No telemetry, no analytics, no crash reports sent anywhere. The only things that leave your Mac are the pages you ask for and their icons, and, once you turn on Handoff, the address and title of the page in front, to your own devices.
 - One window. Tabs are the only kind of "new" there is.
 
 ## Privacy, concretely
@@ -48,6 +49,7 @@ On purpose:
 | History, bookmarks, open tabs, hidden elements | Small JSON files in `~/Library/Application Support/Eden/` | You. |
 | Cookies and site data | WebKit's own store for the app | The sites that set them, as in any browser. |
 | Extensions | Unpacked in `~/Library/Application Support/Eden/Extensions/`, their data in WebKit's extension store | Each extension, within the permissions you accepted when adding it. |
+| The page in front, with Handoff on | Offered to the devices signed in to your Apple Account, through Apple, while Eden is in front. Never a private tab. | Your own devices. |
 | Anything else | Nowhere. There is no server. | — |
 
 A **private tab** (`⇧⌘N`) has its own cookie jar and leaves nothing behind when it closes.

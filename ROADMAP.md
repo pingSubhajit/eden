@@ -14,9 +14,10 @@ is in [TODO.md](TODO.md).
 A companion app for iOS and iPadOS, and the tabs moving between it and
 the Mac.
 
-1. **Handoff from the Mac** The page in front is offered to your other
-   devices (`NSUserActivity`), and a page handed off from them opens in
-   Eden. Small, and useful before there is an iOS app.
+1. **Handoff from the Mac** *Built, off unless turned on.* The page in
+   front is offered to your other devices (`NSUserActivity`), and a page
+   handed off from them opens in Eden. Eden for iPhone and iPad takes it,
+   and offers the page it shows back.
 2. **A shared core** The parts that aren't the Mac's alone — the session,
    pins, the sync merge, the blocker's rules, hidden elements, reading
    mode — in a Swift package both apps build.
