@@ -96,12 +96,19 @@ public enum Store {
     /// Settings live apart too: a test that changes what the tabs wear or
     /// where the tabs go must not change yours.
     public static let settings: UserDefaults = {
-        guard testing else {
+        guard let settingsSuite else {
             carryOver(into: .standard)
             return .standard
         }
-        let suite = world == "test" ? "com.subhajit.eden.beta.test" : "com.subhajit.eden.beta.test.\(world ?? "")"
-        return UserDefaults(suiteName: suite) ?? .standard
+        return UserDefaults(suiteName: settingsSuite) ?? .standard
+    }()
+
+    /// The name of a test run's settings, nil for the browser somebody uses:
+    /// "com.subhajit.eden.beta.test" for the test world, with ".<name>" for
+    /// a world of its own. What clears a test world clears this one.
+    public static let settingsSuite: String? = {
+        guard testing else { return nil }
+        return world == "test" ? "com.subhajit.eden.beta.test" : "com.subhajit.eden.beta.test.\(world ?? "")"
     }()
 
     /// The old bundle's defaults, read once and written under the new one.
