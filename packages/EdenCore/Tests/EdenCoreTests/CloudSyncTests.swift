@@ -2,88 +2,16 @@ import Foundation
 import XCTest
 @testable import EdenCore
 
-/// iCloud sync (CloudSync) between devices sharing one server, played by a
-/// server in memory: what one device changes reaches the others, a deletion
-/// travels, a device that doesn't understand an item carries it, and the
-/// merge picks the same winner everywhere.
+/// Sync through iCloud (CloudSync over a SimulatedServer standing in for
+/// CKSyncEngine and CloudKit): what one device changes reaches the others, a
+/// deletion travels, a device that doesn't understand an item carries it,
+/// the merge picks the same winner everywhere, and nothing is lost when
+/// saves fail, race edits, or sync is turned off part-way.
 @MainActor
 final class CloudSyncTests: XCTestCase {
-    /// A CloudKit stand-in: every save a new revision, changes since a token
-    /// the items saved after it.
-    @MainActor
-    final class Server: CloudStore {
-        var records: [String: (entry: SyncEntry, revision: Int)] = [:]
-        var revision = 0
-        var problem: CloudProblem?
-        var forgetsTokens = false
-        var saves = 0
-
-        var account = "someone"
-        var failsSaves = false
-        /// Run as a save reaches the server: the app changing meanwhile.
-        var duringSave: (() -> Void)?
-
-        func prepare() async throws -> String {
-            if let problem { throw problem }
-            return account
-        }
-
-        func changes(since token: Data?) async throws -> CloudChanges {
-            let from = token.flatMap { Int(String(decoding: $0, as: UTF8.self)) }
-            let reset = from == nil || forgetsTokens
-            let after = reset ? 0 : from ?? 0
-            let found = records.filter { $0.value.revision > after }.mapValues(\.entry)
-            return CloudChanges(entries: found, token: Data(String(revision).utf8), reset: reset)
-        }
-
-        func save(_ entries: [String: SyncEntry]) async throws {
-            if failsSaves {
-                if savesBeforeFailing > 0 { savesBeforeFailing -= 1 } else { throw CloudProblem.unavailable("offline") }
-            }
-            duringSave?()
-            duringSave = nil
-            saves += 1
-            for (key, entry) in entries {
-                revision += 1
-                records[key] = (entry, revision)
-            }
-        }
-
-        /// Saves that succeed before saving fails, when it does.
-        var savesBeforeFailing = 0
-    }
-
-    /// A device: its items, what it applied last, and its sync.
-    @MainActor
-    final class Device {
-        var items: [String: String]
-        var applied: [String: String] = [:]
-        let understood: (String) -> Bool
-        let sync: CloudSync
-
-        init(_ name: String, server: Server, items: [String: String] = [:], folder: URL,
-             understood: @escaping (String) -> Bool = { _ in true }) {
-            self.items = items
-            self.understood = understood
-            sync = CloudSync(store: server, device: name, file: folder.appendingPathComponent("\(name).json"))
-        }
-
-        var scope: CloudScope {
-            CloudScope(name: "app", current: { [unowned self] _ in items }, apply: { [unowned self] live in
-                applied = live
-                // As the apps do: take what is agreed, of what this device keeps.
-                items = live.filter { understood($0.key) }
-            }, understood: { [unowned self] key, _ in understood(key) })
-        }
-
-        func pass(at now: TimeInterval) async {
-            await sync.pass([scope], now: Date(timeIntervalSince1970: now))
-        }
-    }
-
     private var folder: URL!
 
-    /// The history test's world, named as the history suites name theirs so
+    /// The history tests' world, named as the history suites name theirs so
     /// whichever runs last clears it (Store.world is fixed for the process).
     override class func setUp() {
         setenv("EDEN_PROBE", "history-cloud-\(getpid())", 1)
@@ -108,19 +36,21 @@ final class CloudSyncTests: XCTestCase {
         try? FileManager.default.removeItem(at: folder)
     }
 
+    // MARK: - travelling
+
     func testWhatOneDeviceHasReachesTheOther() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "Article"], folder: folder)
         let phone = Device("phone", server: server, folder: folder)
         await mac.pass(at: 1000)
-        XCTAssertEqual(server.records["app/bm:1"]?.entry.v, "Article")
+        XCTAssertEqual(server.value("app/bm:1"), "Article")
         await phone.pass(at: 1001)
         XCTAssertEqual(phone.items, ["bm:1": "Article"])
         XCTAssertEqual(mac.sync.status, .synced(Date(timeIntervalSince1970: 1000)))
     }
 
     func testAChangeAndADeletionTravel() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "One", "bm:2": "Two"], folder: folder)
         let phone = Device("phone", server: server, folder: folder)
         await mac.pass(at: 1000)
@@ -130,25 +60,26 @@ final class CloudSyncTests: XCTestCase {
         await phone.pass(at: 1002)
         await mac.pass(at: 1003)
         XCTAssertEqual(mac.items, ["bm:1": "One, renamed"])
-        XCTAssertNil(server.records["app/bm:2"]?.entry.v, "a tombstone on the server")
+        XCTAssertNotNil(server.records["app/bm:2"], "a tombstone on the server")
+        XCTAssertNil(server.value("app/bm:2"))
     }
 
     func testADeviceCarriesWhatItDoesntUnderstand() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["pin:a": "Mail", "bm:1": "Article"], folder: folder)
-        // An iPhone with no pins of its own yet.
+        // An iPhone with no pins of its own.
         let phone = Device("phone", server: server, folder: folder) { !$0.hasPrefix("pin:") }
         await mac.pass(at: 1000)
         await phone.pass(at: 1001)
         XCTAssertEqual(phone.items, ["bm:1": "Article"], "the phone keeps only what it knows")
         await phone.pass(at: 1002)
-        XCTAssertEqual(server.records["app/pin:a"]?.entry.v, "Mail", "and never deletes the rest")
+        XCTAssertEqual(server.value("app/pin:a"), "Mail", "and never deletes the rest")
         await mac.pass(at: 1003)
         XCTAssertEqual(mac.items["pin:a"], "Mail")
     }
 
     func testANewcomerJoinsAndTheServerWinsWhereBothHaveOne() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["set:search.engine": "\"kagi\""], folder: folder)
         await mac.pass(at: 1000)
         let phone = Device("phone", server: server, items: ["set:search.engine": "\"google\"", "bm:9": "Mine"],
@@ -161,7 +92,7 @@ final class CloudSyncTests: XCTestCase {
     }
 
     func testTheSameEditOnTwoDevicesEndsTheSameEverywhere() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
         let phone = Device("phone", server: server, folder: folder)
         await mac.pass(at: 1000)
@@ -176,44 +107,58 @@ final class CloudSyncTests: XCTestCase {
         XCTAssertEqual(mac.items["bm:1"], "From the phone", "the later edit wins")
     }
 
-    func testAnOldDeletionIsForgottenByTheDevicesButNeverTakenOffTheServer() async {
-        let server = Server()
+    func testAnEditWaitingHereGivesWayToANewerOneFetched() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        let phone = Device("phone", server: server, folder: folder)
+        await mac.pass(at: 1000)
+        await phone.pass(at: 1001)
+        // The Mac's edit can't be sent; the phone's, made later, can.
+        mac.items["bm:1"] = "Mac, earlier"
+        server.savesBeforeFailing = 0
+        await mac.pass(at: 2000)
+        server.savesBeforeFailing = nil
+        phone.items["bm:1"] = "Phone, later"
+        await phone.pass(at: 3000)
+        await mac.pass(at: 3500)
+        XCTAssertEqual(server.value("app/bm:1"), "Phone, later", "the older edit isn't sent over the newer one")
+        XCTAssertEqual(mac.items["bm:1"], "Phone, later")
+    }
+
+    func testASaveOverAVersionNotYetSeenIsSettledByTheMerge() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        await mac.pass(at: 1000)
+        mac.items["bm:1"] = "Mac, newest"
+        // Another device saves between the Mac's fetch and its save, with an
+        // older stamp: the Mac's save is refused, and its edit, still the
+        // newer, goes again over the new tag.
+        server.duringSave = {
+            _ = server.save("app/bm:1", SyncEntry(v: "Elsewhere, older", t: 1500, d: "pad"),
+                            over: server.item("app/bm:1")?.tag)
+        }
+        await mac.pass(at: 2000)
+        XCTAssertEqual(server.value("app/bm:1"), "Mac, newest")
+        XCTAssertEqual(mac.items["bm:1"], "Mac, newest")
+    }
+
+    func testAnOldDeletionIsForgottenButNeverTakenOffTheServer() async {
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
         await mac.pass(at: 1000)
         mac.items = [:]
         await mac.pass(at: 1001)
         let later = 1001 + SyncMerge.tombstoneLife + 10
         await mac.pass(at: later)
-        XCTAssertNil(server.records["app/bm:1"]?.entry.v, "still a tombstone: taking it off could take off a restore")
+        XCTAssertNotNil(server.records["app/bm:1"], "still a tombstone: taking it off could take off a restore")
         let phone = Device("phone", server: server, items: ["bm:1": "Brought back"], folder: folder)
         await phone.pass(at: later + 1)
         await mac.pass(at: later + 2)
-        XCTAssertEqual(mac.items["bm:1"], "Brought back")
-    }
-
-    func testAProblemIsSaidAndNothingChanges() async {
-        let server = Server()
-        server.problem = .noAccount
-        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
-        await mac.pass(at: 1000)
-        XCTAssertEqual(mac.sync.status, .problem(.noAccount))
-        XCTAssertTrue(server.records.isEmpty)
-        XCTAssertEqual(CloudProblem.noAccount.sentence, "Sign in to iCloud to sync")
-    }
-
-    func testAForgottenTokenFetchesEverythingAgain() async {
-        let server = Server()
-        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
-        let phone = Device("phone", server: server, folder: folder)
-        await mac.pass(at: 1000)
-        await phone.pass(at: 1001)
-        server.forgetsTokens = true
-        await phone.pass(at: 1002)
-        XCTAssertEqual(phone.items, ["bm:1": "A"])
+        XCTAssertEqual(mac.items["bm:1"], "Brought back", "a year-old deletion beats nothing a newcomer brings")
     }
 
     func testNothingIsSavedWhenNothingChanged() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
         await mac.pass(at: 1000)
         let saves = server.saves
@@ -222,8 +167,61 @@ final class CloudSyncTests: XCTestCase {
         XCTAssertEqual(server.saves, saves)
     }
 
-    func testAFailedSaveChangesNothingHereAndARestoreElsewhereSurvives() async {
-        let server = Server()
+    func testAForgottenTokenFetchesEverythingAgain() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        let phone = Device("phone", server: server, folder: folder)
+        await mac.pass(at: 1000)
+        await phone.pass(at: 1001)
+        phone.transport.token = 0
+        await phone.pass(at: 1002)
+        XCTAssertEqual(phone.items, ["bm:1": "A"])
+    }
+
+    // MARK: - the first sync
+
+    func testNothingIsAppliedOrSentBeforeTheFirstFetch() async {
+        let server = SimulatedServer()
+        let phone = Device("phone", server: server, items: ["bm:1": "Mine"], folder: folder)
+        server.refusal = .unavailable("offline")
+        await phone.pass(at: 1000)
+        XCTAssertEqual(phone.sync.status, .problem(.unavailable("offline")))
+        XCTAssertTrue(server.records.isEmpty)
+        XCTAssertEqual(phone.items, ["bm:1": "Mine"])
+        XCTAssertEqual(phone.sync.status, .problem(.unavailable("offline")))
+        server.refusal = nil
+        await phone.pass(at: 1001)
+        XCTAssertEqual(server.value("app/bm:1"), "Mine")
+    }
+
+    func testAProblemIsSaid() {
+        XCTAssertEqual(CloudProblem.noAccount.sentence, "Sign in to iCloud to sync")
+    }
+
+    func testWhatADeviceAgreedBeforeCKSyncEngineCarriesOn() async throws {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "Kept", "bm:2": "Deleted later"], folder: folder)
+        await mac.pass(at: 1000)
+        // The phone synced with the sync before: it agreed both, then deleted one.
+        struct Legacy: Encodable {
+            var account: String
+            var token: Data?
+            var server: [String: SyncEntry] = [:]
+            var bases: [String: [String: SyncEntry]]
+        }
+        let base = ["bm:1": SyncEntry(v: "Kept", t: 1000, d: "mac"), "bm:2": SyncEntry(v: "Deleted later", t: 1000, d: "mac")]
+        let legacy = folder.appendingPathComponent("legacy.json")
+        try JSONEncoder().encode(Legacy(account: "someone", token: nil, bases: ["app": base])).write(to: legacy)
+        let phone = Device("phone", server: server, items: ["bm:1": "Kept"], folder: folder, legacy: legacy)
+        await phone.pass(at: 2000)
+        XCTAssertNil(server.value("app/bm:2"), "the deletion travels, rather than the item coming back")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    // MARK: - saves that fail or race
+
+    func testARestoreElsewhereSurvivesASaveThatFailed() async {
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "Article"], folder: folder)
         let phone = Device("phone", server: server, folder: folder)
         await mac.pass(at: 1000)
@@ -233,44 +231,52 @@ final class CloudSyncTests: XCTestCase {
 
         // The Mac hears of the deletion, but can't save its own new bookmark.
         mac.items["bm:2"] = "New"
-        server.failsSaves = true
+        server.savesBeforeFailing = 0
         await mac.pass(at: 1003)
         XCTAssertEqual(mac.sync.status, .problem(.unavailable("offline")))
-        XCTAssertEqual(mac.items["bm:1"], "Article", "nothing applied while the server said no")
+        XCTAssertNil(mac.items["bm:1"], "the deletion fetched is applied")
 
         // Then the phone brings it back.
-        server.failsSaves = false
+        server.savesBeforeFailing = nil
         phone.items["bm:1"] = "Article, again"
         await phone.pass(at: 1004)
         await mac.pass(at: 1005)
         XCTAssertEqual(mac.items["bm:1"], "Article, again", "the restore is not deleted by the retry")
-        XCTAssertEqual(server.records["app/bm:1"]?.entry.v, "Article, again")
-        XCTAssertEqual(server.records["app/bm:2"]?.entry.v, "New")
+        XCTAssertEqual(server.value("app/bm:1"), "Article, again")
+        XCTAssertEqual(server.value("app/bm:2"), "New")
     }
 
-    func testAChangeMadeWhileSavingIsKeptAndSyncedInTheSamePass() async {
-        let server = Server()
-        let mac = Device("mac", server: server, items: ["bm:1": "One"], folder: folder)
-        server.duringSave = { mac.items["bm:2"] = "Two, added while saving" }
+    func testAnEditAfterASaveThatFailedPartWayWins() async {
+        let server = SimulatedServer()
+        var many: [String: String] = [:]
+        for index in 0..<401 { many["bm:\(index)"] = "Before" }
+        let mac = Device("mac", server: server, items: many, folder: folder)
+        server.savesBeforeFailing = 200
         await mac.pass(at: 1000)
-        XCTAssertEqual(mac.items["bm:2"], "Two, added while saving", "not undone by the pass")
-        XCTAssertEqual(server.records["app/bm:2"]?.entry.v, "Two, added while saving")
+        XCTAssertEqual(mac.sync.status, .problem(.unavailable("offline")))
+        server.savesBeforeFailing = nil
+        for key in many.keys { mac.items[key] = "After" }
+        await mac.pass(at: 1001)
+        XCTAssertEqual(Set(mac.items.values), ["After"])
+        XCTAssertEqual(server.records.count, 401)
+        XCTAssertEqual(Set(server.records.values.map(\.entry.v)), ["After"])
     }
 
     func testAnEditOrADeletionDuringTheFirstSaveWins() async {
         for edit in ["After", nil] as [String?] {
-            let server = Server()
+            let server = SimulatedServer()
             let mac = Device("mac", server: server, items: ["bm:1": "Before"], folder: folder)
             server.duringSave = { mac.items["bm:1"] = edit }
             await mac.pass(at: 1000)
             XCTAssertEqual(mac.items["bm:1"], edit, "not undone by the pass")
-            XCTAssertEqual(server.records["app/bm:1"]?.entry.v, edit, "and on the server by the pass that follows")
-            mac.sync.forget()
+            await mac.pass(at: 1001)
+            XCTAssertEqual(server.value("app/bm:1"), edit, "and on the server by the pass that follows")
+            mac.sync.stop(forgetting: true)
         }
     }
 
     func testARemoteChangeArrivesThoughTheAppChangedDuringTheSave() async {
-        let server = Server()
+        let server = SimulatedServer()
         let phone = Device("phone", server: server, items: ["bm:1": "From the phone", "bm:2": "Gone soon"], folder: folder)
         await phone.pass(at: 1000)
         let mac = Device("mac", server: server, items: ["bm:3": "Mac's"], folder: folder)
@@ -281,59 +287,212 @@ final class CloudSyncTests: XCTestCase {
         mac.items["bm:4"] = "Another"
         server.duringSave = { mac.items["bm:3"] = "Mac's, renamed while saving" }
         await mac.pass(at: 1003)
+        await mac.pass(at: 1004)
         XCTAssertEqual(mac.items, ["bm:1": "Renamed on the phone", "bm:3": "Mac's, renamed while saving", "bm:4": "Another"])
+        XCTAssertEqual(server.value("app/bm:3"), "Mac's, renamed while saving")
     }
 
-    func testTurnedOffDuringASaveTheServerIsLeftAlone() async {
-        let server = Server()
-        var many: [String: String] = [:]
-        for index in 0..<(CloudSync.batch + 1) { many["bm:\(index)"] = "Site \(index)" }
-        let mac = Device("mac", server: server, items: many, folder: folder)
-        server.duringSave = { mac.sync.forget() }
+    func testWhatAScopeSaysWhileTakingItInIsNotAnEdit() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        let phone = Device("phone", server: server, folder: folder)
         await mac.pass(at: 1000)
-        XCTAssertEqual(server.saves, 1, "no batch after the one under way")
+        phone.whileApplying = { phone.sync.localChange() }
+        await phone.pass(at: 1001)
+        let saves = server.saves
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertEqual(server.saves, saves, "the echo of what it was given sends nothing")
+    }
+
+    func testASaveThatFailedGoesAgainAtTheNextRefresh() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        server.savesBeforeFailing = 0
+        await mac.pass(at: 1000)
+        XCTAssertNil(server.value("app/bm:1"))
+        XCTAssertTrue(mac.transport.pending.isEmpty, "the engine let it go")
+        server.savesBeforeFailing = nil
+        await mac.pass(at: 1001)
+        XCTAssertEqual(server.value("app/bm:1"), "A", "nothing changed here, and it went anyway")
+    }
+
+    func testACrashWhileTakingInADeletionIsFinishedNotTakenForAnEdit() async throws {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "Article", "bm:2": "Other"], folder: folder)
+        let phone = Device("phone", server: server, folder: folder)
+        await mac.pass(at: 1000)
+        await phone.pass(at: 1001)
+        phone.items["bm:1"] = nil
+        await phone.pass(at: 1002)
+
+        // The Mac takes the deletion in; its stores reach disk, then it stops
+        // before its replica does: the replica as it was on disk mid-way.
+        let file = folder.appendingPathComponent("mac.json")
+        let crashed = folder.appendingPathComponent("crashed.json")
+        mac.whileApplying = { try? FileManager.default.copyItem(at: file, to: crashed) }
+        await mac.pass(at: 1003)
+        mac.sync.stop(forgetting: false)
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.moveItem(at: crashed, to: file)
+
+        // Meanwhile the phone brings it back.
+        phone.items["bm:1"] = "Article, again"
+        await phone.pass(at: 1004)
+        let restarted = Device("mac", server: server, items: mac.items, folder: folder)
+        await restarted.pass(at: 1005)
+        XCTAssertEqual(server.value("app/bm:1"), "Article, again", "no deletion stamped on the way back")
+        XCTAssertEqual(restarted.items["bm:1"], "Article, again")
+    }
+
+    func testARecordThisBuildCantReadIsNeverOverwritten() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        await mac.pass(at: 1000)
+        await mac.pass(at: 1001)
+        let saves = server.saves
+        // A newer Eden's version of it arrives, which this build can't read.
+        mac.transport.delegate?.transport(.unreadable(["app/bm:1"]))
+        mac.items["bm:1"] = "Edited here"
+        await mac.pass(at: 1002)
+        XCTAssertEqual(server.saves, saves, "left as the newer Eden wrote it")
+    }
+
+    func testAZoneGoneWhileRunningIsAskedAboutBeforeBeingMadeAgain() async throws {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        await mac.pass(at: 1000)
+        var told: CloudProblem?
+        mac.sync.stoppedItself = { told = $0 }
+        let made = mac.transport.zonesMade
+        server.zoneErased = true
+        mac.transport.delegate?.transport(.zoneMissing(["app/bm:1"]))
+        for _ in 0..<100 where told == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(told, .erased, "deleted from iCloud: sync turns off")
+        XCTAssertEqual(mac.transport.zonesMade, made, "and the zone isn't made again")
+    }
+
+    func testAZoneIsNeverMadeAgainWithoutAFetchThatSaysItWasntDeleted() async throws {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        await mac.pass(at: 1000)
+        let made = mac.transport.zonesMade
+        server.refusal = .unavailable("offline")
+        mac.transport.delegate?.transport(.zoneMissing(["app/bm:1"]))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(mac.transport.zonesMade, made, "the fetch failed: nothing is made")
+        server.refusal = nil
+        await mac.pass(at: 1001)
+        XCTAssertEqual(mac.transport.zonesMade, made + 1, "a fetch that says nothing of a deletion: made again")
+    }
+
+    func testAStoreThatCantBeWrittenHaltsSyncAndIsFinishedNextTime() async throws {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "Article", "bm:2": "Other"], folder: folder)
+        let phone = Device("phone", server: server, folder: folder)
+        await mac.pass(at: 1000)
+        await phone.pass(at: 1001)
+        phone.items["bm:1"] = nil
+        await phone.pass(at: 1002)
+
+        // The Mac's bookmarks file can't be written as it takes the deletion in.
+        let locked = folder.appendingPathComponent("stores", isDirectory: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        mac.store = locked.appendingPathComponent("bookmarks.json")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        await mac.pass(at: 1003)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        XCTAssertEqual(mac.sync.status, .problem(.unwritable))
+        let saves = server.saves
+        mac.items["bm:2"] = "Edited after"
+        await mac.pass(at: 1004)
+        XCTAssertEqual(server.saves, saves, "nothing more is sent this time")
+
+        // Opened again, with its bookmarks as they reached disk: the deletion
+        // never did, the edit made after the halt, once the disk was back, did.
+        mac.sync.stop(forgetting: false)
+        let reopened = Device("mac", server: server, items: ["bm:1": "Article", "bm:2": "Edited after", "bm:3": "Added after"],
+                              folder: folder)
+        await reopened.pass(at: 2000)
+        XCTAssertNil(reopened.items["bm:1"], "the deletion it was taking in is finished")
+        XCTAssertEqual(server.records["app/bm:1"]?.entry.d, "phone", "with no new deletion of its own")
+        XCTAssertEqual(reopened.items["bm:2"], "Edited after", "an edit saved since is kept")
+        XCTAssertEqual(server.value("app/bm:2"), "Edited after", "and synced")
+        XCTAssertEqual(server.value("app/bm:3"), "Added after")
+    }
+
+    func testNothingIsSentThatIsntOnDiskFirst() async throws {
+        let server = SimulatedServer()
+        let place = folder.appendingPathComponent("locked", isDirectory: true)
+        try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: place)
+        await mac.pass(at: 1000)
+        let saves = server.saves
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: place.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: place.path) }
+        mac.items["bm:1"] = nil
+        await mac.pass(at: 1001)
+        XCTAssertEqual(server.saves, saves, "the deletion's stamp couldn't be kept, so it didn't go")
+        if case .problem = mac.sync.status {} else { XCTFail("and the problem is said") }
+    }
+
+    // MARK: - stopping
+
+    func testTurnedOffDuringASaveTheServerIsLeftAlone() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A", "bm:2": "B", "bm:3": "C"], folder: folder)
+        server.duringSave = { mac.sync.stop(forgetting: true) }
+        await mac.pass(at: 1000)
+        XCTAssertEqual(server.saves, 0, "nothing after it was turned off")
         XCTAssertEqual(mac.sync.status, .idle)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("mac.json").path))
     }
 
     func testAPassAskedForAfterTurningOffDoesNothing() async {
-        let server = Server()
+        let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
-        mac.sync.forget()
+        mac.sync.stop(forgetting: true)
         await mac.pass(at: 1000)
         XCTAssertTrue(server.records.isEmpty)
         XCTAssertEqual(mac.sync.status, .idle)
     }
 
-    func testAnEditAfterASaveThatFailedPartWayWins() async {
-        let server = Server()
-        var many: [String: String] = [:]
-        for index in 0..<(CloudSync.batch + 1) { many["bm:\(index)"] = "Before" }
-        let mac = Device("mac", server: server, items: many, folder: folder)
-        server.failsSaves = true
-        server.savesBeforeFailing = 1
+    func testDataErasedFromICloudTurnsSyncOff() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
         await mac.pass(at: 1000)
-        XCTAssertEqual(mac.sync.status, .problem(.unavailable("offline")))
-        server.failsSaves = false
-        for key in many.keys { mac.items[key] = "After" }
-        await mac.pass(at: 1001)
-        XCTAssertEqual(Set(mac.items.values), ["After"])
-        XCTAssertEqual(Set(server.records.values.map(\.entry.v)), ["After"])
+        var told: CloudProblem?
+        mac.sync.stoppedItself = { told = $0 }
+        mac.transport.delegate?.transport(.zoneLost(.erased))
+        XCTAssertEqual(told, .erased)
+        XCTAssertEqual(mac.sync.status, .problem(.erased))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("mac.json").path))
+        XCTAssertEqual(mac.items, ["bm:1": "A"], "what is in the browser stays")
+    }
+
+    func testAnEncryptionResetPutsThisDevicesItemsBack() async throws {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        await mac.pass(at: 1000)
+        server.records = [:]
+        mac.transport.delegate?.transport(.zoneLost(.encryptionReset))
+        for _ in 0..<100 where server.value("app/bm:1") == nil { try await Task.sleep(nanoseconds: 10_000_000) }
+        XCTAssertEqual(server.value("app/bm:1"), "A")
     }
 
     func testAnotherAppleAccountStartsAfreshAndGetsNothingOfTheFirst() async {
-        let first = Server()
+        let first = SimulatedServer()
         let phone = Device("phone", server: first, items: [SyncItems.tabsKey("phone"): "{}"], folder: folder)
         await phone.pass(at: 1000)
         let mac = Device("mac", server: first, items: ["bm:1": "Mine"], folder: folder) { !$0.hasPrefix("tabs:") }
         await mac.pass(at: 1001)
-        Disk.drain()
+        mac.sync.stop(forgetting: false)
 
-        let second = Server()
+        let second = SimulatedServer()
         second.account = "someone else"
         let again = Device("mac", server: second, items: mac.items, folder: folder) { !$0.hasPrefix("tabs:") }
         await again.pass(at: 2000)
         XCTAssertNil(second.records["app/" + SyncItems.tabsKey("phone")], "the first account's phone stays there")
-        XCTAssertEqual(second.records["app/bm:1"]?.entry.v, "Mine", "this Mac's own things join the new one")
+        XCTAssertEqual(second.value("app/bm:1"), "Mine", "this Mac's own things join the new one")
     }
 
     // MARK: - open tabs

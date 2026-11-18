@@ -3,11 +3,13 @@ import AppKit
 import Combine
 import SwiftUI
 import SystemConfiguration
+import os
 
 // Sync with your other devices through iCloud: Eden on your Macs, iPhone
-// and iPad, in your own private CloudKit database (CloudSync and
-// CloudKitStore, in EdenCore, which the iOS app shares). No server of ours,
-// no account but your Apple Account.
+// and iPad, in your own private CloudKit database. The engine is EdenCore's
+// (CloudSync over Apple's CKSyncEngine, shared with the iOS app); this file
+// is the Mac's side of it: its kinds of data as scopes, when they changed,
+// and the switch.
 //
 // On unless turned off (Settings › General › Sync with iCloud), on a build
 // signed with iCloud: build.sh embeds the provisioning profile that grants
@@ -16,22 +18,25 @@ import SystemConfiguration
 // your Mac's Eden: its iCloud is not its to change.
 //
 // The scopes, each merged on its own (SyncMerge for the rules):
-//   "app": the settings listed in SyncSettings, and each device's open tabs,
-//     one item per device (DeviceTabs), written by that device alone — here
-//     the ordinary tabs of the Personal profile's windows, never a shy
-//     (private) tab, a pop-up's, one the bench drives, or a page that isn't
-//     on the web.
-//   "profile-<id>": a profile's spaces (name, colour, icon, order, whether it
-//     has sign-ins of its own — never the sign-ins themselves, its cookies,
-//     tabs or downloads folder), pins, bookmarks and history. Personal is
-//     the same profile on every device; the iPhone and iPad have only it.
+//   "app" (AppScope): the settings listed in SyncSettings, and each
+//     device's open tabs, one item per device (DeviceTabs), written by that
+//     device alone — here the ordinary tabs of the Personal profile's
+//     windows, never a shy (private) tab, a pop-up's, one the bench drives,
+//     or a page that isn't on the web.
+//   "profile-<id>" (ProfileScope): a profile's spaces (name, colour, icon,
+//     order, whether it has sign-ins of its own — never the sign-ins
+//     themselves, its cookies, tabs or downloads folder), pins, bookmarks
+//     and history. Personal is the same profile on every device; the iPhone
+//     and iPad have only it.
 // What never syncs: passwords, cookies and site data, tab groups, private
 // windows, extensions, the downloads folder, window sizes.
 //
-// A pass runs a moment after anything synced changes here, when another
-// device changes something (a silent push, Links), when Eden comes forward
-// or goes back, and every two minutes. With nothing new, a pass is one small
-// request to iCloud.
+// When: CKSyncEngine sends what changed here and fetches what changed
+// elsewhere on its own schedule (with a push from iCloud when another
+// device saves). Eden adds a capture a moment after anything synced
+// changes here — spaces, pins, bookmarks, settings, history, a window's
+// tabs — and a fetch when it comes forward and every five minutes while it
+// is in front.
 
 enum SyncSettings {
     struct Setting {
@@ -100,13 +105,19 @@ final class Sync: ObservableObject {
 
     /// Whether sync is on: the switch, on unless turned off.
     @Published private(set) var on: Bool
-    /// Where the last pass got to, for Settings.
+    /// Where sync is, for Settings.
     @Published private(set) var status: CloudSync.Status = .idle
     /// Your other devices' open tabs, newest first, for the History menu.
     @Published private(set) var otherTabs: [DeviceTabs] = []
 
     nonisolated static let onKey = "sync.icloud"
     nonisolated static let deviceKey = "sync.device"
+    /// What sync does, for Console (subsystem com.subhajit.eden.beta,
+    /// category Sync): never an item's contents.
+    nonisolated static let log = Logger(subsystem: "com.subhajit.eden.beta", category: "Sync")
+    /// Posted when a window's tabs were written down (Browser.writeRow):
+    /// this Mac's open tabs, to capture.
+    nonisolated static let tabsChanged = Notification.Name("EdenSyncTabsChanged")
 
     /// This Mac's id in iCloud: made once, kept with the settings.
     let device: String = {
@@ -116,13 +127,12 @@ final class Sync: ObservableObject {
         return made
     }()
 
-    private var engine: CloudSync?
+    private var cloud: CloudSync?
+    private lazy var appScope = AppScope(sync: self)
+    private var profileScopes: [UUID: ProfileScope] = [:]
     private var bag: Set<AnyCancellable> = []
     private var historyBag: [UUID: AnyCancellable] = [:]
     private var timer: Timer?
-    private var pending: DispatchWorkItem?
-    /// The pass under way, cancelled when sync is turned off.
-    private var passing: Task<Void, Never>?
 
     private init() {
         on = Store.settings.object(forKey: Sync.onKey) as? Bool ?? true
@@ -130,13 +140,15 @@ final class Sync: ObservableObject {
 
     /// Whether this Eden may sync at all: signed with iCloud, and not a test
     /// world's.
-    static var possible: Bool { !Store.testing && CloudKitStore.entitled }
+    static var possible: Bool { !Store.testing && CloudKitTransport.entitled }
+
+    nonisolated static func scope(_ profile: UUID) -> String { "profile-" + profile.uuidString }
 
     // MARK: - on and off
 
     /// At launch: carries on if it is on.
     func start() {
-        guard on, engine == nil else { return }
+        guard on, cloud == nil else { return }
         begin()
     }
 
@@ -151,11 +163,9 @@ final class Sync: ObservableObject {
     /// one. What is in the browser stays as it is; what is in iCloud stays
     /// for your other devices.
     func turnOff() {
-        stop()
-        passing?.cancel()
-        passing = nil
-        engine?.forget()
-        engine = nil
+        end()
+        cloud?.stop(forgetting: true)
+        cloud = nil
         Store.settings.set(false, forKey: Sync.onKey)
         on = false
         status = .idle
@@ -163,98 +173,95 @@ final class Sync: ObservableObject {
     }
 
     private func begin() {
+        guard cloud == nil else { return }
         guard Sync.possible else {
             status = Store.testing ? .idle : .problem(.notEntitled)
             return
         }
-        if engine == nil {
-            let made = CloudSync(store: CloudKitStore(), device: device, file: Store.file("cloud-sync.json"))
-            made.changed = { [weak self] status in self?.status = status }
-            engine = made
+        let made = CloudSync(transport: CloudKitTransport(), device: device, file: Store.file("cloud-replica.json"),
+                             legacyFile: Store.file("cloud-sync.json"))
+        made.changed = { [weak self] status in
+            self?.status = status
+            switch status {
+            case .synced: Sync.log.info("synced")
+            case .problem(let problem): Sync.log.error("sync failed: \(problem.sentence, privacy: .public)")
+            default: break
+            }
         }
-        let poke: (Notification) -> Void = { [weak self] _ in self?.schedule() }
-        for name in [Spaces.changed, Pins.changed, Bookmarks.saved, NSApplication.didBecomeActiveNotification,
-                     NSApplication.didResignActiveNotification] {
-            NotificationCenter.default.publisher(for: name).sink(receiveValue: poke).store(in: &bag)
+        made.stoppedItself = { [weak self] problem in self?.stopped(by: problem) }
+        cloud = made
+        scopesChanged()
+
+        let changed: (Notification) -> Void = { [weak self] _ in self?.cloud?.localChange() }
+        for name in [Spaces.changed, Pins.changed, Bookmarks.saved, Sync.tabsChanged] {
+            NotificationCenter.default.publisher(for: name).sink(receiveValue: changed).store(in: &bag)
         }
-        Shared.prefs.objectWillChange.sink { [weak self] in self?.schedule() }.store(in: &bag)
-        Profiles.shared.$list.sink { [weak self] _ in self?.schedule() }.store(in: &bag)
-        timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.schedule(after: 0) }
+        // Said before the change: CloudSync captures a moment later.
+        Shared.prefs.objectWillChange.sink { [weak self] in self?.cloud?.localChange() }.store(in: &bag)
+        Profiles.shared.$list.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.scopesChanged() } }
+        }.store(in: &bag)
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in self?.refresh() }.store(in: &bag)
+        timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { if NSApp.isActive { self?.refresh() } }
         }
-        // Another device's change arrives as a silent push (Links).
+        // iCloud's push when another device changes something (Links, and
+        // CKSyncEngine itself).
         NSApp.registerForRemoteNotifications()
-        schedule(after: 1)
+        Task { await made.start() }
     }
 
-    private func stop() {
+    private func end() {
         bag.removeAll()
         historyBag.removeAll()
         timer?.invalidate()
         timer = nil
-        pending?.cancel()
-        pending = nil
     }
 
-    /// A pass a moment from now; anything else that changes meanwhile joins it.
-    func schedule(after delay: TimeInterval = 3) {
-        guard on, engine != nil else { return }
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.pass() } }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    /// Eden's data deleted from iCloud: the switch turns off, and Settings says why.
+    private func stopped(by problem: CloudProblem) {
+        end()
+        cloud = nil
+        Store.settings.set(false, forKey: Sync.onKey)
+        on = false
+        otherTabs = []
+        status = .problem(problem)
     }
 
-    nonisolated static func scope(_ profile: UUID) -> String { "profile-" + profile.uuidString }
+    /// What changed elsewhere, fetched now.
+    func refresh() {
+        guard let cloud else { return }
+        Task { await cloud.refresh() }
+    }
 
-    // MARK: - a pass
+    /// iCloud's push said another device changed something.
+    func pushArrived() {
+        Sync.log.info("push arrived")
+        refresh()
+    }
 
-    func pass() {
-        guard on, let engine else { return }
-        pending = nil
+    /// The scopes, again: a profile made or deleted.
+    private func scopesChanged() {
         let profiles = Profiles.shared.list
-        // A history still being read would look empty, and what the other
-        // devices have would then look deleted here: the pass waits for it.
-        let histories = profiles.map { Profiles.history($0.id) }
-        guard histories.allSatisfy(\.isLoaded) else { return schedule(after: 1) }
-        for (profile, history) in zip(profiles, histories) where historyBag[profile.id] == nil {
-            historyBag[profile.id] = history.recentChanges.sink { [weak self] in self?.schedule() }
+        var scopes: [SyncScope] = [appScope]
+        for profile in profiles {
+            let scope = profileScopes[profile.id] ?? ProfileScope(profile: profile)
+            profileScopes[profile.id] = scope
+            scopes.append(scope)
+            if historyBag[profile.id] == nil {
+                historyBag[profile.id] = scope.history.recentChanges.sink { [weak self] in self?.cloud?.localChange() }
+            }
         }
-        var scopes = [appScope()]
-        for (profile, history) in zip(profiles, histories) {
-            scopes.append(CloudScope(name: Sync.scope(profile.id), current: { agreed in
-                var items = Sync.items(of: profile.id, base: agreed)
-                items.merge(history.syncItems()) { mine, _ in mine }
-                return items
-            }, apply: { live in
-                Sync.apply(live, to: profile)
-                history.applySynced(live)
-            }, understood: { key, text in
-                SyncItems.understood(key, text) || history.understands(key)
-            }))
+        for gone in Set(profileScopes.keys).subtracting(profiles.map(\.id)) {
+            profileScopes[gone] = nil
+            historyBag[gone] = nil
         }
-        passing = Task {
-            guard !Task.isCancelled else { return }
-            await engine.pass(scopes)
-        }
+        cloud?.scopes = scopes
     }
 
-    /// The settings, and every device's open tabs: only this Mac's own are
-    /// this Mac's to change or delete.
-    private func appScope() -> CloudScope {
-        let prefs = Shared.prefs
-        let device = device
-        let own = SyncItems.tabsKey(device)
-        return CloudScope(name: "app", current: { agreed in
-            var items = SyncSettings.items(prefs)
-            items.merge(SyncItems.tabs(Sync.openTabs(device: device, agreed: agreed[own]))) { mine, _ in mine }
-            return items
-        }, apply: { [weak self] live in
-            SyncSettings.apply(live, to: prefs)
-            self?.otherTabs = SyncItems.otherTabs(live, except: device, now: Date().timeIntervalSince1970)
-        }, understood: { key, text in
-            SyncItems.understood(key, text) || key == own
-        })
+    fileprivate func showOtherTabs(_ tabs: [DeviceTabs]) {
+        if tabs != otherTabs { otherTabs = tabs }
     }
 
     /// The tabs last offered, and when they were first: asked twice in a
@@ -354,6 +361,79 @@ final class Sync: ObservableObject {
             return "Synced \(ago)"
         case .problem(let problem): return problem.sentence
         }
+    }
+}
+
+/// The settings that sync, and every device's open tabs: only this Mac's
+/// own are this Mac's to change or delete.
+@MainActor
+private final class AppScope: SyncScope {
+    let name = "app"
+    var isReady: Bool { true }
+    private unowned let sync: Sync
+    private var own: String { SyncItems.tabsKey(sync.device) }
+
+    init(sync: Sync) {
+        self.sync = sync
+    }
+
+    func snapshot(agreed: [String: String]) -> [String: String] {
+        var items = SyncSettings.items(Shared.prefs)
+        items.merge(SyncItems.tabs(Sync.openTabs(device: sync.device, agreed: agreed[own]))) { mine, _ in mine }
+        return items
+    }
+
+    func owns(_ key: String, _ text: String) -> Bool {
+        SyncItems.understood(key, text) || key == own
+    }
+
+    func apply(_ live: [String: String]) {
+        SyncSettings.apply(live, to: Shared.prefs)
+    }
+
+    func settled(_ live: [String: String]) {
+        sync.showOtherTabs(SyncItems.otherTabs(live, except: sync.device, now: Date().timeIntervalSince1970))
+    }
+
+    /// The preferences are written as they are set.
+    func persist() {}
+}
+
+/// A profile's spaces, pins, bookmarks and history.
+@MainActor
+private final class ProfileScope: SyncScope {
+    let profile: Profile
+    let history: History
+    let name: String
+
+    init(profile: Profile) {
+        self.profile = profile
+        history = Profiles.history(profile.id)
+        name = Sync.scope(profile.id)
+    }
+
+    /// A history still reading its file would look empty, and what the
+    /// other devices have would then look deleted here.
+    var isReady: Bool { history.isLoaded }
+
+    func snapshot(agreed: [String: String]) -> [String: String] {
+        var items = Sync.items(of: profile.id, base: agreed)
+        items.merge(history.syncItems()) { mine, _ in mine }
+        return items
+    }
+
+    func owns(_ key: String, _ text: String) -> Bool {
+        SyncItems.understood(key, text) || history.understands(key)
+    }
+
+    func apply(_ live: [String: String]) {
+        Sync.apply(live, to: profile)
+        history.applySynced(live)
+    }
+
+    func persist() {
+        history.flush()
+        Disk.drain()
     }
 }
 

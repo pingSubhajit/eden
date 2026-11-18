@@ -191,9 +191,19 @@ final class Links: NSObject, NSApplicationDelegate {
     }
 
     /// Another device changed something in iCloud: CloudKit's silent push,
-    /// and a pass soon (see Sync.swift).
+    /// and a fetch (see Sync.swift).
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
-        MainActor.assumeIsolated { Sync.shared.schedule(after: 0.5) }
+        MainActor.assumeIsolated { Sync.shared.pushArrived() }
+    }
+
+    /// Registered for CloudKit's pushes (Sync.begin), or not: said in the log,
+    /// as nothing else shows it.
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Sync.log.info("registered for pushes (\(deviceToken.count, privacy: .public)-byte token)")
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        Sync.log.error("couldn't register for pushes: \(error.localizedDescription, privacy: .public)")
     }
 
     /// A page handed over from another device with Handoff (see

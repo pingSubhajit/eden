@@ -102,11 +102,14 @@ public enum SyncMerge {
     /// build can read: only those can be found missing and deleted.
     /// `joining`: this device's first pass where others already sync — its
     /// items are stamped 0, so theirs win where both have one.
+    /// `seen`: the latest stamp this device has seen elsewhere (the server's
+    /// items, its own edits not yet sent), which an edit made now must beat
+    /// as surely as the base's.
     public static func stamp(current: [String: String], base: [String: SyncEntry], device: String, now: Double,
-                      joining: Bool = false,
+                      joining: Bool = false, seen: Double = 0,
                       understood: (String, String) -> Bool = { _, _ in true }) -> [String: SyncEntry] {
-        // Later than anything seen, whatever this Mac's clock says.
-        let clock = joining ? 0 : max(now, (base.values.map(\.t).max() ?? 0) + 0.001)
+        // Later than anything seen, whatever this device's clock says.
+        let clock = joining ? 0 : max(now, max(base.values.map(\.t).max() ?? 0, seen) + 0.001)
         var out = base
         for (key, value) in current where base[key]?.v != value {
             out[key] = SyncEntry(v: value, t: clock, d: device)
