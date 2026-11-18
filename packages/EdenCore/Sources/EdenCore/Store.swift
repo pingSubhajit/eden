@@ -143,6 +143,9 @@ public enum Disk {
     /// The newest write asked for, by file.
     nonisolated(unsafe) private static var newest: [URL: Int] = [:]
     nonisolated(unsafe) private static var count = 0
+    /// The turn of the newest write that didn't land, by file: cleared when
+    /// a later write of it does.
+    nonisolated(unsafe) private static var failed: [URL: Int] = [:]
 
     /// `encode` runs where the write does. `now` writes on the calling
     /// thread: quitting doesn't wait for a queue.
@@ -167,10 +170,21 @@ public enum Disk {
             let folder = file.deletingLastPathComponent()
             let aside = folder.appendingPathComponent(".\(file.lastPathComponent).\(turn).writing")
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            guard (try? data.write(to: aside)) != nil else { return }
+            guard (try? data.write(to: aside)) != nil else {
+                lock.lock()
+                if newest[file] == turn { failed[file] = turn }
+                lock.unlock()
+                return
+            }
             lock.lock()
             defer { lock.unlock() }
-            if newest[file] == turn, rename(aside.path, file.path) == 0 { return }
+            if newest[file] == turn {
+                if rename(aside.path, file.path) == 0 {
+                    failed[file] = nil
+                    return
+                }
+                failed[file] = turn
+            }
             try? FileManager.default.removeItem(at: aside)
         }
         if now { put() } else { queue.async(execute: put) }
@@ -195,5 +209,22 @@ public enum Disk {
     /// Everything asked for so far, written — for the way out.
     public static func drain() {
         queue.sync {}
+    }
+
+    /// Where the writes stand now, to ask later whether those asked for
+    /// since all landed (`drain(since:)`).
+    public static func mark() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    /// Everything asked for so far, written; whether every write asked for
+    /// since `mark` that is still a file's newest landed.
+    public static func drain(since mark: Int) -> Bool {
+        queue.sync {}
+        lock.lock()
+        defer { lock.unlock() }
+        return !failed.values.contains { $0 > mark }
     }
 }
