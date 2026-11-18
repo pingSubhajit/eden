@@ -302,6 +302,24 @@ if [ -f "Eden.provisionprofile" ]; then
   cp "Eden.provisionprofile" "$APP/Contents/embedded.provisionprofile"
   ENTITLEMENTS="Eden.passkeys.entitlements"
   echo "passkeys: profile embedded"
+elif [ -f "Eden.development.provisionprofile" ] && [ "$STEP" != "ship" ]; then
+  # Sync through iCloud needs Eden's CloudKit container, which only a
+  # provisioning profile grants: for now a development one, from the team's
+  # Apple Development certificate, for the Macs registered in it (the
+  # Developer ID profile doesn't carry iCloud yet; see TODO.md). Without
+  # one, Eden says in Settings that this build can't sync.
+  cp "Eden.development.provisionprofile" "$APP/Contents/embedded.provisionprofile"
+  ENTITLEMENTS="Eden.cloud.entitlements"
+  # The identity is one of the certificates the profile names (a keychain
+  # can hold another team's Apple Development certificate too), by hash.
+  PROFILE_CERTS="$(security cms -D -i Eden.development.provisionprofile | python3 -c '
+import hashlib, plistlib, sys
+for cert in plistlib.loads(sys.stdin.buffer.read())["DeveloperCertificates"]:
+    print(hashlib.sha1(cert).hexdigest().upper())')"
+  IDENTITY="${EDEN_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk '{ print $2 }' | grep -Fx -f <(echo "$PROFILE_CERTS") | head -1 || true)}"
+  [ -z "$IDENTITY" ] && { echo "icloud: no certificate of the profile's in the keychain" >&2; exit 1; }
+  echo "icloud: development profile embedded"
 fi
 if [ -n "$IDENTITY" ]; then
   codesign --force --deep --timestamp --options runtime \
