@@ -124,7 +124,7 @@ struct HistorySheet: View {
     }
 }
 
-/// What can be chosen: the engine, the blocker, and Handoff.
+/// What can be chosen: the engine, the blocker, Handoff and sync.
 struct SettingsSheet: View {
     @Bindable var settings: Settings
     let browser: Browser
@@ -135,7 +135,8 @@ struct SettingsSheet: View {
             Form {
                 Section {
                     Picker("Search With", selection: $settings.engine) {
-                        ForEach(Engine.allCases.filter { $0 != .custom }) { engine in
+                        // Custom only as the Mac set it, with its address.
+                        ForEach(Engine.allCases.filter { $0 != .custom || settings.engine == .custom }) { engine in
                             Text(engine.title).tag(engine)
                         }
                     }
@@ -158,6 +159,19 @@ struct SettingsSheet: View {
                         .accessibilityIdentifier("handoff")
                 } footer: {
                     Text("With Handoff, the address and title of the page in front go to the devices signed in to your Apple Account, through Apple. Never a private tab. A page handed over from another device opens here whether this is on or not.")
+                }
+                if let sync = browser.sync {
+                    Section {
+                        Toggle("Sync with iCloud", isOn: Binding(get: { settings.syncs },
+                                                                set: { $0 ? sync.turnOn() : sync.turnOff() }))
+                            .accessibilityIdentifier("sync")
+                        if settings.syncs {
+                            Text(sync.summary).font(.footnote).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("sync-status")
+                        }
+                    } footer: {
+                        Text("Your open tabs, bookmarks, history, search engine and blocker, on your Macs, iPhone and iPad signed in to the same Apple Account, through your own private iCloud database. Never a private tab, a password or a cookie.")
+                    }
                 }
                 Section {
                     LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")

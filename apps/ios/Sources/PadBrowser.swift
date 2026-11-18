@@ -34,6 +34,7 @@ struct PadBrowser: View {
                     ForEach(browser.privateTabs) { row($0) }
                 }
             }
+            OtherDeviceSections(browser: browser)
         }
         .navigationTitle("Eden")
         .toolbar {

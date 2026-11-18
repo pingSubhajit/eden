@@ -3,13 +3,14 @@ import SwiftUI
 import WebKit
 
 // Eden for iPhone and iPad: tabs and one field for addresses and searches,
-// private tabs, the Mac's blocker, bookmarks and history kept on the device,
-// and Handoff with your other devices. Built on EdenCore, which it shares
+// private tabs, the Mac's blocker, bookmarks and history, Handoff with your
+// other devices, and sync with them through iCloud (Syncing). Built on EdenCore, which it shares
 // with the Mac app (packages/).
 
 @main
 struct EdenApp: App {
     @State private var browser: Browser
+    @UIApplicationDelegateAdaptor private var delegate: AppDelegate
     @Environment(\.scenePhase) private var phase
 
     init() {
@@ -17,7 +18,10 @@ struct EdenApp: App {
         let settings = Settings()
         Shield.shared.enabled = settings.blocks
         Shield.shared.compile()
-        _browser = State(initialValue: Browser(history: History(), bookmarks: BookmarkStore(), settings: settings))
+        let made = Browser(history: History(), bookmarks: BookmarkStore(), settings: settings)
+        made.sync = Syncing(browser: made)
+        AppDelegate.syncing = made.sync
+        _browser = State(initialValue: made)
     }
 
     var body: some Scene {
@@ -26,8 +30,9 @@ struct EdenApp: App {
         }
         .onChange(of: phase) { _, now in
             // Going to the background, the app may not come back: what was
-            // asked to be written is written.
+            // asked to be written is written, and synced.
             if now == .background { browser.flush() }
+            browser.sync?.active(now == .active)
         }
     }
 

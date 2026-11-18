@@ -30,6 +30,10 @@
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key><false/>
 	</dict>
+	<!-- CloudKit's silent push, when another device changed something: the
+	     app wakes for a moment and syncs (Syncing). -->
+	<key>UIBackgroundModes</key>
+	<array><string>remote-notification</string></array>
 	<key>UILaunchScreen</key><dict/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

@@ -2,8 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- iCloud, CloudKit only: the container the tabs, pins and bookmarks
-	     sync through between the devices of one Apple Account (Phase 4). -->
+	<!-- iCloud, CloudKit only: the container tabs, bookmarks, history and
+	     settings sync through between the devices of one Apple Account
+	     (Syncing), the same one the Mac app uses. -->
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>$(EDEN_ICLOUD_CONTAINER)</string>
@@ -12,5 +13,9 @@
 	<array>
 		<string>CloudKit</string>
 	</array>
+	<!-- The silent push CloudKit sends when another device changed
+	     something. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>

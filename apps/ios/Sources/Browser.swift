@@ -16,6 +16,11 @@ final class Browser {
     @ObservationIgnored let settings: Settings
     /// Where the ordinary tabs are kept between launches; nil keeps none.
     @ObservationIgnored private let sessionFile: URL?
+    /// Told when the ordinary tabs change, so sync shows them on your other
+    /// devices (Syncing).
+    @ObservationIgnored var changed: (() -> Void)?
+    /// Sync through iCloud, once the app has made it.
+    @ObservationIgnored var sync: Syncing?
 
     init(history: History, bookmarks: BookmarkStore, settings: Settings,
          sessionFile: URL? = Store.file("tabs.json")) {
@@ -148,6 +153,7 @@ final class Browser {
     }
 
     private func save() {
+        changed?()
         guard let sessionFile else { return }
         let snapshot = session
         Disk.write(sessionFile) { try? JSONEncoder().encode(snapshot) }

@@ -25,6 +25,8 @@ struct TabOverview: View {
                     }
                     .padding(16)
                 }
+                // What your other devices have open, synced through iCloud.
+                if !showingPrivate { OtherDeviceLists(browser: browser, opened: done) }
             }
             .navigationTitle(showingPrivate ? "Private" : "Tabs")
             .navigationBarTitleDisplayMode(.inline)
