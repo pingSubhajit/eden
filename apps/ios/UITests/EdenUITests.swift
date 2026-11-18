@@ -55,7 +55,17 @@ final class EdenUITests: XCTestCase {
 
     /// The page's own words are on screen: it arrived.
     private func expectPage(_ words: String, timeout: TimeInterval = 20) {
+        allowLocalNetwork()
         XCTAssertTrue(app.webViews.staticTexts[words].waitForExistence(timeout: timeout), "\(words) on the page")
+    }
+
+    /// On a real device the pages come over the local network
+    /// (scripts/test-device.sh), which Eden asks once to reach.
+    private func allowLocalNetwork() {
+        #if !targetEnvironment(simulator)
+        let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
+        if allow.waitForExistence(timeout: 2) { allow.tap() }
+        #endif
     }
 
     /// A served page, opened from the address field, and there.
@@ -84,6 +94,64 @@ final class EdenUITests: XCTestCase {
         let entry = labelled(item)
         XCTAssertTrue(entry.waitForExistence(timeout: 5), "\(item) in the menu")
         entry.tap()
+    }
+
+    /// Whether the tabs are in the overview, as on iPhone, rather than the
+    /// sidebar: the app goes by the window's width, and so do the tests.
+    private var overview: Bool {
+        let tabs = app.buttons["tabs"]
+        _ = tabs.waitForExistence(timeout: 2)
+        return tabs.exists
+    }
+
+    /// A new tab in front, from the tab overview or the sidebar.
+    private func newTab() {
+        if !overview {
+            app.buttons["new-tab"].firstMatch.tap()
+        } else {
+            app.buttons["tabs"].tap()
+            XCTAssertTrue(app.buttons["new-tab"].waitForExistence(timeout: 5))
+            app.buttons["new-tab"].tap()
+        }
+        XCTAssertTrue(app.buttons["address"].waitForExistence(timeout: 5))
+    }
+
+    /// The tab at `index` in front, as above.
+    private func switchToTab(_ index: Int) {
+        if !overview {
+            let row = all("tab-row").element(boundBy: index)
+            XCTAssertTrue(row.waitForExistence(timeout: 5))
+            row.tap()
+        } else {
+            app.buttons["tabs"].tap()
+            XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5))
+            all("tab-card").element(boundBy: index).tap()
+        }
+    }
+
+    /// The thing showing `words` hidden by touch: picked, offered, hidden.
+    private func hideByTouch(_ words: String) {
+        openMenu("Hide Elements…")
+        XCTAssertTrue(all("hiding-bar").firstMatch.waitForExistence(timeout: 5))
+        app.webViews.staticTexts[words].tap()
+        XCTAssertTrue(all("hiding-offer").firstMatch.waitForExistence(timeout: 5), "the tap offers it")
+        app.buttons["hide-confirm"].tap()
+        expectGone(words)
+        app.buttons["hide-done"].tap()
+    }
+
+    /// Everything hidden on the site in front, restored from its sheet.
+    private func restoreAllHere() {
+        openMenu("Hidden on This Site")
+        let all = app.buttons["restore-all"]
+        XCTAssertTrue(all.waitForExistence(timeout: 5))
+        all.tap()
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    private func expectGone(_ words: String, timeout: TimeInterval = 5) {
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.webViews.staticTexts[words])
+        waitForExpectations(timeout: timeout)
     }
 
     private func shot(_ name: String) {
@@ -239,6 +307,60 @@ final class EdenUITests: XCTestCase {
         expectPage("BANNER-TEXT")
     }
 
+    /// A change in one tab reaches the others: a page open there at once, and
+    /// one coming back with Back — which WebKit may bring back from its
+    /// cache as it was, scripts and all.
+    func testWhatIsHiddenOrRestoredReachesEveryTabOnTheSite() throws {
+        try open("hide.html", showing: "BANNER-TEXT")
+        hideByTouch("BANNER-TEXT")
+        newTab()
+        try open("hide.html", showing: "CONTENT-TEXT")
+        XCTAssertFalse(app.webViews.staticTexts["BANNER-TEXT"].exists, "hidden in a new tab")
+        restoreAllHere()
+        expectPage("BANNER-TEXT", timeout: 5)
+
+        // The first tab, still on the page: restored there too.
+        switchToTab(0)
+        expectPage("BANNER-TEXT", timeout: 5)
+
+        // Hidden again there, and left for another page.
+        hideByTouch("BANNER-TEXT")
+        try open("page-one.html", showing: "PAGE-ONE")
+        switchToTab(1)
+        expectGone("BANNER-TEXT")
+        restoreAllHere()
+        expectPage("BANNER-TEXT", timeout: 5)
+
+        // Back in the first tab, the page — from WebKit's cache, as it was
+        // left, scripts and all — as what is hidden says now.
+        switchToTab(0)
+        expectEnabled(app.buttons["back"])
+        app.buttons["back"].tap()
+        expectPage("CONTENT-TEXT")
+        expectPage("FROM-CACHE", timeout: 5)
+        expectPage("BANNER-TEXT", timeout: 5)
+    }
+
+    /// Picking takes taps, never the page's scrolling: a page still scrolls
+    /// under a finger while picking, and a tap down there offers what it hit.
+    func testAPageStillScrollsWhilePickingByTouch() throws {
+        try open("tall.html", showing: "TOP-TEXT")
+        openMenu("Hide Elements…")
+        XCTAssertTrue(all("hiding-bar").firstMatch.waitForExistence(timeout: 5))
+        let bottom = app.webViews.staticTexts["BOTTOM-TEXT"]
+        let page = app.webViews.firstMatch
+        for _ in 0..<8 where !bottom.isHittable { page.swipeUp() }
+        shot("scrolled while picking")
+        XCTAssertTrue(bottom.isHittable, "scrolled to the bottom while picking")
+        XCTAssertFalse(all("hiding-offer").firstMatch.exists, "a swipe offers nothing")
+        bottom.tap()
+        let offer = all("hiding-offer").firstMatch
+        XCTAssertTrue(offer.waitForExistence(timeout: 5), "the tap offers it")
+        XCTAssertTrue(offer.label.contains("BOTTOM-TEXT"), offer.label)
+        app.buttons["hide-cancel"].tap()
+        app.buttons["hide-done"].tap()
+    }
+
     func testHistoryKeepsPlacesAndForgetsThem() throws {
         try open("page-one.html", showing: "PAGE-ONE")
         openMenu("History")
@@ -279,7 +401,9 @@ final class EdenUITests: XCTestCase {
         let blocks = app.switches["blocks"]
         XCTAssertTrue(blocks.waitForExistence(timeout: 5))
         blocks.switches.firstMatch.exists ? blocks.switches.firstMatch.tap() : blocks.tap()
-        XCTAssertEqual(blocks.value as? String, "0")
+        // The switch says so a moment later on a busy iPad.
+        expectation(for: NSPredicate(format: "value == '0'"), evaluatedWith: blocks)
+        waitForExpectations(timeout: 5)
         app.buttons["Done"].tap()
         app.buttons["reload"].tap()
         XCTAssertTrue(app.webViews.staticTexts["ADVERT-WORDS"].waitForExistence(timeout: 20), "the ad slot shows")

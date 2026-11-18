@@ -11,17 +11,27 @@ struct PhoneBrowser: View {
     @State private var showingTabs = false
     @State private var showingPrivate = false
     @State private var sheet: BrowserSheet?
+    @State private var covered: CGFloat = 0
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let tab = browser.active
         ZStack {
             TabContent(browser: browser, tab: tab)
+                .environment(\.pageCovered, covered)
                 .ignoresSafeArea(edges: .bottom)
             if typing.editing { editor }
         }
+        // What the bar below covers of the page running on under it.
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { covered = $0 }
+        // Picking things to hide takes the bar's place, the page scrolling
+        // clear of it as of the bar, so nothing is out of a finger's reach.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if !typing.editing { bar(tab) }
+            if browser.picking != nil {
+                HidingBar(browser: browser)
+            } else if !typing.editing {
+                bar(tab)
+            }
         }
         .fullScreenCover(isPresented: $showingTabs) {
             TabOverview(browser: browser, showingPrivate: $showingPrivate) { showingTabs = false }

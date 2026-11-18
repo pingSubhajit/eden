@@ -105,6 +105,10 @@ struct PadBrowser: View {
             .environment(\.colorScheme, (tab?.isPrivate ?? false) ? .dark : colorScheme)
 
             TabContent(browser: browser, tab: tab)
+                // Below the page, never over what is to be tapped.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if browser.picking != nil { HidingBar(browser: browser) }
+                }
                 .overlay(alignment: .top) {
                     if typing.editing {
                         let offers = typing.offers(in: browser)

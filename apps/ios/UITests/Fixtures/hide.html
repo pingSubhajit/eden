@@ -3,3 +3,8 @@
 <title>Hide Me</title>
 <div id="banner" style="padding:24px;background:#fc0;font:20px sans-serif">BANNER-TEXT</div>
 <p>CONTENT-TEXT</p>
+<p id="returned"></p>
+<script>
+  // Back from WebKit's back-forward cache, scripts and all: said on the page.
+  addEventListener('pageshow', function (e) { if (e.persisted) document.getElementById('returned').textContent = 'FROM-CACHE'; });
+</script>

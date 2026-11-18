@@ -54,6 +54,9 @@ The unit tests (Swift Testing, in `Tests/`) and the UI tests (XCTest, in
 
     apps/ios/scripts/test.sh                      # "Eden iPhone 17 Pro"
     apps/ios/scripts/test.sh "Eden iPad Pro 13"   # the iPad's layout
+    apps/ios/scripts/test.sh "Eden iPad Pro 13" -only-testing:EdenUITests/EdenUITests/testX
+
+The device is the first argument; anything after it goes to `xcodebuild`.
 
 The script serves `UITests/Fixtures` from this Mac, over http (the
 blocker, WebKit's content rules, doesn't apply to a `data:` page), and the
@@ -64,6 +67,14 @@ their own (`EDEN_PROBE` in the scheme), and each UI test starts the app in
 another with nothing in it (`EDEN_FRESH`), with a website store of its own
 cleared before any page loads, so nothing of anyone's browsing is read or
 written.
+
+The UI tests also run on a real iPhone or iPad joined by cable, unlocked,
+with the pages served on this Mac's local network address; Eden asks once
+to reach it, and the tests allow it. Signing the test runner takes an
+Xcode account, or an App Store Connect API key in `EDEN_ASC_KEY`,
+`EDEN_ASC_KEY_ID` and `EDEN_ASC_ISSUER`:
+
+    apps/ios/scripts/test-device.sh <udid> -only-testing:EdenUITests/EdenUITests/testX
 
 On iPad, each UI step waits up to a minute for the app to look idle once a
 page is showing: XCTest finds something still animating there, though Eden
