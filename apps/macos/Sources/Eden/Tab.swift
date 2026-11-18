@@ -430,9 +430,8 @@ final class Tab: ObservableObject, Identifiable {
     /// ⇧⌘R meanwhile is the same request, not another.
     private var seekingTwin = false
 
-    /// Leaving reading mode reloads rather than putting the old markup back:
-    /// restoring the HTML gives you a page that looks right and does nothing,
-    /// because every listener the page had was thrown away with it.
+    /// Leaving reading mode reloads (EdenCore's ReadingMode says why); a
+    /// second ⇧⌘R while the first is still looking is the same request.
     func toggleReader(_ done: @escaping (Bool) -> Void) {
         guard isWeb else {
             done(false)
@@ -445,54 +444,25 @@ final class Tab: ObservableObject, Identifiable {
             return
         }
         guard !seekingTwin else { return }
-        guard Shared.prefs.readsTwins else {
-            guess(done)
-            return
-        }
         seekingTwin = true
         let view = web
         let token = loadGeneration
         let page = view.url
-        view.callAsyncJavaScript(Reader.twin, arguments: [:], in: nil, in: Web.world) { [weak self, weak view] result in
-            guard let self, let view, self.loadGeneration == token, self.built === view, self.seekingTwin else { return }
+        Task { [weak self] in
+            // Gone somewhere else meanwhile: what was found belongs to a page
+            // that isn't there any more.
+            let outcome = await ReadingMode.enter(view, twins: Shared.prefs.readsTwins,
+                                                 look: ReadingLook(rawValue: Reader.look.rawValue) ?? .light,
+                                                 world: Web.world) { [weak self] in
+                guard let self else { return false }
+                return self.loadGeneration == token && self.built === view && view.url == page
+            }
+            guard let self else { return }
             self.seekingTwin = false
-            // Gone somewhere else while the twin was on its way: it belongs
-            // to a page that isn't there any more, and so does the guess.
-            guard view.url == page else { return }
-            guard let found = try? result.get() as? [String: Any],
-                  let text = found["text"] as? String,
-                  let address = (found["url"] as? String).flatMap(URL.init(string:)) else {
-                self.guess(done)
-                return
-            }
-            let twin = Markdown.page(text, base: address)
-            guard !twin.html.isEmpty else {
-                self.guess(done)
-                return
-            }
-            let from = (found["from"] as? String).map { $0.isEmpty ? "markdown" : "\($0) · markdown" } ?? "markdown"
-            let arguments: [String: Any] = [
-                "html": twin.html,
-                "title": twin.title ?? found["title"] as? String ?? "",
-                "from": from,
-                "sheet": Reader.sheet,
-                "readerLook": Reader.look.rawValue,
-            ]
-            view.callAsyncJavaScript(Reader.show, arguments: arguments, in: nil, in: Web.world) { [weak self] result in
-                let worked = (try? result.get()) as? String == "read"
-                if worked { self?.reader = true }
-                done(worked)
-            }
-        }
-    }
-
-    /// The page's own article, worked out from the page (see Reader.script).
-    private func guess(_ done: @escaping (Bool) -> Void) {
-        let arguments: [String: Any] = ["sheet": Reader.sheet, "readerLook": Reader.look.rawValue]
-        web.callAsyncJavaScript(Reader.script, arguments: arguments, in: nil, in: .page) { [weak self] result in
-            let worked = (try? result.get()) as? String == "read"
-            if worked { self?.reader = true }
-            done(worked)
+            // A page gone meanwhile has nothing said about it.
+            guard outcome != .gone else { return }
+            if outcome == .read { self.reader = true }
+            done(outcome == .read)
         }
     }
 

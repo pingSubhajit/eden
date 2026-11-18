@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import Eden
+@testable import EdenCore
 
 final class MarkdownTests: XCTestCase {
     private let base = URL(string: "https://docs.example.test/guide/start.md")

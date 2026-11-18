@@ -1,4 +1,5 @@
 import AppKit
+import EdenCore
 import Foundation
 import WebKit
 import XCTest
@@ -48,6 +49,15 @@ final class ReaderGuessTests: XCTestCase {
             <nav><a href="/a">A</a> <a href="/b">B</a></nav>
             </div>
             <footer><figure><img src="/photo.svg" width="800" height="450" alt="Footer"></figure></footer>
+            </body></html>
+            """),
+            "/phone": .init(type: Self.html, body: """
+            <!doctype html><html><head><title>Phone</title></head><body>
+            <h1>The headline</h1>
+            <div class="story">
+            <div class="topper"><figure><img src="/photo.svg" width="340" height="190" alt="Opening"></figure></div>
+            <article>\(Self.prose)</article>
+            </div>
             </body></html>
             """),
             "/cited": .init(type: Self.html, body: """
@@ -104,6 +114,15 @@ final class ReaderGuessTests: XCTestCase {
                        "a chart maker's frame stays at its height; a frame in a figure from elsewhere goes")
         XCTAssertEqual(found?["pictures"] as? [String], ["Opening"], "the opening photo, and nothing from the footer")
         XCTAssertEqual(found?["topper"] as? Bool, false, "the topper's class goes with it")
+    }
+
+    func testOnAPhonesWidthTheOpeningPhotoStillComes() async throws {
+        // 340 points wide: under 400, but most of a 390-point screen.
+        let web = try await read("/phone", width: 390)
+        let pictures = try await call(web, """
+        return Array.prototype.map.call(document.querySelectorAll('#office-reader img'), function (i) { return i.alt; });
+        """) as? [String]
+        XCTAssertEqual(pictures, ["Opening"])
     }
 
     func testTheHeadComesAndAVideoPlaysFromItsPlainSource() async throws {
@@ -194,10 +213,10 @@ final class ReaderGuessTests: XCTestCase {
 
     private var holding: [Loaded] = []
 
-    private func read(_ path: String, look: String? = nil) async throws -> WKWebView {
+    private func read(_ path: String, look: String? = nil, width: CGFloat = 1000) async throws -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800), configuration: configuration)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: 800), configuration: configuration)
         let loaded = Loaded()
         holding.append(loaded)
         web.navigationDelegate = loaded

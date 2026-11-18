@@ -18,15 +18,20 @@ import Foundation
 // short list with its safe attributes only, and every address has to be a
 // web or mail one.
 
-enum Markdown {
-    struct Page: Equatable {
+public enum Markdown {
+    public struct Page: Equatable, Sendable {
         /// The page's heading, lifted out of the body so reading mode can
         /// set it the way it sets every title.
-        var title: String?
-        var html: String
+        public var title: String?
+        public var html: String
+
+        public init(title: String?, html: String) {
+            self.title = title
+            self.html = html
+        }
     }
 
-    static func page(_ text: String, base: URL?) -> Page {
+    public static func page(_ text: String, base: URL?) -> Page {
         var lines = normalized(text)
         var title = frontMatter(&lines)
         var parser = Parser(base: base, references: [:])

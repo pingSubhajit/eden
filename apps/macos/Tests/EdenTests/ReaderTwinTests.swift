@@ -1,4 +1,5 @@
 import AppKit
+import EdenCore
 import Foundation
 import WebKit
 import XCTest
