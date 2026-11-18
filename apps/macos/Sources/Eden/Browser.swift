@@ -3615,6 +3615,8 @@ final class Browser: NSObject, ObservableObject {
     }
 
     func writeRow(_ space: UUID, _ shape: Session.Shape, now: Bool) {
+        // This Mac's open tabs, as its other devices see them (Sync.swift).
+        if !websitePopup { NotificationCenter.default.post(name: Sync.tabsChanged, object: nil) }
         if usesFiles {
             Session.write(now: now, space: space, shape)
         } else {
