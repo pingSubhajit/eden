@@ -24,6 +24,22 @@ public enum Address {
         return URL(fileURLWithPath: path)
     }
 
+    /// Where what was typed in the address field goes: a file on this
+    /// device when `files` allows it (the Mac's, never an iPhone's), else an
+    /// address, else a site's shortcut and the words after it ("yt cats"),
+    /// else a search with the engine's `template`. Nil only when the engine
+    /// can't make an address of the words.
+    public static func destination(for typed: String, engine template: String, keywords: [Keyword] = [],
+                                   files: Bool = false) -> URL? {
+        if files, let file = file(from: typed) { return file }
+        if let url = url(from: typed) { return url }
+        if let (keyword, rest) = Keyword.match(typed, in: keywords),
+           let url = Engine.url(for: rest, template: keyword.template) {
+            return url
+        }
+        return Engine.url(for: typed, template: template)
+    }
+
     public static func url(from typed: String) -> URL? {
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !text.contains(" ") else { return nil }
