@@ -432,7 +432,9 @@ struct SettingsPanel: View {
             return isDefault ? "Eden is the default browser on this Mac" : item.detail
         case "downloads.folder":
             return prefs.downloads.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-        case "sync": return sync.on ? sync.summary : item.detail
+        // Off, the row says what it does — unless sync stopped with something
+        // to say (data deleted from iCloud, what it kept not deletable).
+        case "sync": return sync.on || sync.hasProblem ? sync.summary : item.detail
         case "search.engine": return searchDetail
         case "search.shift": return shiftDetail
         case "search.suggest": return suggestDetail

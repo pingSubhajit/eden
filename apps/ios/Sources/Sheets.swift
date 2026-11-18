@@ -165,7 +165,9 @@ struct SettingsSheet: View {
                         Toggle("Sync with iCloud", isOn: Binding(get: { settings.syncs },
                                                                 set: { $0 ? sync.turnOn() : sync.turnOff() }))
                             .accessibilityIdentifier("sync")
-                        if settings.syncs {
+                        // Off, nothing to say — unless it stopped with
+                        // something to say (data deleted from iCloud).
+                        if settings.syncs || sync.hasProblem {
                             Text(sync.summary).font(.footnote).foregroundStyle(.secondary)
                                 .accessibilityIdentifier("sync-status")
                         }
