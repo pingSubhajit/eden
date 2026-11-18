@@ -21,20 +21,20 @@ the Mac.
 2. **A shared core** *Built.* `packages/EdenCore`, a Swift package both
    apps build: where things are kept, the address field's sense of what
    was typed, history, the blocker's rules, the data that syncs and its
-   merge, and the Handoff rules. The session, pins and spaces as a whole,
-   hidden elements and reading mode join it when the iOS app needs them.
+   merge, and the Handoff rules; since, spaces and pins (their files and
+   rules), hidden elements and reading mode.
 3. **Eden for iOS and iPadOS** *Built.* Tabs and one field (at the bottom
    on iPhone, with a sidebar of tabs on iPad), private tabs, the blocker,
    bookmarks and history, on the shared core, with the same bundle id as the
-   Mac (`com.subhajit.eden.beta`). Pins and spaces, reading mode and hidden
-   elements come next, from the Mac.
+   Mac (`com.subhajit.eden.beta`). Since, from the Mac: reading mode, hidden
+   elements, and spaces and pins.
 4. **Your tabs on every device** *Built, on unless turned off.* Open tabs
    from your other devices, bookmarks, history, spaces, pins and settings,
    through your private CloudKit database, on Apple's CKSyncEngine
    (CloudSync and CloudKitTransport in EdenCore) under the existing merge
    (SyncMerge.swift). Development builds only until the
-   schema is deployed to production (TODO.md). Pins and spaces on iPhone
-   and iPad come with them.
+   schema is deployed to production (TODO.md). Spaces and pins sync from
+   iPhone and iPad too, taken over from the Mac without a change on upgrade.
 
 ## Not planned
 
