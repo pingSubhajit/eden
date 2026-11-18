@@ -23,10 +23,11 @@ the Mac.
    was typed, history, the blocker's rules, the data that syncs and its
    merge, and the Handoff rules. The session, pins and spaces as a whole,
    hidden elements and reading mode join it when the iOS app needs them.
-3. **Eden for iOS and iPadOS** Tabs, the address field, pins and spaces,
-   private tabs, reading mode, the blocker and hidden elements, bookmarks
-   and history, on the shared core. Same bundle id as the Mac
-   (`com.subhajit.eden.beta`), so Handoff and iCloud work between them.
+3. **Eden for iOS and iPadOS** *Built.* Tabs and one field (at the bottom
+   on iPhone, with a sidebar of tabs on iPad), private tabs, the blocker,
+   bookmarks and history, on the shared core, with the same bundle id as the
+   Mac (`com.subhajit.eden.beta`). Pins and spaces, reading mode and hidden
+   elements come next, from the Mac.
 4. **Your tabs on every device** Open tabs from your other devices, and
    the pins, bookmarks and spaces sync extended to iOS, through CloudKit
    under the existing merge (SyncMerge.swift).

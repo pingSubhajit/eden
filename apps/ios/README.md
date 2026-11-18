@@ -1,9 +1,24 @@
 # Eden for iPhone and iPad
 
-The iOS and iPadOS app. Phase 0 of the roadmap: the app exists, signs as
-Techaboard's, carries the iCloud container and opens a page handed off to
-it. The browser comes in Phase 3, on the core it will share with the Mac
-app (`packages/`).
+The iOS and iPadOS browser, built on the code it shares with the Mac app
+(`packages/EdenCore`):
+
+- **Tabs and one field** for addresses and searches, with suggestions from
+  your other open tabs, bookmarks and history. On iPhone the field is at the
+  bottom, over back, forward, the menu and the tabs; the tabs are cards in an
+  overview. On iPad the tabs run down a sidebar and the field is at the top.
+- **Private tabs**, with a store of their own that keeps nothing, no history,
+  and a dark bar so it's plain which kind is in front.
+- **The Mac's blocker** (Shield and its YouTube rules), on unless turned off.
+- **Bookmarks and history**, kept on the device; history is searchable and
+  can be cleared. They sync with the Mac in Phase 4.
+- **Settings:** the search engine, the blocker, and Handoff (off unless
+  turned on, as on the Mac).
+- **Handoff** both ways: a page handed over opens here, and with Handoff on,
+  the page in front is offered to your other devices. Never a private tab.
+
+The ordinary tabs come back at the next launch (`tabs.json`); private ones
+never do. Everything is kept in the app's own folder (EdenCore's Store).
 
 | | |
 |---|---|
@@ -34,12 +49,26 @@ make or refresh the development profile:
       -destination 'generic/platform=iOS' -derivedDataPath apps/ios/.build/xcode \
       -allowProvisioningUpdates build
 
-The unit tests (Swift Testing, in `Tests/`) run inside the app on a
-simulator:
+The unit tests (Swift Testing, in `Tests/`) and the UI tests (XCTest, in
+`UITests/`, driving the app as a person would) run on a simulator:
 
-    xcodebuild -project apps/ios/Eden.xcodeproj -scheme Eden \
-      -destination 'platform=iOS Simulator,name=Eden iPhone 17 Pro' \
-      -derivedDataPath apps/ios/.build/xcode test
+    apps/ios/scripts/test.sh                      # "Eden iPhone 17 Pro"
+    apps/ios/scripts/test.sh "Eden iPad Pro 13"   # the iPad's layout
+
+The script serves `UITests/Fixtures` from this Mac, over http (the
+blocker, WebKit's content rules, doesn't apply to a `data:` page), and the
+UI tests load those pages and wait for their own words before going on: the
+address field says where a tab is going before the page has arrived. Only
+the search test reaches the network. The unit tests run in a test world of
+their own (`EDEN_PROBE` in the scheme), and each UI test starts the app in
+another with nothing in it (`EDEN_FRESH`), with a website store of its own
+cleared before any page loads, so nothing of anyone's browsing is read or
+written.
+
+On iPad, each UI step waits up to a minute for the app to look idle once a
+page is showing: XCTest finds something still animating there, though Eden
+itself sits at no CPU (measured). The run takes about 13 minutes instead of
+3; the results are the same.
 
 Signing settings live in `Configuration/Base.xcconfig`. A
 `Configuration/Local.xcconfig` (git-ignored) overrides them on one Mac.

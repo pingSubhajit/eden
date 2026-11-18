@@ -27,7 +27,10 @@ build goes to anyone else. Each item names where it is in the code.
   the AI add-on ships (apps/macos/engine.sh signs it).
 - [ ] **The iOS default-browser entitlement** Ask Apple for
   `com.apple.developer.web-browser` for `com.subhajit.eden.beta`, so Eden
-  can be the default browser on iPhone and iPad (Phase 3).
+  can be the default browser on iPhone and iPad. The app now meets what
+  Apple asks (an address field and search at launch, http and https
+  declared, no UIWebView); the request needs the Account Holder. Then add
+  the entitlement to apps/ios/Configuration/Eden.entitlements.
 - [ ] **A physical iPhone or iPad** on the same Apple Account as the Mac,
   for Handoff (Phase 1): Simulator can't hand off.
 
