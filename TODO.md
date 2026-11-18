@@ -31,8 +31,26 @@ build goes to anyone else. Each item names where it is in the code.
   Apple asks (an address field and search at launch, http and https
   declared, no UIWebView); the request needs the Account Holder. Then add
   the entitlement to apps/ios/Configuration/Eden.entitlements.
-- [ ] **A physical iPhone or iPad** on the same Apple Account as the Mac,
+- [x] **A physical iPhone or iPad** on the same Apple Account as the Mac,
   for Handoff (Phase 1): Simulator can't hand off.
+
+## iCloud sync
+
+- [ ] **Deploy the CloudKit schema to production** In CloudKit Console,
+  container `iCloud.com.subhajit.eden.beta`: the record type `Item`
+  (fields `key`, `v`, `t`, `d`) and the zone subscription, made in the
+  development environment by the first development builds that synced.
+  Until then only development-signed builds sync (TestFlight, the App
+  Store and Developer ID builds use production).
+- [ ] **iCloud in the Developer ID profile** The Mac's Developer ID
+  provisioning profile (`Eden.provisionprofile`) needs the iCloud container
+  and push (`aps-environment` production), and `Eden.passkeys.entitlements`
+  the same keys as `Eden.cloud.entitlements`. Until then build.sh signs
+  with the development profile (`Eden.development.provisionprofile`,
+  git-ignored, for the Macs registered in it) when there is one, and a
+  Developer ID build says in Settings that it can't sync.
+- [ ] **Make an Eden profile on another Mac** Profiles other than Personal
+  sync by id, so one made separately on each Mac stays apart.
 
 ## Updates (off)
 

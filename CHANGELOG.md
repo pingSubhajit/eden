@@ -17,6 +17,7 @@ own changelog.
 - Hand off pages to your other devices, off until you turn it on in Settings › General: the page in front can be picked up on your iPhone, iPad or another Mac with Handoff, in Eden there or in its browser. Never a private tab's. A page handed over from another device, from Eden there or from Safari once Eden is your browser, opens in a tab here, whatever the switch says.
 - Eden for iPhone and iPad is a browser: tabs and one field for addresses and searches, with suggestions from your tabs, bookmarks and history; private tabs; the Mac's ad and tracker blocker; bookmarks and history kept on the device; a choice of search engine. The field is at the bottom on iPhone, and the tabs down a sidebar on iPad. Handoff works both ways, offering the page in front once it is turned on in Settings.
 - Brave's engine is called Brave Search again in the list of search engines.
+- Sync with iCloud, on unless you turn it off in Settings: your open tabs, bookmarks, history, spaces, pins and settings, between your Macs, iPhone and iPad signed in to the same Apple Account, through your own private iCloud database. History › Tabs on Other Devices on the Mac, and On Your Other Devices in the iPhone's tabs and the iPad's sidebar, open what your other devices have open. It replaces syncing through a folder you choose. The iPhone and iPad sync the bookmarks (folders included), history, search engine and blocker, and carry the Mac's spaces and pins along untouched.
 
 ## 0.1.0 — 18 November 2026
 

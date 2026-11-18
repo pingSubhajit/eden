@@ -28,9 +28,12 @@ the Mac.
    bookmarks and history, on the shared core, with the same bundle id as the
    Mac (`com.subhajit.eden.beta`). Pins and spaces, reading mode and hidden
    elements come next, from the Mac.
-4. **Your tabs on every device** Open tabs from your other devices, and
-   the pins, bookmarks and spaces sync extended to iOS, through CloudKit
-   under the existing merge (SyncMerge.swift).
+4. **Your tabs on every device** *Built, on unless turned off.* Open tabs
+   from your other devices, bookmarks, history, spaces, pins and settings,
+   through your private CloudKit database (CloudSync in EdenCore) under the
+   existing merge (SyncMerge.swift). Development builds only until the
+   schema is deployed to production (TODO.md). Pins and spaces on iPhone
+   and iPad come with them.
 
 ## Not planned
 

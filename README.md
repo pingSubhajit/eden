@@ -37,8 +37,8 @@ It was built by a design studio that spends its whole day in a browser and was t
 On purpose:
 
 - No extension you have to install to feel at home. Blocking ads, hiding clutter, reading mode, picture-in-picture and passwords are built in; extensions are there for everything else.
-- No account and no cloud of Eden's own. Your tabs, history and passwords are on your Mac; sync between your Macs, off unless you turn it on, goes through a folder you choose and never carries history, passwords or open tabs.
-- No telemetry, no analytics, no crash reports sent anywhere. The only things that leave your Mac are the pages you ask for and their icons, and, once you turn on Handoff, the address and title of the page in front, to your own devices.
+- No account and no cloud of Eden's own. Your tabs, bookmarks, history, spaces, pins and settings sync between your Macs, iPhone and iPad through your own private iCloud database, on unless you turn it off in Settings; passwords, cookies, sign-ins and private tabs never leave the device.
+- No telemetry, no analytics, no crash reports sent anywhere. The only things that leave your Mac are the pages you ask for and their icons, what syncs to your own iCloud, and, once you turn on Handoff, the address and title of the page in front, to your own devices.
 - One window. Tabs are the only kind of "new" there is.
 
 ## Privacy, concretely
@@ -47,6 +47,7 @@ On purpose:
 |---|---|---|
 | Passwords | The macOS login keychain, as ordinary keychain items tagged `Eden` | Eden, signed by Techaboard. Any other app triggers the system's permission dialog. |
 | History, bookmarks, open tabs, hidden elements | Small JSON files in `~/Library/Application Support/Eden/` | You. |
+| What syncs: open tabs, bookmarks, history, spaces, pins and settings | Your private CloudKit database, in a zone of Eden's (container `iCloud.com.subhajit.eden.beta`) | You, on the devices signed in to your Apple Account. Apple stores it, as it does any app's iCloud data. |
 | Cookies and site data | WebKit's own store for the app | The sites that set them, as in any browser. |
 | Extensions | Unpacked in `~/Library/Application Support/Eden/Extensions/`, their data in WebKit's extension store | Each extension, within the permissions you accepted when adding it. |
 | The page in front, with Handoff on | Offered to the devices signed in to your Apple Account, through Apple, while Eden is in front. Never a private tab. | Your own devices. |
