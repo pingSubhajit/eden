@@ -1048,7 +1048,16 @@ final class Tab: ObservableObject, Identifiable {
         ]
 
         relay.tab = self
-        veils_.tab = self
+        veils_.received = { [weak self] said, _ in
+            guard let self else { return }
+            switch said {
+            case .picked(let choice): self.picked(selector: choice.selector, label: choice.label, note: choice.note)
+            case .ended: self.pickingEnded()
+            case .trouble(let reason): self.pickingFailed(reason)
+            // Offering is the touch picker's; the Mac's pointer hides at once.
+            case .offered, .withdrawn: break
+            }
+        }
         forms.tab = self
         images.tab = self
         media.tab = self
@@ -1193,8 +1202,8 @@ final class Tab: ObservableObject, Identifiable {
         built?.evaluateInSearch(Veiling.style(css))
     }
 
-    func startPicking() { web.evaluateInSearch("window.__officeVeil && window.__officeVeil.on()") }
-    func stopPicking() { web.evaluateInSearch("window.__officeVeil && window.__officeVeil.off()") }
+    func startPicking() { web.evaluateInSearch(Veiling.on(touch: false)) }
+    func stopPicking() { web.evaluateInSearch(Veiling.off()) }
 
     func foundSignIn() { onSignIn?(self) }
 
@@ -1394,19 +1403,11 @@ final class Tab: ObservableObject, Identifiable {
 
     /// Show one hidden thing while the pointer rests on its row in the list.
     func peek(_ selector: String, keeping css: String) {
-        web.evaluateInSearch(
-            "window.__officeVeil && window.__officeVeil.peek(`\(escape(css))`, `\(escape(selector))`)"
-        )
+        web.evaluateInSearch(Veiling.peek(selector, keeping: css))
     }
 
     func unpeek(_ css: String) {
-        web.evaluateInSearch("window.__officeVeil && window.__officeVeil.unpeek(`\(escape(css))`)")
-    }
-
-    private func escape(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "`", with: "\\`")
-            .replacingOccurrences(of: "$", with: "\\$")
+        web.evaluateInSearch(Veiling.unpeek(css))
     }
     func pickingEnded() { onPickEnd?(self) }
     func pickingFailed(_ reason: String) { onPickTrouble?(self, reason) }
