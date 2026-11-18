@@ -326,14 +326,15 @@ final class CloudSyncTests: XCTestCase {
         await phone.pass(at: 1002)
 
         // The Mac takes the deletion in; its stores reach disk, then it stops
-        // before its replica does: the replica as it was on disk mid-way.
-        let file = folder.appendingPathComponent("mac.json")
-        let crashed = folder.appendingPathComponent("crashed.json")
-        mac.whileApplying = { try? FileManager.default.copyItem(at: file, to: crashed) }
+        // before its replica does: the replica as it was on disk mid-way,
+        // kept again where the Mac keeps it.
+        var crashed: Replica?
+        mac.whileApplying = { crashed = mac.store.commits.last }
         await mac.pass(at: 1003)
-        mac.sync.stop(forgetting: false)
-        try FileManager.default.removeItem(at: file)
-        try FileManager.default.moveItem(at: crashed, to: file)
+        mac.sync.stop(forgetting: true)
+        let journal = try XCTUnwrap(crashed)
+        XCTAssertNotNil(journal.projecting["app"], "the journal was on disk before the stores changed")
+        try SQLiteReplicaStore(url: folder.appendingPathComponent("mac.sqlite")).commit(journal)
 
         // Meanwhile the phone brings it back.
         phone.items["bm:1"] = "Article, again"
@@ -397,7 +398,7 @@ final class CloudSyncTests: XCTestCase {
         // The Mac's bookmarks file can't be written as it takes the deletion in.
         let locked = folder.appendingPathComponent("stores", isDirectory: true)
         try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
-        mac.store = locked.appendingPathComponent("bookmarks.json")
+        mac.file = locked.appendingPathComponent("bookmarks.json")
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
         await mac.pass(at: 1003)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
@@ -422,13 +423,10 @@ final class CloudSyncTests: XCTestCase {
 
     func testNothingIsSentThatIsntOnDiskFirst() async throws {
         let server = SimulatedServer()
-        let place = folder.appendingPathComponent("locked", isDirectory: true)
-        try FileManager.default.createDirectory(at: place, withIntermediateDirectories: true)
-        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: place)
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
         await mac.pass(at: 1000)
         let saves = server.saves
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: place.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: place.path) }
+        mac.store.failsCommits = true
         mac.items["bm:1"] = nil
         await mac.pass(at: 1001)
         XCTAssertEqual(server.saves, saves, "the deletion's stamp couldn't be kept, so it didn't go")
@@ -444,7 +442,24 @@ final class CloudSyncTests: XCTestCase {
         await mac.pass(at: 1000)
         XCTAssertEqual(server.saves, 0, "nothing after it was turned off")
         XCTAssertEqual(mac.sync.status, .idle)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("mac.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("mac.sqlite").path))
+    }
+
+    func testWhatCantBeForgottenIsSaidNotHidden() async {
+        let server = SimulatedServer()
+        let mac = Device("mac", server: server, items: ["bm:1": "A"], folder: folder)
+        await mac.pass(at: 1000)
+        mac.store.failsErasing = true
+        XCTAssertFalse(mac.sync.stop(forgetting: true))
+        XCTAssertEqual(mac.sync.status, .problem(.unwritable))
+
+        let phone = Device("phone", server: server, items: ["bm:1": "A"], folder: folder)
+        await phone.pass(at: 1001)
+        phone.store.failsErasing = true
+        var told: CloudProblem?
+        phone.sync.stoppedItself = { told = $0 }
+        phone.transport.delegate?.transport(.zoneLost(.erased))
+        XCTAssertEqual(told, .unwritable, "deleted from iCloud, but not forgotten here: that is what to say")
     }
 
     func testAPassAskedForAfterTurningOffDoesNothing() async {
@@ -465,7 +480,7 @@ final class CloudSyncTests: XCTestCase {
         mac.transport.delegate?.transport(.zoneLost(.erased))
         XCTAssertEqual(told, .erased)
         XCTAssertEqual(mac.sync.status, .problem(.erased))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("mac.json").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("mac.sqlite").path))
         XCTAssertEqual(mac.items, ["bm:1": "A"], "what is in the browser stays")
     }
 

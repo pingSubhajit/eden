@@ -95,8 +95,7 @@ public final class CloudSync: SyncTransportDelegate {
 
     private let transport: SyncTransport
     private let device: String
-    private let file: URL
-    private let legacyFile: URL?
+    private let store: ReplicaStore
     private let clock: () -> Date
     private var replica = Replica()
     /// Record names → full keys, worked out again once the keys change.
@@ -114,15 +113,12 @@ public final class CloudSync: SyncTransportDelegate {
     private var lastFetch: Date?
     private var captureSoon: DispatchWorkItem?
 
-    /// `device`: this device's id, the same for every scope. `file`: where
-    /// the replica is kept. `legacyFile`: what the sync before CKSyncEngine
-    /// kept, read once so a device that synced then carries on.
-    public init(transport: SyncTransport, device: String, file: URL, legacyFile: URL? = nil,
-                clock: @escaping () -> Date = Date.init) {
+    /// `device`: this device's id, the same for every scope. `store`: where
+    /// the replica is kept.
+    public init(transport: SyncTransport, device: String, store: ReplicaStore, clock: @escaping () -> Date = Date.init) {
         self.transport = transport
         self.device = device
-        self.file = file
-        self.legacyFile = legacyFile
+        self.store = store
         self.clock = clock
     }
 
@@ -137,7 +133,7 @@ public final class CloudSync: SyncTransportDelegate {
         connecting = true
         defer { connecting = false }
         transport.delegate = self
-        if !loaded { load() }
+        guard loaded || load() else { return }
         status = .syncing
         do {
             let account = try await transport.account()
@@ -202,15 +198,24 @@ public final class CloudSync: SyncTransportDelegate {
     }
 
     /// Stops for good. `forgetting`: what was kept is deleted, so the next
-    /// sync joins afresh — sync turned off.
-    public func stop(forgetting: Bool) {
+    /// sync joins afresh — sync turned off. Whether everything asked for was
+    /// done: when what was kept couldn't be deleted, `status` says so, and
+    /// the app should show it rather than a clean stop.
+    @discardableResult
+    public func stop(forgetting: Bool) -> Bool {
         stopped = true
         connected = false
         captureSoon?.cancel()
         transport.stop()
         transport.delegate = nil
-        if forgetting { try? FileManager.default.removeItem(at: file) }
+        if forgetting {
+            do { try store.erase() } catch {
+                status = .problem(.unwritable)
+                return false
+            }
+        }
         status = .idle
+        return true
     }
 
     // MARK: - scopes
@@ -230,6 +235,7 @@ public final class CloudSync: SyncTransportDelegate {
     private func reconcile() -> Bool {
         guard connected, replica.fetched, !stopped else { return false }
         let now = self.now
+        replica.prune(now: now)
         var queued: [String] = []
         for scope in scopes where scope.isReady {
             // Given something when the app last stopped, with no word that it
@@ -341,9 +347,10 @@ public final class CloudSync: SyncTransportDelegate {
             replica.zoneMade = true
             keep()
         case .zoneLost(.erased):
-            stop(forgetting: true)
-            status = .problem(.erased)
-            stoppedItself?(.erased)
+            // What can't be deleted here is the more pressing to say.
+            let problem: CloudProblem = stop(forgetting: true) ? .erased : .unwritable
+            status = .problem(problem)
+            stoppedItself?(problem)
         case .zoneLost(.encryptionReset):
             restart(rejoining: true)
         case .fetched(let items, let removed):
@@ -437,38 +444,22 @@ public final class CloudSync: SyncTransportDelegate {
 
     private var loaded = false
 
-    private func load() {
-        loaded = true
-        if let data = try? Data(contentsOf: file) {
-            if let read = try? JSONDecoder().decode(Replica.self, from: data) {
-                replica = read
-            } else {
-                Store.quarantine(file)
-            }
-            return
-        }
-        // A device that synced before CKSyncEngine: what each scope was last
-        // given carries on, so a deletion made since isn't taken for an item
-        // never seen. The rest is fetched afresh.
-        guard let legacyFile, let data = try? Data(contentsOf: legacyFile) else { return }
-        struct Legacy: Decodable {
-            var account: String?
-            var bases: [String: [String: SyncEntry]]
-        }
-        if let legacy = try? JSONDecoder().decode(Legacy.self, from: data), let account = legacy.account {
-            replica = Replica(account: account)
-            replica.applied = legacy.bases
+    /// What was kept, read once; when it can't be read, syncing halts rather
+    /// than starting from nothing over it.
+    private func load() -> Bool {
+        do {
+            replica = try store.load() ?? Replica()
+            loaded = true
+            return true
+        } catch {
+            halt()
+            return false
         }
     }
 
     /// The replica on disk, whole, before anything acts on it.
     private func persist() throws {
-        let data = try JSONEncoder().encode(replica)
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: file, options: .atomic)
-        if let legacyFile, FileManager.default.fileExists(atPath: legacyFile.path) {
-            try? FileManager.default.removeItem(at: legacyFile)
-        }
+        try store.commit(replica)
     }
 
     /// The replica on disk; when it can't be, syncing halts (`halt`). Whether

@@ -21,8 +21,8 @@ import Foundation
 //             launch rather than taken for local edits;
 //   blocked   items whose record on the server this build can't read (a
 //             newer Eden's): never overwritten from here;
-//   checkpoint  the sync engine's own state (its change tokens), kept in
-//             the same file as the rest, so it never runs ahead of the items.
+//   checkpoint  the sync engine's own state (its change tokens), committed
+//             with the rest (ReplicaStore), so it never runs ahead of the items.
 //
 // Items live under full keys, "<scope>/<key>" ("app/set:search.engine",
 // "profile-<id>/bm:<id>"), one record each on the server. The merge itself —
@@ -78,6 +78,16 @@ public struct Replica: Codable, Equatable, Sendable {
     /// CloudKit lets a name be.
     public static func recordName(_ full: String) -> String {
         SHA256.hash(data: Data(full.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Deletions past SyncMerge.tombstoneLife forgotten here: they count for
+    /// nothing in the merge, and the server keeps them for good, so a save
+    /// over one later is refused with the server's version and goes again.
+    public mutating func prune(now: Double) {
+        let expired = server.filter { key, item in
+            item.entry.v == nil && item.entry.t < now - SyncMerge.tombstoneLife && outgoing[key] == nil
+        }.keys
+        for key in expired { server[key] = nil }
     }
 
     /// Every full key this device knows of, on the server or waiting to go.

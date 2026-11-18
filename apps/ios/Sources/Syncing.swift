@@ -67,8 +67,10 @@ final class Syncing {
     /// carries on if it is on.
     func start() {
         guard on, cloud == nil, Syncing.possible else { return }
-        let made = CloudSync(transport: CloudKitTransport(), device: device, file: Store.file("cloud-replica.json"),
-                             legacyFile: Store.file("cloud-sync.json"))
+        let made = CloudSync(transport: CloudKitTransport(), device: device,
+                             store: SQLiteReplicaStore(url: Store.file("cloud.sqlite"),
+                                                       formerReplica: Store.file("cloud-replica.json"),
+                                                       formerBases: Store.file("cloud-sync.json")))
         made.changed = { [weak self] status in
             self?.status = status
             switch status {
@@ -100,9 +102,10 @@ final class Syncing {
     func turnOff() {
         browser.settings.syncs = false
         detach()
-        cloud?.stop(forgetting: true)
+        // What it kept couldn't be deleted: said, rather than a clean stop.
+        let forgotten = cloud?.stop(forgetting: true) ?? true
         cloud = nil
-        status = .idle
+        status = forgotten ? .idle : .problem(.unwritable)
         otherTabs = []
     }
 
@@ -153,6 +156,12 @@ final class Syncing {
     }
 
     // MARK: - for Settings
+
+    /// Whether sync stopped, or can't run, with something to say.
+    var hasProblem: Bool {
+        if case .problem = status { return true }
+        return false
+    }
 
     var summary: String {
         switch status {

@@ -164,11 +164,12 @@ final class Sync: ObservableObject {
     /// for your other devices.
     func turnOff() {
         end()
-        cloud?.stop(forgetting: true)
+        // What it kept couldn't be deleted: said, rather than a clean stop.
+        let forgotten = cloud?.stop(forgetting: true) ?? true
         cloud = nil
         Store.settings.set(false, forKey: Sync.onKey)
         on = false
-        status = .idle
+        status = forgotten ? .idle : .problem(.unwritable)
         otherTabs = []
     }
 
@@ -178,8 +179,10 @@ final class Sync: ObservableObject {
             status = Store.testing ? .idle : .problem(.notEntitled)
             return
         }
-        let made = CloudSync(transport: CloudKitTransport(), device: device, file: Store.file("cloud-replica.json"),
-                             legacyFile: Store.file("cloud-sync.json"))
+        let made = CloudSync(transport: CloudKitTransport(), device: device,
+                             store: SQLiteReplicaStore(url: Store.file("cloud.sqlite"),
+                                                       formerReplica: Store.file("cloud-replica.json"),
+                                                       formerBases: Store.file("cloud-sync.json")))
         made.changed = { [weak self] status in
             self?.status = status
             switch status {
@@ -350,6 +353,12 @@ final class Sync: ObservableObject {
     }
 
     // MARK: - for Settings
+
+    /// Whether sync stopped, or can't run, with something to say.
+    var hasProblem: Bool {
+        if case .problem = status { return true }
+        return false
+    }
 
     /// Where sync is, in a line.
     var summary: String {

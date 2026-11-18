@@ -161,6 +161,34 @@ final class SimulatedTransport: SyncTransport {
     }
 }
 
+/// A device's replica kept in SQLite, as in the apps, with a way to make a
+/// commit fail and to see each one land.
+@MainActor
+final class TestStore: ReplicaStore {
+    let kept: SQLiteReplicaStore
+    var failsCommits = false
+    var failsErasing = false
+    /// Every replica committed, newest last.
+    private(set) var commits: [Replica] = []
+
+    init(url: URL, formerBases: URL? = nil) {
+        kept = SQLiteReplicaStore(url: url, formerBases: formerBases)
+    }
+
+    func load() throws -> Replica? { try kept.load() }
+
+    func commit(_ replica: Replica) throws {
+        if failsCommits { throw SQLiteError(code: 13, message: "disk full") }
+        try kept.commit(replica)
+        commits.append(replica)
+    }
+
+    func erase() throws {
+        if failsErasing { throw SQLiteError(code: 5, message: "busy") }
+        try kept.erase()
+    }
+}
+
 /// A device in the tests: one scope ("app") of plain items, its transport,
 /// its sync, and a clock it is told.
 @MainActor
@@ -177,8 +205,9 @@ final class Device: SyncScope {
     /// Run inside `apply`, as an app's own observers would.
     var whileApplying: (() -> Void)?
     /// Where `persist` writes what it holds, through Disk, as the apps' stores do.
-    var store: URL?
+    var file: URL?
     let transport: SimulatedTransport
+    let store: TestStore
     let sync: CloudSync
     let clock = Clock()
     private let owner: (String) -> Bool
@@ -188,9 +217,9 @@ final class Device: SyncScope {
         self.items = items
         owner = owns
         transport = SimulatedTransport(server: server)
+        store = TestStore(url: folder.appendingPathComponent("\(id).sqlite"), formerBases: legacy)
         let clock = self.clock
-        sync = CloudSync(transport: transport, device: id, file: folder.appendingPathComponent("\(id).json"),
-                         legacyFile: legacy, clock: { Date(timeIntervalSince1970: clock.now) })
+        sync = CloudSync(transport: transport, device: id, store: store, clock: { Date(timeIntervalSince1970: clock.now) })
         sync.scopes = [self]
     }
 
@@ -206,9 +235,9 @@ final class Device: SyncScope {
     }
 
     func persist() {
-        guard let store else { return }
+        guard let file else { return }
         let held = items
-        Disk.write(store) { try? JSONEncoder().encode(held) }
+        Disk.write(file) { try? JSONEncoder().encode(held) }
         Disk.drain()
     }
 
