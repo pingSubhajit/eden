@@ -55,3 +55,15 @@ build goes to anyone else. Each item names where it is in the code.
   opens a draft with no recipient until there is one.
 - [ ] **A screenshot** for README.md.
 - [ ] **Homebrew** A cask, once there are releases to point it at.
+
+## Known test failures
+
+Both were already failing in Search, the code Eden began as, and fail the
+same way before and after the move to EdenCore.
+
+- [ ] **History regressions** `packages/EdenCore/Tests/HistoryRegression/run.sh`
+  fails 10 assertions about merging older history records and keeping a
+  site's front door (for example "a titled front door should never move").
+- [ ] **Pointer-driven sidebar tests** 4 tests in `PinDragTests` and
+  `SidebarPressTests` (apps/macos) fail with 8 assertions. Others in those
+  suites fail too if the pointer is used while they run.

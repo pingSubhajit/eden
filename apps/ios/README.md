@@ -12,6 +12,7 @@ app (`packages/`).
 | Signing | Automatic, as Mulberry's |
 | iOS | 27.0 or later, iPhone and iPad |
 | iCloud | CloudKit, container `iCloud.com.subhajit.eden.beta` |
+| Shared code | `packages/EdenCore`, linked as a local package |
 | Handoff | Takes `NSUserActivityTypeBrowsingWeb` and `com.subhajit.eden.beta.browsing`; offers the page it shows as the second |
 
 ## Building

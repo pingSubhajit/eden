@@ -18,9 +18,11 @@ the Mac.
    front is offered to your other devices (`NSUserActivity`), and a page
    handed off from them opens in Eden. Eden for iPhone and iPad takes it,
    and offers the page it shows back.
-2. **A shared core** The parts that aren't the Mac's alone — the session,
-   pins, the sync merge, the blocker's rules, hidden elements, reading
-   mode — in a Swift package both apps build.
+2. **A shared core** *Built.* `packages/EdenCore`, a Swift package both
+   apps build: where things are kept, the address field's sense of what
+   was typed, history, the blocker's rules, the data that syncs and its
+   merge, and the Handoff rules. The session, pins and spaces as a whole,
+   hidden elements and reading mode join it when the iOS app needs them.
 3. **Eden for iOS and iPadOS** Tabs, the address field, pins and spaces,
    private tabs, reading mode, the blocker and hidden elements, bookmarks
    and history, on the shared core. Same bundle id as the Mac

@@ -28,7 +28,7 @@ Fixes and things every browser is expected to do (Tab moving between a form's fi
 - **Small, focused changes.** One thing per pull request, easy to read start to finish.
 - **No new dependencies.** The whole point of this app is staying small; a browser this size doesn't need a package for something Foundation or WebKit already does.
 - **Matches the existing style.** Comments here explain *why*, not *what the next line does* — read a couple of existing files before adding a new one. No force-unwraps on anything that can plausibly fail (a network response, a file read, a keychain lookup).
-- **Builds clean.** `swift build` in `apps/macos` with zero warnings you introduced; for iOS, `xcodebuild` as in `apps/ios/README.md`.
+- **Builds clean.** `swift build` in `apps/macos` with zero warnings you introduced, and `swift test` in `packages/EdenCore` when the shared code changed; for iOS, `xcodebuild` as in `apps/ios/README.md`.
 
 ## What doesn't
 
