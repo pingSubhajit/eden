@@ -17,10 +17,12 @@ struct BrowserTests {
     }
 
     private func browser(session: URL? = nil, settings: Settings? = nil) -> Browser {
-        Browser(history: History(file: "history-\(UUID().uuidString).json", read: { _ in nil }),
-                bookmarks: BookmarkStore(file: folder.appendingPathComponent("bookmarks-\(UUID().uuidString).json")),
-                settings: settings ?? Settings(store: freshDefaults()),
-                sessionFile: session)
+        let defaults = freshDefaults()
+        return Browser(history: History(file: "history-\(UUID().uuidString).json", read: { _ in nil }),
+                       bookmarks: BookmarkStore(file: folder.appendingPathComponent("bookmarks-\(UUID().uuidString).json")),
+                       settings: settings ?? Settings(store: defaults),
+                       library: SpaceLibrary(file: nil, store: defaults), stores: WebsiteStores(settings: defaults),
+                       sessionFile: session)
     }
 
     private func freshDefaults() -> UserDefaults {
@@ -111,9 +113,9 @@ struct BrowserTests {
         browser.newTab(url: c, private: true)
         let session = browser.session
         #expect(session.tabs.map(\.url) == [a.absoluteString, b.absoluteString])
-        #expect(session.active == nil, "the private tab in front is in no session")
-        browser.select(browser.tabs[1])
-        #expect(browser.session.active == 1)
+        #expect(session.active == 1, "the space's tab in front before the private one")
+        browser.select(browser.tabs[0])
+        #expect(browser.session.active == 0)
     }
 
     @Test func theSessionComesBackAtTheNextLaunch() {
@@ -130,17 +132,18 @@ struct BrowserTests {
         #expect(second.activeID == second.tabs[0].id)
     }
 
-    @Test func withAPrivateTabInFrontTheLastTabComesBackInFront() {
+    @Test func withAPrivateTabInFrontTheSpacesTabComesBackInFront() {
         let file = folder.appendingPathComponent("tabs.json")
         let first = browser(session: file)
         first.tabs[0].load(a)
         first.newTab(url: b)
+        first.select(first.tabs[0])
         first.newTab(url: c, private: true)
-        #expect(first.session.active == nil, "a private tab is in no session")
+        #expect(first.session.active == 0, "a private tab is in no session")
         Disk.drain()
         let second = browser(session: file)
         #expect(second.tabs.map(\.url) == [a, b])
-        #expect(second.activeID == second.tabs.last?.id, "never none in front")
+        #expect(second.activeID == second.tabs.first?.id, "the one in front before the private tab")
     }
 
     /// Nothing in Browser makes a tab's page: only showing it does
@@ -156,14 +159,14 @@ struct BrowserTests {
 
     @Test func aRestoredTabLoadsWhenShownAndAPopUpNever() {
         let browser = browser()
-        let restored = Tab(isPrivate: false)
+        let restored = Tab(owner: .space(Space.firstID))
         restored.restore(url: a, title: "A")
         #expect(restored.isPending, "a restored tab loads its address once shown")
         let opener = browser.newTab(url: b)
         let popUp = browser.adopt(configuration: Tab.configuration(private: false), request: URLRequest(url: c), from: opener)
         #expect(popUp?.url == c, "a pop-up shows the address it was opened at")
         #expect(popUp?.isPending == false, "WebKit loads a pop-up's request itself; it isn't loaded again")
-        let later = Tab(isPrivate: false)
+        let later = Tab(owner: .space(Space.firstID))
         later.load(c)
         #expect(later.isPending, "an address asked for before the page is made waits for it")
     }
@@ -204,7 +207,8 @@ struct HidingTests {
         let browser = Browser(history: History(file: "history-\(UUID().uuidString).json", read: { _ in nil }),
                               bookmarks: BookmarkStore(file: folder.appendingPathComponent("bookmarks.json")),
                               settings: Settings(store: UserDefaults(suiteName: name)!), curtain: curtain,
-                              sessionFile: nil)
+                              library: SpaceLibrary(file: nil, store: UserDefaults(suiteName: name)!),
+                              stores: WebsiteStores(settings: UserDefaults(suiteName: name)!), sessionFile: nil)
         return (browser, curtain)
     }
 
@@ -306,7 +310,8 @@ struct SuggestionsTests {
                        bookmarks: BookmarkStore(file: FileManager.default.temporaryDirectory
                         .appendingPathComponent("bookmarks-\(UUID().uuidString).json")),
                        settings: Settings(store: UserDefaults(suiteName: name)!),
-                       sessionFile: nil)
+                       library: SpaceLibrary(file: nil, store: UserDefaults(suiteName: name)!),
+                       stores: WebsiteStores(settings: UserDefaults(suiteName: name)!), sessionFile: nil)
     }
 
     @Test func anAddressGoesFirst() {

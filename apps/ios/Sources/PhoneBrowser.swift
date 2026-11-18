@@ -63,7 +63,7 @@ struct PhoneBrowser: View {
                     showingPrivate = tab?.isPrivate ?? false
                     showingTabs = true
                 } label: {
-                    TabCount(count: (tab?.isPrivate ?? false) ? browser.privateTabs.count : browser.ordinaryTabs.count)
+                    TabCount(count: (tab?.isPrivate ?? false) ? browser.privateTabs.count : browser.spaceTabs.count)
                 }
                 .accessibilityIdentifier("tabs")
                 .accessibilityLabel("Tabs")

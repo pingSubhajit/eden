@@ -161,6 +161,7 @@ struct BrowserMenu: View {
     let browser: Browser
     let tab: Tab?
     @Binding var sheet: BrowserSheet?
+    @State private var renaming: Tab?
 
     var body: some View {
         Menu {
@@ -184,6 +185,12 @@ struct BrowserMenu: View {
                 }
                 Divider()
             }
+            if let tab, browser.pinDef(of: tab) != nil {
+                Menu("Pin", systemImage: "pin") { PinActions(browser: browser, tab: tab, renaming: $renaming) }
+                    .accessibilityIdentifier("pin-menu")
+            } else if let tab, browser.canPin(tab) {
+                PinActions(browser: browser, tab: tab, renaming: $renaming)
+            }
             Button("New Tab", systemImage: "plus.square") { browser.newTab() }
             Button("New Private Tab", systemImage: "eye.slash") { browser.newTab(private: true) }
             Divider()
@@ -194,6 +201,7 @@ struct BrowserMenu: View {
             Label("More", systemImage: "ellipsis.circle")
         }
         .accessibilityIdentifier("menu")
+        .pinRenaming($renaming, browser: browser)
     }
 }
 

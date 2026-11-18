@@ -25,7 +25,7 @@ enum Suggestions {
         // A page already open in another tab: switching to it beats opening
         // it twice. Not the tab in front, which is where you already are.
         let lowered = text.lowercased()
-        for tab in browser.tabs where !tab.isPrivate && tab.id != browser.activeID {
+        for tab in browser.spaceTabs where tab.id != browser.activeID {
             guard let url = tab.url, Continuity.page(url) != nil else { continue }
             let haystack = (tab.title + " " + url.absoluteString).lowercased()
             if haystack.contains(lowered) {

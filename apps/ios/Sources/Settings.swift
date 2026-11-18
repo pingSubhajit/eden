@@ -54,6 +54,39 @@ final class Settings {
         didSet { store.set(syncs, forKey: Keys.syncs) }
     }
 
+    /// Separate sets of tabs, each with its own name, icon and sign-ins
+    /// (Spaces.swift). Off unless turned on, as on the Mac.
+    var usesSpaces: Bool {
+        didSet {
+            store.set(usesSpaces, forKey: Keys.usesSpaces)
+            if usesSpaces != oldValue { changed?() }
+        }
+    }
+
+    /// Pins kept as rows under the squares, as the Mac's Pinned rows. Off
+    /// unless turned on.
+    var listsPins: Bool {
+        didSet {
+            store.set(listsPins, forKey: Keys.listsPins)
+            if listsPins != oldValue { changed?() }
+        }
+    }
+
+    /// A pin goes back to the page it was pinned at when it is closed, and
+    /// when Eden opens again, rather than staying wherever it was taken. On
+    /// unless turned off, as on the Mac.
+    var pinsGoHome: Bool {
+        didSet {
+            store.set(pinsGoHome, forKey: Keys.pinsGoHome)
+            if pinsGoHome != oldValue { changed?() }
+        }
+    }
+
+    /// The space in front when Eden was left: this device's alone.
+    var currentSpace: UUID {
+        didSet { store.set(currentSpace.uuidString, forKey: Keys.currentSpace) }
+    }
+
     /// Told when a setting that syncs changes, here or from another device.
     @ObservationIgnored var changed: (() -> Void)?
     @ObservationIgnored private let store: UserDefaults
@@ -65,6 +98,11 @@ final class Settings {
         static let handsOff = "handoff"
         static let syncs = "sync.icloud"
         static let readsTwins = "reader.twins"
+        static let usesSpaces = "spaces"
+        static let listsPins = "pins.list"
+        static let pinsGoHome = "pins.home"
+        static let currentSpace = "space.current"
+        static let deletingSpaces = "spaces.deleting"
     }
 
     init(store: UserDefaults = Store.settings) {
@@ -75,6 +113,10 @@ final class Settings {
         handsOff = store.bool(forKey: Keys.handsOff)
         syncs = store.object(forKey: Keys.syncs) as? Bool ?? true
         readsTwins = store.bool(forKey: Keys.readsTwins)
+        usesSpaces = store.bool(forKey: Keys.usesSpaces)
+        listsPins = store.bool(forKey: Keys.listsPins)
+        pinsGoHome = store.object(forKey: Keys.pinsGoHome) as? Bool ?? true
+        currentSpace = store.string(forKey: Keys.currentSpace).flatMap(UUID.init(uuidString:)) ?? Space.firstID
     }
 
     /// The search address words go to, with %s where they go: the Mac's
@@ -96,6 +138,13 @@ final class Settings {
         out["set:" + Keys.customEngine] = SyncMerge.text(customEngine)
         out["set:" + Keys.blocks] = SyncMerge.text(blocks)
         return out
+    }
+
+    /// Spaces being deleted: written down before anything goes, so a launch
+    /// after a crash finishes the job (Browser.deleteSpace).
+    var deletingSpaces: Set<UUID> {
+        get { Set((store.stringArray(forKey: Keys.deletingSpaces) ?? []).compactMap(UUID.init(uuidString:))) }
+        set { store.set(newValue.map(\.uuidString).sorted(), forKey: Keys.deletingSpaces) }
     }
 
     /// The settings as your devices now agree on them.

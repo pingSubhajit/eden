@@ -38,6 +38,14 @@ struct StartPage: View {
                         .accessibilityIdentifier("private-note")
                 }
 
+                // The space's pins, a tap away; never in a private tab.
+                if tab?.isPrivate != true, !browser.shownPins.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Pins").font(.headline)
+                        PinStrip(browser: browser, container: "start")
+                    }
+                }
+
                 if !browser.bookmarks.items.isEmpty {
                     section("Bookmarks", sites: browser.bookmarks.items.compactMap { mark in
                         mark.address.map { (mark.title, $0) }

@@ -154,6 +154,37 @@ final class EdenUITests: XCTestCase {
         waitForExpectations(timeout: timeout)
     }
 
+    /// A switch in Settings turned on.
+    private func turnOn(_ identifier: String) {
+        openMenu("Settings")
+        let toggle = app.switches[identifier]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        if toggle.value as? String != "1" { toggle.switches.firstMatch.tap() }
+        expectation(for: NSPredicate(format: "value == '1'"), evaluatedWith: toggle)
+        waitForExpectations(timeout: 5)
+        app.buttons["Done"].firstMatch.tap()
+    }
+
+    /// Where the space in front's pins and switcher are: the sidebar, or the
+    /// tab overview, opened.
+    private func showTabs() {
+        guard overview else { return }
+        app.buttons["tabs"].tap()
+        XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5))
+    }
+
+    private func hideTabs() {
+        let done = app.buttons["tabs-done"]
+        guard done.exists else { return }
+        done.tap()
+    }
+
+    /// The space in front's pins, wherever they are shown.
+    private var pinTiles: XCUIElementQuery {
+        let shown = app.buttons["tabs-done"].exists ? "tabs-pin-" : "sidebar-pin-"
+        return app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", shown))
+    }
+
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = name
@@ -359,6 +390,86 @@ final class EdenUITests: XCTestCase {
         XCTAssertTrue(offer.label.contains("BOTTOM-TEXT"), offer.label)
         app.buttons["hide-cancel"].tap()
         app.buttons["hide-done"].tap()
+    }
+
+    /// Spaces turned on, one made, each with its own tabs, and deleted.
+    func testEachSpaceKeepsItsOwnTabs() throws {
+        turnOn("uses-spaces")
+        try open("page-one.html", showing: "PAGE-ONE")
+        showTabs()
+        app.buttons["space-switcher"].tap()
+        app.buttons["space-new"].tap()
+        let name = app.textFields["space-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("Work")
+        app.buttons["space-save"].tap()
+        XCTAssertTrue(app.buttons["space-switcher"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["space-switcher"].label, "Space: Work")
+        shot("work")
+        hideTabs()
+        try open("page-two.html", showing: "PAGE-TWO")
+
+        // Back in Personal: its tab, as it was left.
+        showTabs()
+        app.buttons["space-switcher"].tap()
+        app.buttons["space-option-00000000-0000-0000-0000-000000000001"].tap()
+        hideTabs()
+        expectPage("PAGE-ONE")
+
+        // Work deleted, with its tab.
+        showTabs()
+        app.buttons["space-switcher"].tap()
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'space-option-'"))
+        expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: rows)
+        waitForExpectations(timeout: 5)
+        rows.element(boundBy: 1).swipeLeft()
+        labelled("Delete").tap()
+        let confirm = app.buttons["space-delete-confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: rows)
+        waitForExpectations(timeout: 5)
+        app.buttons["Done"].firstMatch.tap()
+        XCTAssertEqual(app.buttons["space-switcher"].label, "Space: Personal")
+        hideTabs()
+        expectPage("PAGE-ONE")
+    }
+
+    /// A page pinned, taken elsewhere and brought home, and unpinned.
+    func testAPinGoesHomeAndUnpinsKeepingThePage() throws {
+        try open("page-one.html", showing: "PAGE-ONE")
+        openMenu("Pin Tab")
+        showTabs()
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: pinTiles)
+        waitForExpectations(timeout: 5)
+        shot("pinned")
+        hideTabs()
+        try open("page-two.html", showing: "PAGE-TWO")
+        openMenu("Pin")
+        let home = labelled("Go Home")
+        XCTAssertTrue(home.waitForExistence(timeout: 5))
+        home.tap()
+        expectPage("PAGE-ONE")
+        // Closed, it rests: still a pin, its page let go.
+        openMenu("Pin")
+        let close = labelled("Close Pin")
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        close.tap()
+        showTabs()
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: pinTiles)
+        waitForExpectations(timeout: 5)
+        pinTiles.firstMatch.tap()
+        hideTabs()
+        expectPage("PAGE-ONE")
+        openMenu("Pin")
+        let unpin = labelled("Unpin")
+        XCTAssertTrue(unpin.waitForExistence(timeout: 5))
+        unpin.tap()
+        expectPage("PAGE-ONE")
+        showTabs()
+        XCTAssertEqual(pinTiles.count, 0)
+        hideTabs()
     }
 
     func testHistoryKeepsPlacesAndForgetsThem() throws {

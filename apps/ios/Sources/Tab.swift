@@ -10,7 +10,14 @@ import WebKit
 @Observable
 final class Tab: NSObject, Identifiable {
     let id = UUID()
-    let isPrivate: Bool
+    /// Whose it is, for as long as it lives (Spaces.swift).
+    let owner: TabOwner
+    var isPrivate: Bool { owner == .private }
+    /// The pin it is, if it is one (Pins.swift).
+    var pin: UUID?
+    /// A pin's tab made to stand at its home, never shown since: nothing of
+    /// yours is in it, so a pin taken away elsewhere takes it too.
+    @ObservationIgnored var restsAtHome = false
 
     /// Where the tab is, or is going: the page's address once it has one, and
     /// the address a restored tab will load when it is first shown.
@@ -52,13 +59,15 @@ final class Tab: NSObject, Identifiable {
     /// Counts the pages committed to, for `shown`.
     @ObservationIgnored private var commits = 0
 
-    /// A new tab. `configuration` is WebKit's own when a page opens a window
-    /// (Browser.adopt), so the window keeps its opener, and `own` the opener's
-    /// own changes to what is hidden, which a private window shares.
-    init(isPrivate: Bool, configuration: WKWebViewConfiguration? = nil, sharing own: PrivateHiding? = nil) {
-        self.isPrivate = isPrivate
-        self.configuration = configuration ?? Tab.configuration(private: isPrivate)
-        privateHiding = isPrivate ? own ?? PrivateHiding() : nil
+    /// A new tab. `configuration`: made with its space's store (Browser),
+    /// or WebKit's own when a page opens a window (Browser.adopt), so the
+    /// window keeps its opener; Personal's or a private one's when not given.
+    /// `own`: the opener's own changes to what is hidden, which a private
+    /// window shares.
+    init(owner: TabOwner, configuration: WKWebViewConfiguration? = nil, sharing own: PrivateHiding? = nil) {
+        self.owner = owner
+        self.configuration = configuration ?? Tab.configuration(private: owner == .private)
+        privateHiding = owner == .private ? own ?? PrivateHiding() : nil
         super.init()
     }
 
@@ -73,8 +82,13 @@ final class Tab: NSObject, Identifiable {
     /// What every page is made with: Eden's own name in the user agent as
     /// Safari's version, and for a private tab a store that keeps nothing.
     static func configuration(private isPrivate: Bool) -> WKWebViewConfiguration {
+        configuration(store: isPrivate ? .nonPersistent() : ordinaryStore)
+    }
+
+    /// The same, with `store`: a space's own, say (WebsiteStores).
+    static func configuration(store: WKWebsiteDataStore) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = isPrivate ? .nonPersistent() : ordinaryStore
+        configuration.websiteDataStore = store
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = .audio
         configuration.applicationNameForUserAgent = "Version/\(safariVersion) Mobile/15E148 Safari/604.1"
@@ -91,6 +105,7 @@ final class Tab: NSObject, Identifiable {
     /// tabs coming back costs nothing until each is looked at.
     var webView: WKWebView {
         if let built { return built }
+        restsAtHome = false
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.allowsBackForwardNavigationGestures = true
         view.allowsLinkPreview = true
@@ -204,6 +219,8 @@ final class Tab: NSObject, Identifiable {
 
     /// The page and everything it keeps let go, as the tab closes.
     func close() {
+        // Nothing it is still asked does anything to the browser.
+        browser = nil
         watching.forEach { $0.invalidate() }
         watching = []
         built?.stopLoading()

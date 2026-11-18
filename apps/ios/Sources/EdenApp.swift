@@ -41,16 +41,26 @@ struct EdenApp: App {
     /// settings from an earlier run. Never the world somebody uses.
     private static func startFreshIfAsked() {
         guard Store.testing, ProcessInfo.processInfo.environment["EDEN_FRESH"] == "1" else { return }
+        // The stores the last run's spaces had, found before the settings
+        // that name them go.
+        let spaceStores = WebsiteStores.probeIdentifiers(in: Store.settings)
         try? FileManager.default.removeItem(at: Store.folder)
         if let suite = Store.settingsSuite { UserDefaults.standard.removePersistentDomain(forName: suite) }
-        // The test world's own website store, never WebKit's default one
-        // (Tab.ordinaryStore): its cookies and site data gone before any page
-        // of this run is made — TabContent shows none until it is done, so a
-        // page typed, or handed over, waits for it.
+        // The test world's own website stores, never WebKit's default one
+        // (Tab.ordinaryStore): their cookies and site data gone before any
+        // page of this run is made — TabContent shows none until it is done,
+        // so a page typed, or handed over, waits for it.
         Clearing.shared.begin()
         let everything = WKWebsiteDataStore.allWebsiteDataTypes()
         Tab.ordinaryStore.removeData(ofTypes: everything, modifiedSince: .distantPast) {
             Clearing.shared.finish()
+        }
+        for identifier in spaceStores {
+            Clearing.shared.begin()
+            Task { @MainActor in
+                try? await WKWebsiteDataStore.remove(forIdentifier: identifier)
+                Clearing.shared.finish()
+            }
         }
     }
 }
@@ -60,9 +70,10 @@ struct EdenApp: App {
 @Observable
 final class Clearing {
     static let shared = Clearing()
-    private(set) var done = true
-    func begin() { done = false }
-    func finish() { done = true }
+    private var waiting = 0
+    var done: Bool { waiting == 0 }
+    func begin() { waiting += 1 }
+    func finish() { waiting = max(0, waiting - 1) }
 }
 
 /// The two kinds of page another device can hand over: the system's own,

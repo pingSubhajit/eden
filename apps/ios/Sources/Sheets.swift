@@ -155,6 +155,22 @@ struct SettingsSheet: View {
                     Text("Stopped before they load, as on the Mac.")
                 }
                 Section {
+                    Toggle("Spaces", isOn: $settings.usesSpaces)
+                        .accessibilityIdentifier("uses-spaces")
+                        .onChange(of: settings.usesSpaces) { _, on in
+                            if !on { browser.leaveSpaces() }
+                            browser.pinsChanged()
+                        }
+                    Toggle("Pinned Rows", isOn: $settings.listsPins)
+                        .accessibilityIdentifier("lists-pins")
+                    Toggle("Return Pins Home", isOn: $settings.pinsGoHome)
+                        .accessibilityIdentifier("pins-go-home")
+                } header: {
+                    Text("Spaces & Pins")
+                } footer: {
+                    Text("Spaces keep separate sets of tabs, each signed in where Personal is or on its own; pins every space shows appear in each. Pinned rows keep pins as rows under the squares. Pins return home goes back to a pin's own page when it is closed, and when Eden opens.")
+                }
+                Section {
                     Toggle("Read Sites' Markdown Copies", isOn: $settings.readsTwins)
                         .accessibilityIdentifier("reads-twins")
                 } header: {

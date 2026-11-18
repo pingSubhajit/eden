@@ -26,8 +26,14 @@ struct PadBrowser: View {
 
     private var sidebar: some View {
         List {
+            if browser.settings.usesSpaces {
+                Section { SpaceSwitcher(browser: browser) }
+            }
+            if !browser.shownPins.isEmpty {
+                Section("Pinned") { PinStrip(browser: browser, container: "sidebar") }
+            }
             Section("Tabs") {
-                ForEach(browser.ordinaryTabs) { row($0) }
+                ForEach(browser.looseTabs) { row($0) }
             }
             if !browser.privateTabs.isEmpty {
                 Section("Private") {

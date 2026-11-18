@@ -2,19 +2,30 @@ import EdenCore
 import SwiftUI
 
 /// Every tab, as cards, ordinary and private apart: pick one, close one, or
-/// open another. iPhone's way to see its tabs; iPad has its sidebar.
+/// open another — and on the ordinary side the space in front, to switch,
+/// and its pins above its tabs. iPhone's way to see its tabs; iPad has its
+/// sidebar.
 struct TabOverview: View {
     let browser: Browser
     @Binding var showingPrivate: Bool
     let done: () -> Void
 
-    private var shown: [Tab] { showingPrivate ? browser.privateTabs : browser.ordinaryTabs }
+    private var shown: [Tab] { showingPrivate ? browser.privateTabs : browser.looseTabs }
+    private var pins: Bool { !showingPrivate && !browser.shownPins.isEmpty }
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 14)]
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                if shown.isEmpty {
+                if !showingPrivate {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if browser.settings.usesSpaces { SpaceSwitcher(browser: browser) }
+                        if pins { PinStrip(browser: browser, container: "tabs", picked: done) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding([.horizontal, .top], 16)
+                }
+                if shown.isEmpty && !pins {
                     ContentUnavailableView(showingPrivate ? "No Private Tabs" : "No Tabs",
                                            systemImage: showingPrivate ? "eye.slash" : "square.on.square",
                                            description: Text("Open one with the + button."))
