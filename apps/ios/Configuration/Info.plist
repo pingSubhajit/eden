@@ -24,9 +24,11 @@
 	<!-- A browser goes wherever it is pointed, http included. -->
 	<key>NSAppTransportSecurity</key>
 	<dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+	<!-- One window: every window would show the same tabs, and a tab's page
+	     can only be in one of them. Windows of their own come later. -->
 	<key>UIApplicationSceneManifest</key>
 	<dict>
-		<key>UIApplicationSupportsMultipleScenes</key><true/>
+		<key>UIApplicationSupportsMultipleScenes</key><false/>
 	</dict>
 	<key>UILaunchScreen</key><dict/>
 	<key>UISupportedInterfaceOrientations</key>
