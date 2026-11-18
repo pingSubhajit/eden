@@ -18,6 +18,22 @@ final class Tab: NSObject, Identifiable {
     /// A pin's tab made to stand at its home, never shown since: nothing of
     /// yours is in it, so a pin taken away elsewhere takes it too.
     @ObservationIgnored var restsAtHome = false
+    /// How far down the page is read, nought to one, as your other devices
+    /// are told (Syncing).
+    @ObservationIgnored private(set) var readFraction: Double = 0
+    /// A page carried on from another device: how it is to be shown once it
+    /// has come in (Elsewhere).
+    @ObservationIgnored var arrival: Arrival?
+
+    /// How a page from another device was left there.
+    struct Arrival: Equatable {
+        /// The page it is for: another that comes in instead takes none of it.
+        var page: URL
+        var scroll: Double?
+        var reading: Bool
+        /// The device's name, to say where it came from.
+        var from: String
+    }
 
     /// Where the tab is, or is going: the page's address once it has one, and
     /// the address a restored tab will load when it is first shown.
@@ -234,6 +250,9 @@ final class Tab: NSObject, Identifiable {
 
     private func watch(_ view: WKWebView) {
         watching = [
+            view.scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                MainActor.assumeIsolated { self?.scrolled(scroll) }
+            },
             view.observe(\.title, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { self?.titleChanged(view.title ?? "") }
             },
@@ -253,6 +272,50 @@ final class Tab: NSObject, Identifiable {
                 MainActor.assumeIsolated { self?.canGoForward = view.canGoForward }
             },
         ]
+    }
+
+    /// Where the page is scrolled to, as a fraction of how far it goes: in
+    /// hundredths, so a scroll changes it only now and then.
+    private func scrolled(_ scroll: UIScrollView) {
+        let range = scroll.contentSize.height + scroll.contentInset.bottom - scroll.bounds.height
+        let fraction = range > 0 ? (min(1, max(0, scroll.contentOffset.y / range)) * 100).rounded() / 100 : 0
+        if fraction != readFraction { readFraction = fraction }
+    }
+
+    /// A page from another device, shown as it was left there: now, when
+    /// this tab is already showing it, else once it has come in.
+    func carry(on arrival: Arrival) {
+        guard let built, !built.isLoading, url.map(History.identity(for:)) == History.identity(for: arrival.page) else {
+            self.arrival = arrival
+            return
+        }
+        let page = generation
+        Task { await arrive(arrival, on: page) }
+    }
+
+    /// Its article, if it was being read so and isn't yet, then as far
+    /// down, and said — only while `page` (Tab.generation) is still the one
+    /// showing.
+    private func arrive(_ arrival: Arrival, on page: Int) async {
+        guard generation == page else { return }
+        if arrival.reading, !isReading, let browser {
+            _ = await toggleReading(twins: browser.settings.readsTwins)
+            // Somewhere else by now: nothing to carry on with, nor to say.
+            guard generation == page else { return }
+        }
+        guard let scroll = arrival.scroll else {
+            browser?.announce("Continued from \(arrival.from)")
+            return
+        }
+        await scrollTo(scroll, from: arrival.from)
+    }
+
+    /// As far down as it was read there, and said.
+    private func scrollTo(_ scroll: Double, from device: String) async {
+        guard let built else { return }
+        let script = "window.scrollTo(0, \(scroll) * Math.max(0, document.documentElement.scrollHeight - window.innerHeight))"
+        _ = try? await built.evaluateJavaScript(script, contentWorld: .page)
+        browser?.announce(scroll > 0 ? "Continued from \(device) at \(Int((scroll * 100).rounded()))%" : "Continued from \(device)")
     }
 
     private func titleChanged(_ title: String) {
@@ -312,6 +375,15 @@ extension Tab: WKNavigationDelegate {
             browser?.history.record(url, title: webView.title ?? "")
         }
         browser?.tabChanged(self)
+        if let arrival {
+            self.arrival = nil
+            // Only the page it was for: one gone to instead, or a load given
+            // up for another, takes none of it.
+            // Bound to this page as it finished, should another start before
+            // it is carried on with.
+            let page = generation
+            if History.identity(for: url) == History.identity(for: arrival.page) { Task { await arrive(arrival, on: page) } }
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

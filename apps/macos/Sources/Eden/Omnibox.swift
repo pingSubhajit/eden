@@ -221,6 +221,9 @@ struct Omnibox: View {
                         // Words you searched this site for before: yours, not
                         // the site's, so a mark of their own.
                         symbol("clock.arrow.circlepath")
+                    case .elsewhere:
+                        // Open on another of your devices: that device.
+                        symbol(offer.elsewhere?.kind == .mac ? "laptopcomputer" : (offer.elsewhere?.kind == .ipad ? "ipad" : "iphone"))
                     default:
                         // A place — open, kept or visited — wears its site's
                         // icon, as it does in History and the bookmarks bar:
@@ -251,6 +254,12 @@ struct Omnibox: View {
                     Text(key)
                         .font(.system(size: 12))
                         .foregroundStyle(Palette.muted)
+                }
+                if let elsewhere = offer.elsewhere {
+                    Text("On \(elsewhere.deviceName)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.muted)
+                        .lineLimit(1)
                 }
                 if offer.kind == .bookmark {
                     // Kept by you, not only visited: the bookmark's mark,

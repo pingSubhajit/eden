@@ -33,6 +33,9 @@ enum Suggestions {
             }
         }
 
+        // A page open on another of your devices, and not here.
+        for offer in Elsewhere.matching(text, in: browser.elsewhere, openHere: browser.openHere) { add(Suggestion(offer)) }
+
         for bookmark in browser.bookmarks.matching(text) {
             guard let url = bookmark.address else { continue }
             add(Suggestion(key: Address.editable(url), title: bookmark.title, url: url, kind: .bookmark))

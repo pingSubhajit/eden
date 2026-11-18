@@ -110,6 +110,16 @@ final class Sync: ObservableObject {
     /// Your other devices' open tabs, newest first, for the History menu.
     @Published private(set) var otherTabs: [DeviceTabs] = []
 
+    /// Your other devices' open tabs, as offered here (Elsewhere): none while
+    /// sync is off.
+    var elsewhere: [DeviceTabs] { on ? otherTabs : [] }
+
+    /// When Eden was last in use on this Mac, to the minute: what the other
+    /// devices read to offer carrying on from it (DeviceTabs.seen).
+    static var seen: Double?
+
+    static func minute(_ time: Double) -> Double { (time / 60).rounded(.down) * 60 }
+
     nonisolated static let onKey = "sync.icloud"
     nonisolated static let deviceKey = "sync.device"
     /// What sync does, for Console (subsystem com.subhajit.eden.beta,
@@ -206,6 +216,12 @@ final class Sync: ObservableObject {
         }.store(in: &bag)
         NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.refresh() }.store(in: &bag)
+        // Put down: when, said now, so another device can offer to carry on.
+        NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)
+            .sink { [weak self] _ in
+                Sync.seen = Sync.minute(Date().timeIntervalSince1970)
+                self?.cloud?.localChange()
+            }.store(in: &bag)
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { if NSApp.isActive { self?.refresh() } }
         }
@@ -272,23 +288,51 @@ final class Sync: ObservableObject {
     /// the same.
     private static var offered: DeviceTabs?
 
-    /// This Mac's open tabs as its other devices see them. Stamped afresh
-    /// only when they changed, or once a day so they aren't taken for a Mac
-    /// gone quiet: otherwise every pass would save them.
+    /// This Mac's open tabs as its other devices see them: each page with
+    /// its space, how far down it is read and whether as an article; the one
+    /// in front; when Eden was last in use here; and what was closed a
+    /// moment ago. Stamped afresh only when that changed, or once a day so
+    /// they aren't taken for a Mac gone quiet: otherwise every pass would
+    /// save them.
     static func openTabs(device: String, agreed: String?) -> DeviceTabs {
-        var seen = Set<String>()
+        var listed: [String: Int] = [:]
         var pages: [DeviceTabs.Page] = []
-        for browser in Browsers.all where browser.profileID == Profile.personalID && !browser.isPopup {
-            for tab in browser.tabs + browser.parkedTabs where !tab.shy && !tab.bench {
-                guard let url = Continuity.page(tab.restAddress), seen.insert(url.absoluteString).inserted else { continue }
-                let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
-                pages.append(DeviceTabs.Page(url: url.absoluteString, title: title))
+        var front: Int?
+        let windows = Browsers.all.filter { $0.profileID == Profile.personalID && !$0.isPopup }
+        for browser in windows {
+            let rows = [(browser.spaceID, browser.tabs)] + browser.parked.map { ($0.key, $0.value.tabs) }
+            for (space, row) in rows {
+                for tab in row where !tab.shy && !tab.bench {
+                    guard let url = Continuity.page(tab.restAddress) else { continue }
+                    let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
+                    let page = DeviceTabs.Page(url: url.absoluteString, title: title, space: space,
+                                               scroll: DeviceTabs.Page.scroll(tab.reading), reading: tab.reader ? true : nil)
+                    let inFront = browser === Browsers.front && space == browser.spaceID && tab.id == browser.activeID
+                    // Each page once: the tab in front, when it is one of two.
+                    if let at = listed[page.url] {
+                        if inFront {
+                            pages[at] = page
+                            front = at
+                        }
+                        continue
+                    }
+                    guard pages.count < 200 else { continue }
+                    listed[page.url] = pages.count
+                    if inFront { front = pages.count }
+                    pages.append(page)
+                }
             }
         }
         let now = Date().timeIntervalSince1970
-        var mine = DeviceTabs(device: device, name: macName, kind: .mac, tabs: Array(pages.prefix(200)), at: now)
+        if NSApp.isActive { seen = minute(now) }
+        let ghosts = windows.flatMap(\.ghosts).map { ghost in
+            DeviceTabs.Closed(url: ghost.url.absoluteString, title: ghost.title, space: ghost.space, at: ghost.at.timeIntervalSince1970)
+        }
+        let closed = DeviceTabs.recent(ghosts.filter { Continuity.page(URL(string: $0.url)) != nil }.sorted { $0.at < $1.at }, now: now)
+        var mine = DeviceTabs(device: device, name: macName, kind: .mac, tabs: pages, at: now,
+                              front: front, seen: seen, closed: closed.isEmpty ? nil : closed)
         for before in [agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }, offered].compactMap({ $0 })
-            where before.tabs == mine.tabs && before.name == mine.name && now - before.at < 24 * 60 * 60 {
+            where before.says(mine) && now - before.at < 24 * 60 * 60 {
             mine.at = before.at
             break
         }
@@ -447,27 +491,48 @@ private final class ProfileScope: SyncScope {
 }
 
 /// History › Tabs on Other Devices: each device with tabs open, newest
-/// first, a submenu of its tabs. Nothing while sync is off or no other
-/// device has any.
+/// first, a submenu of its tabs — under the spaces they are open in, while
+/// spaces are on. Choosing one brings it here: to its tab if it is open
+/// here already, else in its own space, as far down as it was read.
+/// Nothing while sync is off or no other device has any.
 struct OtherTabsMenu: View {
     @ObservedObject private var sync = Sync.shared
     let browser: Browser
 
     var body: some View {
-        if sync.on, !sync.otherTabs.isEmpty {
+        if sync.elsewhere.contains(where: \.hasTabs) {
             Section("Tabs on Other Devices") {
-                ForEach(sync.otherTabs, id: \.device) { device in
+                ForEach(sync.elsewhere.filter(\.hasTabs), id: \.device) { device in
                     Menu(device.name) {
-                        ForEach(Array(device.tabs.prefix(60).enumerated()), id: \.offset) { _, page in
-                            if let url = URL(string: page.url) {
-                                Button {
-                                    browser.open(url, foreground: true)
-                                } label: {
-                                    MenuLine(title: page.title.isEmpty ? Address.pretty(url) : page.title, url: url)
-                                }
+                        ForEach(Array(groups(device).enumerated()), id: \.offset) { _, group in
+                            if let title = group.title {
+                                Section(title) { pages(group.pages, of: device) }
+                            } else {
+                                pages(group.pages, of: device)
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// A device's pages under this window's spaces, while spaces are on.
+    private func groups(_ device: DeviceTabs) -> [(title: String?, pages: [DeviceTabs.Page])] {
+        let pages = Array(device.tabs.prefix(60))
+        guard browser.prefs.usesSpaces else { return [(nil, pages)] }
+        return Elsewhere.bySpace(pages, order: browser.spaces.map(\.id)).map { group in
+            (group.space.flatMap { id in browser.spaces.first { $0.id == id }?.name }, group.pages)
+        }
+    }
+
+    @ViewBuilder private func pages(_ pages: [DeviceTabs.Page], of device: DeviceTabs) -> some View {
+        ForEach(Array(pages.enumerated()), id: \.offset) { _, page in
+            if let url = URL(string: page.url) {
+                Button {
+                    browser.open(Elsewhere.Offer(device: device, page: page))
+                } label: {
+                    MenuLine(title: page.title.isEmpty ? Address.pretty(url) : page.title, url: url)
                 }
             }
         }

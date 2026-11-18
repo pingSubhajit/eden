@@ -47,6 +47,10 @@ final class Typing {
             browser.select(tab)
             return
         }
+        if let elsewhere = offer.elsewhere {
+            browser.open(elsewhere, in: browser.active?.url == nil ? browser.active : nil)
+            return
+        }
         if let tab = browser.active {
             tab.load(offer.url)
             browser.select(tab)

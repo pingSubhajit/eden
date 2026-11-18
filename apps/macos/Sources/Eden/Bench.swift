@@ -1491,6 +1491,7 @@ final class Bench {
                 case .searched: "searched"
                 case .search: "search"
                 case .open: "open"
+                case .elsewhere: "elsewhere"
                 case .visited: "visited"
                 case .bookmark: "bookmark"
                 case .known: "known"

@@ -2480,6 +2480,8 @@ final class Browser: NSObject, ObservableObject {
         /// The tab it was, so a pair closed together finds its other half
         /// again when both come back (see reopen(batch:)).
         var was: Tab.ID? = nil
+        /// The space it was closed in, for your other devices (Sync).
+        var space: UUID? = nil
         /// The bulk close it went with: one ⇧⌘T brings back the whole of it.
         var batch: UUID? = nil
         var kind: CloseKind = .clear
@@ -4923,6 +4925,9 @@ final class Browser: NSObject, ObservableObject {
                             partner: partner, onLeft: onLeft, was: tab.id, batch: batching?.id,
                             kind: batching?.kind ?? .clear, muted: tab.muted,
                             keepsake: tab.keepsake.map(Keepsake.init)))
+        ghosts[ghosts.count - 1].space = spaceID
+        // Your other devices offer it for a few minutes (Sync).
+        NotificationCenter.default.post(name: Sync.tabsChanged, object: nil)
         // ⌘Z's to undo, while it stays the last thing done. The row is read
         // once the close is through: a tab in front still to be chosen, a
         // bulk close's other tabs still to go.
@@ -6844,7 +6849,7 @@ final class Browser: NSObject, ObservableObject {
         }
 
         guard !typed.trimmingCharacters(in: .whitespaces).isEmpty else {
-            offers = launching && prefs.recentInNewTab ? recentPlaces() : []
+            offers = launching ? elsewhereOffers() + (prefs.recentInNewTab ? recentPlaces() : []) : []
             ending = nil
             picked = nil
             siteOffer = nil
@@ -6857,6 +6862,16 @@ final class Browser: NSObject, ObservableObject {
         if siteOffer != site { siteOffer = site }
 
         (offers, ending) = placeOffers(for: typed)
+        // Pages open on your other devices and not here, after where Return
+        // goes (Elsewhere).
+        if !summoning, active?.shy != true {
+            let elsewhere = Elsewhere.matching(typed, in: Sync.shared.elsewhere, openHere: openHere).map(Suggestion.init)
+            if !elsewhere.isEmpty {
+                let shown = Set(elsewhere.map { History.identity(for: $0.url) })
+                let rest = offers.dropFirst().filter { !shown.contains(History.identity(for: $0.url)) }
+                offers = Array(offers.prefix(1)) + elsewhere + rest
+            }
+        }
         // The empty page of a pair is there to bring a page in, and its list
         // of open tabs goes once typing starts (SplitView's OpenTabs): the
         // open tabs that answer to what is typed come first, as in ⌘K, so
@@ -7109,6 +7124,105 @@ final class Browser: NSObject, ObservableObject {
             .map { Suggestion(key: $0.address, title: $0.title, url: $0.url, kind: .visited) }
     }
 
+    /// On a new tab's empty field, before anything is typed: the page in
+    /// front on the device you just put down, and pages closed there a
+    /// moment ago (Elsewhere). Never in a private tab.
+    private func elsewhereOffers() -> [Suggestion] {
+        guard active?.shy != true else { return [] }
+        let devices = Sync.shared.elsewhere
+        let now = Date().timeIntervalSince1970
+        let open = openHere
+        let carry = Elsewhere.continuing(from: devices, now: now, frontHere: nil)
+            .flatMap { open.contains(History.identity(for: URL(string: $0.page.url) ?? URL(fileURLWithPath: "/"))) ? nil : $0 }
+        let closed = Elsewhere.closed(on: devices, now: now, openHere: open, limit: 2)
+            .filter { $0.page.url != carry?.page.url }
+        return (carry.map { [$0] } ?? []).map(Suggestion.init) + closed.map(Suggestion.init)
+    }
+
+    /// The tabs of this profile's windows, every space's, as `(window,
+    /// space, tab)`: never a private tab's. By the address each would come
+    /// back at (Tab.restAddress), as your other devices are told.
+    private var profileTabs: [(browser: Browser, space: UUID, tab: Tab)] {
+        // This window always, and first, whether or not it is listed yet.
+        let windows = [self] + Browsers.all.filter { $0 !== self && $0.profileID == profileID && !$0.isPopup }
+        return windows.flatMap { window in
+            ([(window.spaceID, window.tabs)] + window.parked.map { ($0.key, $0.value.tabs) }).flatMap { space, row in
+                row.filter { !$0.shy && !$0.bench }.map { (window, space, $0) }
+            }
+        }
+    }
+
+    /// Every page open in this profile's windows, by History.identity.
+    private var openHere: Set<String> {
+        Set(profileTabs.compactMap { $0.tab.restAddress.map(History.identity(for:)) })
+    }
+
+    /// A page from another device, here: its tab if it is open in any of
+    /// this profile's windows and spaces — the one in its own space, then
+    /// this window's, first — never a second; otherwise opened in the space
+    /// it was open in, when this window has it, read as far down and as an
+    /// article if it was.
+    func open(_ offer: Elsewhere.Offer) {
+        guard let url = URL(string: offer.page.url) else { return }
+        let identity = History.identity(for: url)
+        // Showing it, and going nowhere else: a tab on its way to another
+        // page would carry on there.
+        let found = profileTabs.filter { entry in
+            [entry.tab.restAddress, entry.tab.address].allSatisfy { $0.map(History.identity(for:)) == identity }
+        }
+        let space = offer.page.space
+        let arrival = Tab.Arrival(page: url, scroll: offer.page.scroll, reading: offer.page.reading == true,
+                                  from: "your \(offer.deviceName)")
+        if let hit = found.first(where: { $0.browser === self && $0.space == space })
+            ?? found.first(where: { $0.space == space }) ?? found.first(where: { $0.browser === self }) ?? found.first {
+            if hit.space != hit.browser.spaceID { hit.browser.switchSpace(to: hit.space) }
+            hit.browser.raise(hit.tab)
+            // Shown as it was left there, when there was anything to carry:
+            // now if that very page is in, else once it has come in — a tab
+            // waking builds its view before its page is there.
+            if arrival.scroll != nil || arrival.reading {
+                let showing = hit.tab.built != nil && !hit.tab.loading
+                    && hit.tab.restAddress.map(History.identity(for:)) == identity
+                if showing { hit.browser.arrive(hit.tab, arrival) } else { hit.tab.arrival = arrival }
+            }
+            return
+        }
+        if let space, prefs.usesSpaces, space != spaceID, spaces.contains(where: { $0.id == space }) {
+            switchSpace(to: space)
+        }
+        let tab = open(url, foreground: true, from: active, loose: true)
+        tab.arrival = arrival
+    }
+
+    /// That very tab in front — not the page of its pair focused last, as a
+    /// click on the pair would — and its window raised.
+    func raise(_ tab: Tab) {
+        select(tab)
+        guard !Store.testing, let window else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    /// A page carried on from another device, now in: as an article if it
+    /// was read so, as far down as it was, and said.
+    func arrive(_ tab: Tab, _ arrival: Tab.Arrival) {
+        let scroll = { [weak self, weak tab] in
+            guard let self, let tab, let built = tab.built else { return }
+            var said = "Continued from \(arrival.from)"
+            if let scroll = arrival.scroll {
+                let script = "window.scrollTo(0, \(scroll) * Math.max(0, document.documentElement.scrollHeight - window.innerHeight))"
+                built.evaluateJavaScript(script) { _, _ in }
+                if scroll > 0 { said += " at \(Int((scroll * 100).rounded()))%" }
+            }
+            self.announce(said)
+            // And to VoiceOver, which the notice alone never reaches.
+            NSAccessibility.post(element: self.window ?? NSApp as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: said, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+        guard arrival.reading, !tab.reader else { return scroll() }
+        tab.toggleReader { _ in scroll() }
+    }
+
     /// What is open, most recently looked at first, filtered by what has been
     /// typed. On an empty field this is the whole point of the summon: it is
     /// the tab strip, except you read it only when you ask for it. Not the
@@ -7147,6 +7261,8 @@ final class Browser: NSObject, ObservableObject {
         summoning = false
         if let command = offer.command {
             command.run(on: self)
+        } else if let elsewhere = offer.elsewhere {
+            open(elsewhere)
         } else if let id = offer.tab, let tab = tabs.first(where: { $0.id == id }) {
             // From the empty page of a pair, as Return takes it (submit):
             // that tab comes into the pair.
@@ -8485,6 +8601,11 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             look(forward: true)
         }
         tellStore(tab)
+        if let arrival = tab.arrival {
+            tab.arrival = nil
+            // Only the page it was for: one gone to instead takes none of it.
+            if History.identity(for: url) == History.identity(for: arrival.page) { arrive(tab, arrival) }
+        }
         // A page that arrived after a password went out: did the sign-in take?
         tab.settleSignIn()
         // A page in a language you always translate, or one that slept

@@ -106,7 +106,7 @@ struct SuggestionList: View {
             ForEach(offers) { offer in
                 Button { pick(offer) } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: symbol(offer.kind))
+                        Image(systemName: offer.elsewhere?.kind.symbol ?? symbol(offer.kind))
                             .frame(width: 22)
                             .foregroundStyle(.secondary)
                         VStack(alignment: .leading, spacing: 2) {
@@ -116,7 +116,9 @@ struct SuggestionList: View {
                             }
                         }
                         Spacer(minLength: 0)
-                        if offer.kind == .open {
+                        if let elsewhere = offer.elsewhere {
+                            Text("On \(elsewhere.deviceName)").font(.footnote).foregroundStyle(.secondary)
+                        } else if offer.kind == .open {
                             Text("Switch to Tab").font(.footnote).foregroundStyle(.secondary)
                         }
                     }
@@ -135,6 +137,7 @@ struct SuggestionList: View {
         switch kind {
         case .search, .suggested, .searched: return "magnifyingglass"
         case .open: return "square.on.square"
+        case .elsewhere: return "laptopcomputer.and.iphone"
         case .bookmark: return "book"
         case .visited: return "clock"
         case .known, .command: return "globe"

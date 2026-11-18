@@ -342,6 +342,19 @@ final class Tab: ObservableObject, Identifiable {
 
     @Published private(set) var title = ""
     @Published private(set) var address: URL?
+    /// A page carried on from another device: how it is to be shown once it
+    /// has come in (Browser.open(_ offer:), Elsewhere).
+    var arrival: Arrival?
+
+    /// How a page from another device was left there.
+    struct Arrival: Equatable {
+        /// The page it is for: another that comes in instead takes none of it.
+        var page: URL
+        var scroll: Double?
+        var reading: Bool
+        /// The device's name, to say where it came from.
+        var from: String
+    }
     /// The address of the page that is actually on screen. `address` moves
     /// to where the tab is going as soon as a load starts, while the page
     /// and its certificate are still the old one's: what is said about the

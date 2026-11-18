@@ -12,13 +12,22 @@ public struct Suggestion: Identifiable, Equatable, Sendable {
     public let kind: Kind
     /// Set when this is a page you already have open somewhere.
     public var tab: UUID?
+    /// Set when this is a page open on another of your devices.
+    public var elsewhere: Elsewhere.Offer?
 
-    public init(key: String, title: String, url: URL, kind: Kind, tab: UUID? = nil) {
+    public init(key: String, title: String, url: URL, kind: Kind, tab: UUID? = nil, elsewhere: Elsewhere.Offer? = nil) {
         self.key = key
         self.title = title
         self.url = url
         self.kind = kind
         self.tab = tab
+        self.elsewhere = elsewhere
+    }
+
+    /// A page open on another device, offered: its title, its address.
+    public init(_ offer: Elsewhere.Offer) {
+        let url = URL(string: offer.page.url) ?? URL(fileURLWithPath: "/")
+        self.init(key: Address.editable(url), title: offer.page.title, url: url, kind: .elsewhere, elsewhere: offer)
     }
 
     /// Something an app does from its address field, by an identifier of the
@@ -31,6 +40,8 @@ public struct Suggestion: Identifiable, Equatable, Sendable {
     public enum Kind: Equatable, Sendable {
         /// A page that is open right now.
         case open
+        /// A page open on another of your devices (Elsewhere).
+        case elsewhere
         /// Somewhere you have actually been.
         case visited
         /// One of your bookmarks, the window's profile's.
@@ -60,6 +71,7 @@ public struct Suggestion: Identifiable, Equatable, Sendable {
         if case .searched = kind { return "searched " + History.identity(for: url) }
         if case .visited = kind { return History.identity(for: url) }
         if case .bookmark = kind { return History.identity(for: url) }
+        if case .elsewhere = kind { return "elsewhere " + History.identity(for: url) }
         return key
     }
 }

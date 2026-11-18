@@ -53,6 +53,9 @@ final class Browser {
     /// Each space's session as last written, so only one that changed is
     /// written again.
     @ObservationIgnored private var written: [UUID: Session] = [:]
+    /// Pages closed here a moment ago, for your other devices to offer
+    /// (Syncing); never a private tab's.
+    @ObservationIgnored private(set) var recentlyClosed: [DeviceTabs.Closed] = []
     /// Told when the ordinary tabs change, so sync shows them on your other
     /// devices (Syncing).
     @ObservationIgnored var changed: (() -> Void)?
@@ -185,6 +188,11 @@ final class Browser {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         if picking?.tab == tab.id { stopHiding() }
         if tab.pin != nil { return rest(tab, at: index) }
+        if case .space(let space) = tab.owner, let url = Continuity.page(tab.url) {
+            let now = Date().timeIntervalSince1970
+            recentlyClosed = DeviceTabs.recent(recentlyClosed + [DeviceTabs.Closed(url: url.absoluteString, title: tab.title,
+                                                                                  space: space, at: now)], now: now)
+        }
         let wasActive = tab.id == activeID
         tabs.remove(at: index)
         tab.close()

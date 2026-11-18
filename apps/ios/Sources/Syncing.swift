@@ -44,6 +44,9 @@ final class Syncing {
 
     @ObservationIgnored private unowned let browser: Browser
     @ObservationIgnored private var cloud: CloudSync?
+    /// When Eden was last in use here, to the minute: what the other devices
+    /// read to offer carrying on from this one (DeviceTabs.seen).
+    @ObservationIgnored fileprivate var seen: Double?
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var bag: Set<AnyCancellable> = []
 
@@ -145,6 +148,11 @@ final class Syncing {
     func active(_ now: Bool) {
         timer?.invalidate()
         timer = nil
+        // Put down: when, said now, so another device can offer to carry on.
+        if !now, cloud != nil {
+            seen = Syncing.minute(Date().timeIntervalSince1970)
+            cloud?.localChange()
+        }
         guard now, cloud != nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
@@ -164,7 +172,9 @@ final class Syncing {
         await cloud?.refresh()
     }
 
-    fileprivate func showOtherTabs(_ tabs: [DeviceTabs]) {
+    fileprivate static func minute(_ time: Double) -> Double { (time / 60).rounded(.down) * 60 }
+
+    func showOtherTabs(_ tabs: [DeviceTabs]) {
         if tabs != otherTabs { otherTabs = tabs }
     }
 
@@ -253,22 +263,42 @@ final class AppScope: SyncScope {
     /// The settings are written as they are set.
     func persist() {}
 
-    /// This device's open tabs as its other devices see them. Stamped afresh
-    /// only when they changed, or once a day so they aren't taken for a
-    /// device gone quiet: otherwise every capture would make an edit. Asked
-    /// twice running, the answer is the same.
+    /// This device's open tabs as its other devices see them: each page with
+    /// its space, how far down it is read and whether as an article; the one
+    /// in front; when Eden was last in use here; and what was closed a
+    /// moment ago. Stamped afresh only when that changed, or once a day so
+    /// they aren't taken for a device gone quiet: otherwise every capture
+    /// would make an edit. Asked twice running, the answer is the same.
     private func openTabs(agreed: String?) -> DeviceTabs {
-        var seen = Set<String>()
-        let pages = browser.ordinaryTabs.compactMap { tab -> DeviceTabs.Page? in
-            guard let url = Continuity.page(tab.url), seen.insert(url.absoluteString).inserted else { return nil }
-            return DeviceTabs.Page(url: url.absoluteString, title: tab.title)
+        var listed: [String: Int] = [:]
+        var front: Int?
+        var pages: [DeviceTabs.Page] = []
+        for tab in browser.ordinaryTabs {
+            guard let url = Continuity.page(tab.url), case .space(let space) = tab.owner else { continue }
+            let page = DeviceTabs.Page(url: url.absoluteString, title: tab.title, space: space,
+                                       scroll: DeviceTabs.Page.scroll(tab.readFraction), reading: tab.isReading ? true : nil)
+            let inFront = tab.id == browser.activeID
+            // Each page once: the tab in front, when it is one of two.
+            if let at = listed[page.url] {
+                if inFront {
+                    pages[at] = page
+                    front = at
+                }
+                continue
+            }
+            guard pages.count < 200 else { continue }
+            listed[page.url] = pages.count
+            if inFront { front = pages.count }
+            pages.append(page)
         }
         let pad = UIDevice.current.userInterfaceIdiom == .pad
         let now = Date().timeIntervalSince1970
+        if UIApplication.shared.applicationState == .active { syncing.seen = Syncing.minute(now) }
+        let closed = DeviceTabs.recent(browser.recentlyClosed, now: now)
         var mine = DeviceTabs(device: syncing.device, name: UIDevice.current.name, kind: pad ? .ipad : .iphone,
-                              tabs: Array(pages.prefix(200)), at: now)
+                              tabs: pages, at: now, front: front, seen: syncing.seen, closed: closed.isEmpty ? nil : closed)
         for before in [agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }, offered].compactMap({ $0 })
-            where before.tabs == mine.tabs && before.name == mine.name && now - before.at < 24 * 60 * 60 {
+            where before.says(mine) && now - before.at < 24 * 60 * 60 {
             mine.at = before.at
             break
         }

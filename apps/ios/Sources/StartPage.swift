@@ -38,6 +38,38 @@ struct StartPage: View {
                         .accessibilityIdentifier("private-note")
                 }
 
+                // Carrying on from your other devices: the page in front on the
+                // one just put down, and pages closed there a moment ago.
+                if tab?.isPrivate != true {
+                    let now = Date().timeIntervalSince1970
+                    if let carry = Elsewhere.continuing(from: browser.elsewhere, now: now, frontHere: nil) {
+                        continuing(carry)
+                    }
+                    let closed = Elsewhere.closed(on: browser.elsewhere, now: now, openHere: browser.openHere)
+                    if !closed.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Recently Closed on Your Other Devices").font(.headline)
+                            ForEach(Array(closed.enumerated()), id: \.offset) { _, offer in
+                                Button { browser.open(offer, in: tab) } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: offer.kind.symbol)
+                                            .frame(width: 34, height: 34)
+                                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(offer.page.shownTitle).lineLimit(1)
+                                            Text("Closed on \(offer.deviceName)").font(.footnote).foregroundStyle(.secondary)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("closed-elsewhere")
+                            }
+                        }
+                    }
+                }
+
                 // The space's pins, a tap away; never in a private tab.
                 if tab?.isPrivate != true, !browser.shownPins.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
@@ -61,6 +93,30 @@ struct StartPage: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .background(Color(.systemBackground))
+    }
+
+    /// The page in front on the device just put down, to carry on with here.
+    private func continuing(_ offer: Elsewhere.Offer) -> some View {
+        Button { browser.open(offer, in: tab) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: offer.kind.symbol).font(.title2).foregroundStyle(.tint).frame(width: 34)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Continue from your \(offer.deviceName)").font(.footnote).foregroundStyle(.secondary)
+                    Text(offer.page.shownTitle).font(.headline).lineLimit(2).multilineTextAlignment(.leading)
+                    if let scroll = offer.page.scroll, scroll > 0 {
+                        Text("\(Int((scroll * 100).rounded()))% read").font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.right.circle.fill").font(.title2).foregroundStyle(.tint)
+            }
+            .padding(14)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("continue-elsewhere")
     }
 
     private func section(_ title: String, sites: [(String, URL)]) -> some View {
