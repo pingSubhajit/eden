@@ -393,6 +393,44 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(Array(back.bySpace.keys), [mine])
     }
 
+    /// Which folder holds a row is this Mac's own, never synced: a rename or
+    /// a new order from another device leaves it there; shared, moved to
+    /// another space or made a square, it is in none.
+    func testARowKeepsItsFolderHereThroughAnEditFromElsewhere() {
+        let s = UUID(), other = UUID(), folder = UUID()
+        var mail = pin("M", "https://mail.example/", listed: true)
+        mail.folder = folder
+        let cal = pin("C", "https://cal.example/", listed: true)
+        let local = [s: [mail, cal]]
+
+        // Renamed and moved to the end elsewhere: still in its folder.
+        var renamed = mail
+        renamed.name = "Post"
+        renamed.folder = nil
+        let edited = SyncItems.pins(bySpace: [s: [cal, renamed]], shared: [], base: [:])
+        let back = SyncItems.applyPins(edited, spaces: [s], local: local, localShared: [])
+        XCTAssertEqual(back.bySpace[s]?.map(\.id), [cal.id, mail.id])
+        XCTAssertEqual(back.bySpace[s]?.last?.folder, folder)
+        XCTAssertEqual(back.bySpace[s]?.last?.name, "Post")
+
+        // Made a square: no folder.
+        var square = renamed
+        square.listed = nil
+        let squared = SyncItems.applyPins(SyncItems.pins(bySpace: [s: [square]], shared: [], base: [:]),
+                                          spaces: [s], local: local, localShared: [])
+        XCTAssertNil(squared.bySpace[s]?.first?.folder)
+
+        // Shared: no folder.
+        let shared = SyncItems.applyPins(SyncItems.pins(bySpace: [:], shared: [renamed], base: [:]),
+                                         spaces: [s], local: local, localShared: [])
+        XCTAssertNil(shared.shared.first?.folder)
+
+        // Moved to another space: no folder there.
+        let moved = SyncItems.applyPins(SyncItems.pins(bySpace: [other: [renamed]], shared: [], base: [:]),
+                                        spaces: [s, other], local: local, localShared: [])
+        XCTAssertNil(moved.bySpace[other]?.first?.folder)
+    }
+
     // MARK: - bookmarks
 
     func testBookmarksGoAndComeBackTheSame() {

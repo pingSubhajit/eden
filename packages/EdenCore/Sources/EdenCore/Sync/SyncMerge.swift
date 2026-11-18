@@ -318,11 +318,14 @@ public enum SyncItems {
     /// The pins the merged items say each of `spaces` has, and the shared
     /// ones. A pin in both the shared list and a space's (shared on one Mac
     /// while edited on another) is shared. Titles: the one agreed, else the
-    /// one this Mac had, else the page's address.
+    /// one this Mac had, else the page's address. Which folder holds a row is
+    /// this Mac's alone and never syncs: a pin still a row in the same space
+    /// keeps the one it had here; shared, moved or made a square, it is in
+    /// none, as only a space's own rows ever are.
     public static func applyPins(_ live: [String: String], spaces: [UUID], local: [UUID: [PinDef]], localShared: [PinDef])
         -> (bySpace: [UUID: [PinDef]], shared: [PinDef]) {
         let known = (Array(local.values).flatMap { $0 } + localShared)
-        func defs(_ space: String, fallback: [PinDef]) -> [PinDef] {
+        func defs(_ space: String, fallback: [PinDef], folders: [UUID: UUID] = [:]) -> [PinDef] {
             let prefix = "pin:\(space):"
             var found: [String: SyncedPin] = [:]
             for (key, text) in live where key.hasPrefix(prefix) {
@@ -335,14 +338,17 @@ public enum SyncItems {
                 guard let id = UUID(uuidString: text), let pin = found[text] else { return nil }
                 let title = live[pinTitle(id)].flatMap { SyncMerge.value(String.self, $0) }
                     ?? known.first { $0.id == id }?.title ?? pin.home
-                return PinDef(id: id, letter: pin.letter, home: pin.home, title: title, name: pin.name, listed: pin.listed)
+                return PinDef(id: id, letter: pin.letter, home: pin.home, title: title, name: pin.name, listed: pin.listed,
+                              folder: pin.listed == true ? folders[id] : nil)
             }
         }
         let shared = defs(sharedSpace, fallback: localShared)
         let sharedIDs = Set(shared.map(\.id))
         var bySpace: [UUID: [PinDef]] = [:]
         for space in spaces {
-            let own = defs(space.uuidString, fallback: local[space] ?? []).filter { !sharedIDs.contains($0.id) }
+            let here = local[space] ?? []
+            let folders = Dictionary(here.compactMap { def in def.folder.map { (def.id, $0) } }) { first, _ in first }
+            let own = defs(space.uuidString, fallback: here, folders: folders).filter { !sharedIDs.contains($0.id) }
             if !own.isEmpty { bySpace[space] = own }
         }
         return (bySpace, shared)
