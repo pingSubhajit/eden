@@ -102,6 +102,7 @@ final class Settings {
         static let listsPins = "pins.list"
         static let pinsGoHome = "pins.home"
         static let currentSpace = "space.current"
+        static let ownership = "sync.ownership"
         static let deletingSpaces = "spaces.deleting"
     }
 
@@ -130,14 +131,33 @@ final class Settings {
 
     /// The settings that sync, as the Mac's items for the same settings
     /// (SyncSettings there): the same keys, the same JSON.
-    static let synced: Set<String> = ["set:" + Keys.engine, "set:" + Keys.customEngine, "set:" + Keys.blocks]
+    static let synced = Set(["set:" + Keys.engine, "set:" + Keys.customEngine, "set:" + Keys.blocks]).union(spaceSettings)
+
+    /// The spaces and pins settings: synced once this device speaks for them
+    /// (Syncing's AppScope), carried before.
+    static let spaceSettings: Set<String> = ["set:" + Keys.usesSpaces, "set:" + Keys.listsPins, "set:" + Keys.pinsGoHome]
 
     var syncItems: [String: String] {
         var out: [String: String] = [:]
         out["set:" + Keys.engine] = SyncMerge.text(engine.rawValue)
         out["set:" + Keys.customEngine] = SyncMerge.text(customEngine)
         out["set:" + Keys.blocks] = SyncMerge.text(blocks)
+        out["set:" + Keys.usesSpaces] = SyncMerge.text(usesSpaces)
+        out["set:" + Keys.listsPins] = SyncMerge.text(listsPins)
+        out["set:" + Keys.pinsGoHome] = SyncMerge.text(pinsGoHome)
         return out
+    }
+
+    /// Whether a setting that syncs ("set:…") was never chosen on this
+    /// device: its default, not a choice.
+    func untouched(_ item: String) -> Bool {
+        store.object(forKey: String(item.dropFirst(4))) == nil
+    }
+
+    /// Which version of what it speaks for each sync scope has taken over
+    /// (Syncing): this device's alone.
+    func ownership(of scope: String) -> Int {
+        (store.dictionary(forKey: Keys.ownership) as? [String: Int])?[scope] ?? 0
     }
 
     /// Spaces being deleted: written down before anything goes, so a launch
@@ -145,6 +165,12 @@ final class Settings {
     var deletingSpaces: Set<UUID> {
         get { Set((store.stringArray(forKey: Keys.deletingSpaces) ?? []).compactMap(UUID.init(uuidString:))) }
         set { store.set(newValue.map(\.uuidString).sorted(), forKey: Keys.deletingSpaces) }
+    }
+
+    func setOwnership(_ version: Int, of scope: String) {
+        var all = store.dictionary(forKey: Keys.ownership) as? [String: Int] ?? [:]
+        all[scope] = version
+        store.set(all, forKey: Keys.ownership)
     }
 
     /// The settings as your devices now agree on them.
@@ -158,6 +184,15 @@ final class Settings {
         }
         if let value = live["set:" + Keys.blocks].flatMap({ SyncMerge.value(Bool.self, $0) }), value != blocks {
             blocks = value
+        }
+        if let value = live["set:" + Keys.usesSpaces].flatMap({ SyncMerge.value(Bool.self, $0) }), value != usesSpaces {
+            usesSpaces = value
+        }
+        if let value = live["set:" + Keys.listsPins].flatMap({ SyncMerge.value(Bool.self, $0) }), value != listsPins {
+            listsPins = value
+        }
+        if let value = live["set:" + Keys.pinsGoHome].flatMap({ SyncMerge.value(Bool.self, $0) }), value != pinsGoHome {
+            pinsGoHome = value
         }
     }
 }

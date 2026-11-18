@@ -12,14 +12,23 @@ import os
 // to change.
 //
 // What this device syncs, in the scopes the Mac uses:
-//   "app" (AppScope): the search engine (and the Mac's custom one) and the
-//     blocker, as the Mac's own settings items, and this device's open tabs,
-//     one item written by it alone (DeviceTabs) — never a private tab.
+//   "app" (AppScope): the search engine (and the Mac's custom one), the
+//     blocker, and whether spaces, pinned rows and pins going home are on, as
+//     the Mac's own settings items; and this device's open tabs, one item
+//     written by it alone (DeviceTabs) — never a private tab.
 //   "profile-<Personal>" (PersonalScope): the bookmarks, as the same tree
-//     the Mac keeps, and history.
-// What it doesn't keep — the Mac's spaces, pins and its other settings — it
+//     the Mac keeps, history, and Personal's spaces and pins.
+// What it doesn't keep — the Mac's other settings, other profiles — it
 // carries along untouched: only what this device owns can be found missing
 // here and deleted everywhere.
+//
+// An Eden from before spaces carried the Mac's spaces, pins and their
+// settings without keeping them. The first time this one syncs, each scope
+// takes them over (SyncOwnership): this device's lists are first made what
+// every device last agreed — what was made here since kept with them, a
+// setting never chosen here taken as agreed — and only then does it speak
+// for them. Otherwise its empty lists, and its defaults, would read as
+// everything deleted and every choice undone, on every device.
 //
 // When: CKSyncEngine sends and fetches on its own schedule (with a push
 // from iCloud when another device saves). Eden adds a capture a moment
@@ -85,6 +94,8 @@ final class Syncing {
         browser.changed = { [weak self] in self?.cloud?.localChange() }
         browser.bookmarks.saved = { [weak self] in self?.cloud?.localChange() }
         browser.settings.changed = { [weak self] in self?.cloud?.localChange() }
+        browser.library.changed = { [weak self] in self?.cloud?.localChange() }
+        browser.pins.changed = { [weak self] in self?.cloud?.localChange() }
         browser.history.recentChanges.sink { [weak self] in self?.cloud?.localChange() }.store(in: &bag)
         UIApplication.shared.registerForRemoteNotifications()
         Task { await made.start() }
@@ -116,6 +127,8 @@ final class Syncing {
         browser.changed = nil
         browser.bookmarks.saved = nil
         browser.settings.changed = nil
+        browser.library.changed = nil
+        browser.pins.changed = nil
     }
 
     /// Eden's data deleted from iCloud: the switch turns off, and Settings says why.
@@ -174,9 +187,15 @@ final class Syncing {
     }
 }
 
-/// The search engine and the blocker, and every device's open tabs: only
-/// this device's own are its to change or delete.
-private final class AppScope: SyncScope {
+/// When a scope began speaking for what an Eden from before spaces carried:
+/// the version it took over, kept per scope (Settings.ownership).
+enum SyncOwnership {
+    static let version = 1
+}
+
+/// The settings that sync, and every device's open tabs: only this device's
+/// own are its to change or delete.
+final class AppScope: SyncScope {
     let name = "app"
     var isReady: Bool { true }
     private unowned let syncing: Syncing
@@ -190,20 +209,41 @@ private final class AppScope: SyncScope {
         self.browser = browser
     }
 
+    /// Whether it speaks for the spaces and pins settings yet.
+    private var owned: Bool { browser.settings.ownership(of: name) >= SyncOwnership.version }
+
     func snapshot(agreed: [String: String]) -> [String: String] {
+        if !owned { takeOwnership(of: agreed) }
         var items = browser.settings.syncItems
+        if !owned { for key in Settings.spaceSettings { items[key] = nil } }
         items.merge(SyncItems.tabs(openTabs(agreed: agreed[own]))) { mine, _ in mine }
         return items
     }
 
+    /// The spaces and pins settings taken over: each never chosen here is
+    /// what every device agreed; one chosen here stays this device's choice.
+    private func takeOwnership(of agreed: [String: String]) {
+        let settings = browser.settings
+        let taken = agreed.filter { Settings.spaceSettings.contains($0.key) && settings.untouched($0.key) }
+        if !taken.isEmpty { apply(taken) }
+        settings.setOwnership(SyncOwnership.version, of: name)
+    }
+
     func owns(_ key: String, _ text: String) -> Bool {
-        Settings.synced.contains(key) || key == own
+        guard key != own else { return true }
+        guard Settings.synced.contains(key) else { return false }
+        return owned || !Settings.spaceSettings.contains(key)
     }
 
     func apply(_ live: [String: String]) {
-        let blocked = browser.settings.blocks
-        browser.settings.applySynced(live)
-        if browser.settings.blocks != blocked { browser.applyBlocking() }
+        let settings = browser.settings
+        let blocked = settings.blocks, spaces = settings.usesSpaces
+        settings.applySynced(live)
+        if settings.blocks != blocked { browser.applyBlocking() }
+        if settings.usesSpaces != spaces {
+            if !settings.usesSpaces { browser.leaveSpaces() }
+            browser.pinsChanged()
+        }
     }
 
     func settled(_ live: [String: String]) {
@@ -237,10 +277,16 @@ private final class AppScope: SyncScope {
     }
 }
 
-/// The Personal profile's bookmarks, as the Mac's tree, and history.
-private final class PersonalScope: SyncScope {
+/// The Personal profile's bookmarks, as the Mac's tree, history, and its
+/// spaces and pins.
+final class PersonalScope: SyncScope {
     let name = Syncing.personal
     private unowned let browser: Browser
+    /// The spaces whose pins it speaks for: those it has, and those every
+    /// device last agreed on — so a space deleted here takes its pins with
+    /// it everywhere. Set at each snapshot, which comes before what it owns
+    /// is asked.
+    private var spokenFor: Set<String> = []
 
     init(browser: Browser) {
         self.browser = browser
@@ -250,20 +296,104 @@ private final class PersonalScope: SyncScope {
     /// other devices have would then look deleted here.
     var isReady: Bool { browser.history.isLoaded }
 
+    /// Whether it speaks for the spaces and pins: taken over, and their
+    /// files read. One that wouldn't read is taken over again from what
+    /// every device agreed, never taken for nothing.
+    private var owned: Bool {
+        browser.settings.ownership(of: name) >= SyncOwnership.version
+            && !browser.library.damaged && !browser.pins.damaged
+    }
+
     func snapshot(agreed: [String: String]) -> [String: String] {
+        if !owned { takeOwnership(of: agreed) }
+        let agreedSpaces = agreed.keys.compactMap { key in key.hasPrefix("space:") ? String(key.dropFirst(6)) : nil }
+        spokenFor = Set(browser.library.spaces.map(\.id.uuidString)).union(agreedSpaces)
         var items = SyncItems.bookmarks(browser.bookmarks.roots)
         items.merge(browser.history.syncItems()) { mine, _ in mine }
+        guard owned else { return items }
+        let spaces = browser.library.spaces
+        items.merge(SyncItems.spaces(spaces, base: agreed)) { mine, _ in mine }
+        let bySpace = Dictionary(uniqueKeysWithValues: spaces.map { ($0.id, browser.pins.catalog.pins(of: $0.id)) })
+        items.merge(SyncItems.pins(bySpace: bySpace, shared: browser.pins.shared, base: agreed)) { mine, _ in mine }
         return items
+    }
+
+    /// The spaces and pins taken over: made what every device agreed, with
+    /// whatever was made here since kept after them. Marked done only once
+    /// it is all on disk, so a write that fails is tried again.
+    private func takeOwnership(of agreed: [String: String]) {
+        let mark = Disk.mark()
+        let library = browser.library, pins = browser.pins
+        let local = library.spaces
+        let agreedSpaces = SyncItems.applySpaces(agreed, to: local, profile: Space.personalProfileID, home: Space.firstID)
+        let known = Set(agreedSpaces.map(\.id))
+        library.adopt(agreedSpaces + local.filter { !known.contains($0.id) })
+
+        let ids = library.spaces.map(\.id)
+        let catalog = pins.catalog
+        let fromAgreed = SyncItems.applyPins(agreed, spaces: ids, local: catalog.bySpace, localShared: pins.shared)
+        let agreedPins = Set((fromAgreed.bySpace.values.flatMap { $0 } + fromAgreed.shared).map(\.id))
+        var bySpace = fromAgreed.bySpace
+        for space in ids {
+            let mine = catalog.pins(of: space).filter { !agreedPins.contains($0.id) }
+            if !mine.isEmpty { bySpace[space, default: []] += mine }
+        }
+        pins.adopt(bySpace, in: ids, shared: fromAgreed.shared + pins.shared.filter { !agreedPins.contains($0.id) })
+        browser.pinsChanged()
+        // Both written now, changed or not: a write that failed last time,
+        // with nothing changed since, must still be known to have landed.
+        library.save()
+        pins.save()
+        guard Disk.drain(since: mark) else { return }
+        library.recovered()
+        pins.recovered()
+        browser.settings.setOwnership(SyncOwnership.version, of: name)
     }
 
     func owns(_ key: String, _ text: String) -> Bool {
         if key.hasPrefix("bm:") || key.hasPrefix("kids:") { return SyncItems.understood(key, text) }
-        return browser.history.understands(key)
+        if browser.history.understands(key) { return true }
+        return owned && ownsSpaceOrPin(key, text)
+    }
+
+    /// Personal's spaces and pins, as this build reads them: a space, their
+    /// order, and a pin, its title and each list's order — of a space it
+    /// speaks for, or the shared ones. Anything else is carried.
+    private func ownsSpaceOrPin(_ key: String, _ text: String) -> Bool {
+        let parts = key.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        func list(_ space: String) -> Bool { space == SyncItems.sharedSpace || spokenFor.contains(space) }
+        switch (parts.first, parts.count) {
+        case ("space", 2):
+            return UUID(uuidString: parts[1]) != nil && SyncMerge.value(SyncedSpace.self, text) != nil
+        case ("order", 2) where key == SyncItems.spacesOrder:
+            return SyncMerge.value([String].self, text) != nil
+        case ("order", 3) where parts[1] == "pins":
+            return list(parts[2]) && SyncMerge.value([String].self, text) != nil
+        case ("pin", 3):
+            return list(parts[1]) && UUID(uuidString: parts[2]) != nil && SyncMerge.value(SyncedPin.self, text) != nil
+        case ("title", 3) where parts[1] == "pin":
+            return UUID(uuidString: parts[2]) != nil && SyncMerge.value(String.self, text) != nil
+        default:
+            return false
+        }
     }
 
     func apply(_ live: [String: String]) {
         browser.bookmarks.adopt(SyncItems.applyBookmarks(live))
         browser.history.applySynced(live)
+        guard owned else { return }
+        // The spaces first — one deleted elsewhere goes as one deleted here
+        // does — then the pins of those left, then the tabs to match.
+        let library = browser.library
+        let spaces = SyncItems.applySpaces(live, to: library.spaces, profile: Space.personalProfileID, home: Space.firstID)
+        for gone in library.spaces where !spaces.contains(where: { $0.id == gone.id }) {
+            browser.spaceDeletedElsewhere(gone)
+        }
+        library.adopt(spaces)
+        let ids = library.spaces.map(\.id)
+        let pins = SyncItems.applyPins(live, spaces: ids, local: browser.pins.catalog.bySpace, localShared: browser.pins.shared)
+        browser.pins.adopt(pins.bySpace, in: ids, shared: pins.shared)
+        browser.pinsChanged()
     }
 
     func persist() {

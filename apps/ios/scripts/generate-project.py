@@ -59,7 +59,11 @@ entitlements_ref = file('Configuration/Eden.entitlements', 'text.plist.entitleme
 
 # The unit tests (Swift Testing), run inside the app as their host.
 test_refs, test_builds = [], []
-for source in sorted(root.glob('Tests/**/*.swift')):
+# With them, iCloud in memory from EdenCoreTesting, compiled in rather than
+# linked: linked, the package's code would be in the tests twice, once
+# through the app.
+testing = root.parent.parent / 'packages/EdenCore/Sources/EdenCoreTesting'
+for source in sorted(root.glob('Tests/**/*.swift')) + sorted(testing.glob('*.swift')):
     relative = os.path.relpath(source, root)
     reference = file(relative, 'sourcecode.swift')
     test_refs.append(reference)
