@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import Combine
 import SystemConfiguration
@@ -77,11 +78,7 @@ enum SyncSettings {
     ]
 
     /// Their keys, readable anywhere (SyncItems.understood).
-    static let known: Set<String> = [
-        "look", "glyph", "search.engine", "search.custom", "search.suggest", "search.keywords", "spaces",
-        "pins.list", "pins.home", "tabs.close.after", "tabs.newPlace", "tabs.shortcuts", "shield",
-        "privacy.clickIDs", "privacy.gpc", "bookmarks.bar", "quit.confirm",
-    ]
+    static let known = SyncItems.knownSettings
 
     private static func coded<T: Codable & Equatable>(_ key: String, _ path: ReferenceWritableKeyPath<Preferences, T>) -> Setting {
         Setting(key: key, read: { SyncMerge.text($0[keyPath: path]) }, write: { prefs, text in

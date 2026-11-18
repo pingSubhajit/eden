@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // The address field doubles as the most basic kind of command line: a
@@ -28,6 +29,39 @@ enum AddressCommand: Equatable {
     case menu(String)
     /// A Settings page, opened on that page.
     case page(SettingsPanel.Page)
+
+    /// How a suggestion carries it (Suggestion.Command, in EdenCore): a name
+    /// for each word, `menu:` and a menu command's id, `page:` and a
+    /// Settings page's.
+    var suggested: Suggestion.Command {
+        switch self {
+        case .settings: return .init("settings")
+        case .newTab: return .init("newTab")
+        case .newPrivateTab: return .init("newPrivateTab")
+        case .newSpace: return .init("newSpace")
+        case .bookmarks: return .init("bookmarks")
+        case .history: return .init("history")
+        case .downloads: return .init("downloads")
+        case .passwords: return .init("passwords")
+        case .toggleSidebar: return .init("toggleSidebar")
+        case .menu(let id): return .init("menu:" + id)
+        case .page(let page): return .init("page:" + page.rawValue)
+        }
+    }
+
+    /// The command a suggestion carries, or nil for one this build doesn't
+    /// know.
+    init?(_ suggested: Suggestion.Command) {
+        let id = suggested.id
+        if id.hasPrefix("menu:") { self = .menu(String(id.dropFirst("menu:".count))); return }
+        if id.hasPrefix("page:") {
+            guard let page = SettingsPanel.Page(rawValue: String(id.dropFirst("page:".count))) else { return nil }
+            self = .page(page)
+            return
+        }
+        guard let word = AddressCommand.allCases.first(where: { $0.suggested == suggested }) else { return nil }
+        self = word
+    }
 
     /// The words, which run on Return when typed whole.
     static let allCases: [AddressCommand] = [
@@ -193,5 +227,22 @@ enum AddressCommand: Equatable {
             if name.hasPrefix(needle) { first.append(candidate) } else { rest.append(candidate) }
         }
         return Array((first + rest).prefix(limit))
+    }
+}
+
+extension Suggestion {
+    /// A command's row. A command goes nowhere, but the field still needs
+    /// *a* URL to carry; `take` and `submit` read the kind first and never
+    /// follow this one.
+    @MainActor
+    static func command(_ command: AddressCommand) -> Suggestion {
+        Suggestion(key: command.title, title: "", url: URL(string: "about:blank")!, kind: .command(command.suggested))
+    }
+
+    /// The command this row runs, when it is a command's.
+    @MainActor
+    var command: AddressCommand? {
+        guard case .command(let suggested) = kind else { return nil }
+        return AddressCommand(suggested)
     }
 }

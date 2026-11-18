@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import Combine
 import SwiftUI
@@ -407,7 +408,7 @@ final class Launcher: NSObject, ObservableObject, NSWindowDelegate {
         }
 
         // A command is only ever on top, and there it is what Return does.
-        if case .command(let command) = (chosen ?? offers.first)?.kind {
+        if let command = (chosen ?? offers.first)?.command {
             dismiss(keeping: false)
             let browser = Browsers.ensureWindow()
             command.run(on: browser)

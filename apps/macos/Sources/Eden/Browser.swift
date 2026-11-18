@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 import WebKit
 import Combine
@@ -2294,7 +2295,7 @@ final class Browser: NSObject, ObservableObject {
     func takeTabOffer(_ offer: Suggestion) {
         guard let id = editingTab, let tab = tabs.first(where: { $0.id == id }) else { return }
         cancelTabEdit()
-        if case .command(let command) = offer.kind {
+        if let command = offer.command {
             command.run(on: self)
         } else if let open = offer.tab, let other = tabs.first(where: { $0.id == open }) {
             select(other)
@@ -7146,7 +7147,7 @@ final class Browser: NSObject, ObservableObject {
         // ⌘K's own last row, chosen with the pointer: a new tab, as Return.
         let aside = summoning && active?.isBlank == false
         summoning = false
-        if case .command(let command) = offer.kind {
+        if let command = offer.command {
             command.run(on: self)
         } else if let id = offer.tab, let tab = tabs.first(where: { $0.id == id }) {
             // From the empty page of a pair, as Return takes it (submit):
@@ -7320,7 +7321,7 @@ final class Browser: NSObject, ObservableObject {
         // only ever on top, and there it is what Return does. Walked past,
         // Return goes where it always went.
         let chosen = (picked.flatMap { offers.indices.contains($0) ? offers[$0] : nil }) ?? offers.first
-        if case .command(let command) = chosen?.kind {
+        if let command = chosen?.command {
             command.run(on: self)
             editing = false
             typed = ""

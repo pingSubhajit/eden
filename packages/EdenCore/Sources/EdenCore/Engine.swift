@@ -1,13 +1,13 @@
 import Foundation
 
-enum Engine: String, CaseIterable, Identifiable {
+public enum Engine: String, CaseIterable, Identifiable {
     case google, duckduckgo, bing, ecosia, startpage, kagi, brave, qwant, custom
 
-    static let standard = Engine.google
+    public static let standard = Engine.google
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var title: String {
+    public var title: String {
         switch self {
         case .google: return "Google"
         case .duckduckgo: return "DuckDuckGo"
@@ -21,7 +21,7 @@ enum Engine: String, CaseIterable, Identifiable {
         }
     }
 
-    func template(custom: String) -> String {
+    public func template(custom: String) -> String {
         switch self {
         case .google: return "https://www.google.com/search?q=%s"
         case .duckduckgo: return "https://duckduckgo.com/?q=%s"
@@ -37,7 +37,7 @@ enum Engine: String, CaseIterable, Identifiable {
         }
     }
 
-    func name(custom: String) -> String {
+    public func name(custom: String) -> String {
         guard self == .custom else { return title }
         return Engine.bareHost(of: Engine.written(custom)) ?? Engine.standard.title
     }
@@ -45,25 +45,25 @@ enum Engine: String, CaseIterable, Identifiable {
     /// A custom engine's address as people bring it: copied from another
     /// browser with {searchTerms} where the words go, or typed without its
     /// https://. Either one was turned away, and every search went to Google.
-    static func written(_ template: String) -> String {
+    public static func written(_ template: String) -> String {
         var text = template.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "{searchTerms}", with: "%s")
         if !text.isEmpty, !text.contains("://") { text = "https://" + text }
         return text
     }
 
-    static func accepts(_ template: String) -> Bool {
+    public static func accepts(_ template: String) -> Bool {
         host(of: template) != nil
     }
 
     /// A template's host, with any leading "www." dropped — what a person
     /// would call the site if you asked them.
-    static func bareHost(of template: String) -> String? {
+    public static func bareHost(of template: String) -> String? {
         guard let host = host(of: template) else { return nil }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
-    static func url(for text: String, template: String) -> URL? {
+    public static func url(for text: String, template: String) -> URL? {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty,
               let escaped = words.addingPercentEncoding(withAllowedCharacters: unreserved),

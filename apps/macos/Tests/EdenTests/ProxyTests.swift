@@ -1,3 +1,4 @@
+import EdenCore
 import Network
 import WebKit
 import XCTest

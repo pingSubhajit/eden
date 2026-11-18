@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 /// The column's and the side panel's widths while an edge of theirs is held,

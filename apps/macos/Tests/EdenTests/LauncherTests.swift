@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import Carbon.HIToolbox
 import XCTest

@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // A small window for a link from another app: the page, and a thin line over

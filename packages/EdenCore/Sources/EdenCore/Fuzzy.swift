@@ -7,10 +7,10 @@ import Foundation
 // Works on bytes because it runs over the whole history on every key, and
 // String's own search was several times slower.
 
-enum Fuzzy {
+public enum Fuzzy {
     /// 1 if every word is in `text` as typed, 0 if one needed a typo
     /// forgiven, nil if one isn't there. Both are lowercased.
-    static func match(_ typed: [[UInt8]], in text: String) -> Int? {
+    public static func match(_ typed: [[UInt8]], in text: String) -> Int? {
         var text = text
         return text.withUTF8 { text in
             var slipped = false
@@ -24,25 +24,25 @@ enum Fuzzy {
 
     /// Whether a word in `text` starts with `typed`, allowing one typo, or
     /// two in long words. None under four letters, where a guess is noise.
-    static func nearly(_ typed: [UInt8], in text: String) -> Bool {
+    public static func nearly(_ typed: [UInt8], in text: String) -> Bool {
         var text = text
         return text.withUTF8 { nearly(typed, in: $0) }
     }
 
     /// "dwn" for downloads: the letters in order, starting with the first.
-    static func abbreviates(_ typed: some StringProtocol, _ word: some StringProtocol) -> Bool {
+    public static func abbreviates(_ typed: some StringProtocol, _ word: some StringProtocol) -> Bool {
         guard let first = typed.first, word.first == first else { return false }
         var rest = typed.dropFirst()[...]
         for letter in word.dropFirst() where letter == rest.first { rest = rest.dropFirst() }
         return rest.isEmpty
     }
 
-    static func contains(_ text: UnsafeBufferPointer<UInt8>, _ word: [UInt8]) -> Bool {
+    public static func contains(_ text: UnsafeBufferPointer<UInt8>, _ word: [UInt8]) -> Bool {
         word.withUnsafeBytes { memmem(text.baseAddress, text.count, $0.baseAddress, $0.count) != nil }
     }
 
     /// Whether `word` starts a word of `text`: "api" in "team/api", not "rapid".
-    static func startsWord(_ word: [UInt8], in text: UnsafeBufferPointer<UInt8>) -> Bool {
+    public static func startsWord(_ word: [UInt8], in text: UnsafeBufferPointer<UInt8>) -> Bool {
         guard let base = text.baseAddress, !word.isEmpty, text.count >= word.count else { return false }
         let anywhere = !inWord(word[0])
         return word.withUnsafeBytes { word in

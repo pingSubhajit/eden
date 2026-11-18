@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // Search a site from the address field, as in Arc (Settings › General):

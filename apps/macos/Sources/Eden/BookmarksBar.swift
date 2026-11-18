@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // The bookmarks bar: the top of the bookmarks, in a thin row above the page,

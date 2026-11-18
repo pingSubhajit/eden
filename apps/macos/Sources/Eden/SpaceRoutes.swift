@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // Send links to a space (idea 255; #595, #721): links to chosen sites open

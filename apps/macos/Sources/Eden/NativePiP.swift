@@ -1,3 +1,4 @@
+import EdenCore
 import WebKit
 
 /// The floating video as macOS's own picture in picture, for whoever picks

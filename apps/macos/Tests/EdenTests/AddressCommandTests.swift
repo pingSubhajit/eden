@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import XCTest
 @testable import Eden
@@ -56,10 +57,10 @@ final class AddressCommandTests: XCTestCase {
         XCTAssertNil(AddressCommand.near("weather", in: browser))
 
         let exact = browser.placeOffers(for: "downloads").offers
-        XCTAssertEqual(exact.first?.kind, .command(.downloads), "a whole name still runs on Return")
+        XCTAssertEqual(exact.first?.command, .downloads, "a whole name still runs on Return")
 
         let part = browser.placeOffers(for: "dwn").offers
-        XCTAssertEqual(part.last?.kind, .command(.downloads), "part of a name is offered, last")
+        XCTAssertEqual(part.last?.command, .downloads, "part of a name is offered, last")
         XCTAssertFalse(part.first?.kind.isCommand ?? true, "and Return still searches")
 
         browser.prefs.commandBar = false
@@ -111,7 +112,7 @@ final class AddressCommandTests: XCTestCase {
         // Under the search, so Return still searches; the menu's action runs.
         let offers = browser.placeOffers(for: "bookmarks bar").offers
         XCTAssertFalse(offers.first?.kind.isCommand ?? true)
-        XCTAssertEqual(offers.last?.kind, .command(.menu("bookmarks.bar")))
+        XCTAssertEqual(offers.last?.command, .menu("bookmarks.bar"))
         let before = prefs.bookmarksBar
         AddressCommand.menu("bookmarks.bar").run(on: browser)
         XCTAssertNotEqual(prefs.bookmarksBar, before, "the menu's own action")
@@ -139,5 +140,20 @@ final class AddressCommandTests: XCTestCase {
 
         let exact = browser.placeOffers(for: "nodes").offers.filter { $0.kind == .visited || $0.kind == .bookmark }
         XCTAssertEqual(exact.first?.url, slip, "a bookmark that fits as typed still leads")
+    }
+
+    /// A suggestion carries a command by an identifier of its own
+    /// (Suggestion.Command, in EdenCore): every command comes back as itself.
+    func testEveryCommandSurvivesASuggestion() {
+        let commands = AddressCommand.allCases + [.menu("bookmarks.bar"), .menu("view.sidebar")]
+            + SettingsPanel.Page.allCases.map(AddressCommand.page)
+        for command in commands {
+            XCTAssertEqual(AddressCommand(command.suggested), command, "\(command)")
+            XCTAssertEqual(Suggestion.command(command).command, command, "\(command)")
+        }
+        XCTAssertNil(AddressCommand(Suggestion.Command("page:nowhere")))
+        XCTAssertNil(AddressCommand(Suggestion.Command("unknown")))
+        let visited = Suggestion(key: "example.com", title: "", url: URL(string: "https://example.com")!, kind: .visited)
+        XCTAssertNil(visited.command)
     }
 }

@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 import XCTest
 import AppKit

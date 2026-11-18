@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // Folders among the pinned rows, as in Arc's pinned list: a folder holds

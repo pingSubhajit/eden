@@ -4,14 +4,18 @@ import Foundation
 // hands back a URL or hands back nothing — and nothing is worth saying out
 // loud, because the alternative is a browser that silently does something else
 // with your keystrokes.
-enum Address {
+public enum Address {
     /// Schemes the window can show itself. Anything else typed with a scheme —
     /// mailto:, a custom app link — is somebody else's job and gets refused
     /// here rather than opening a blank tab.
-    private static let ours: Set<String> = ["http", "https", "file", "about", "data", InternalPage.scheme]
+    /// The scheme of Eden's own pages: eden://settings and the rest
+    /// (InternalPages.swift on the Mac).
+    public static let internalScheme = "eden"
+
+    private static let ours: Set<String> = ["http", "https", "file", "about", "data", internalScheme]
 
     /// Only committed navigation checks the disk; suggestions and dropped text never do.
-    static func file(from typed: String) -> URL? {
+    public static func file(from typed: String) -> URL? {
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (text.hasPrefix("/") && !text.hasPrefix("//")) || text.hasPrefix("~/") else { return nil }
         let path = (text as NSString).expandingTildeInPath
@@ -20,7 +24,7 @@ enum Address {
         return URL(fileURLWithPath: path)
     }
 
-    static func url(from typed: String) -> URL? {
+    public static func url(from typed: String) -> URL? {
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !text.contains(" ") else { return nil }
 
@@ -71,7 +75,7 @@ enum Address {
     /// Mac has — and print that as the address to open. WebKit refuses to go
     /// there and shows nothing at all, where Chrome opens this Mac, so it is
     /// opened as localhost, the same server.
-    static func reachable(_ url: URL) -> URL? {
+    public static func reachable(_ url: URL) -> URL? {
         guard url.host() == "0.0.0.0", ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
         else { return nil }
@@ -106,7 +110,7 @@ enum Address {
     /// when the field would put that very scheme back, and a bare "/" only
     /// when nothing follows it — a port, a query, a fragment, plain http to
     /// somewhere that isn't this Mac or the local network, all stay.
-    static func editable(_ page: URL) -> String {
+    public static func editable(_ page: URL) -> String {
         let full = page.absoluteString
         guard let scheme = page.scheme, full.lowercased().hasPrefix(scheme.lowercased() + "://") else { return full }
         let short = String(full.dropFirst(scheme.count + 3))
@@ -122,13 +126,13 @@ enum Address {
     }
 
     /// An address as a row shows it: without a leading www.
-    static func withoutWWW(_ address: String) -> String {
+    public static func withoutWWW(_ address: String) -> String {
         address.lowercased().hasPrefix("www.") ? String(address.dropFirst(4)) : address
     }
 
     /// What the tab says before the page has told us its title: the address,
     /// with the parts nobody reads taken off.
-    static func pretty(_ url: URL) -> String {
+    public static func pretty(_ url: URL) -> String {
         guard let host = url.host() else { return url.absoluteString }
         let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         let path = url.path()

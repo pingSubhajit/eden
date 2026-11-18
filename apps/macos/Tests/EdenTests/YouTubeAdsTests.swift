@@ -1,3 +1,4 @@
+import EdenCore
 import JavaScriptCore
 import WebKit
 import XCTest

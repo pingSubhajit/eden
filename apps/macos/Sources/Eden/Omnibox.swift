@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 import AppKit
 
@@ -246,7 +247,7 @@ struct Omnibox: View {
                 }
                 Spacer(minLength: 0)
                 // A command's key, as Arc's Command Bar shows it.
-                if case .command(let command) = offer.kind, let key = command.key {
+                if let command = offer.command, let key = command.key {
                     Text(key)
                         .font(.system(size: 12))
                         .foregroundStyle(Palette.muted)

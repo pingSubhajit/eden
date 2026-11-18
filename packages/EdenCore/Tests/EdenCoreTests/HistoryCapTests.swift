@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import Eden
+@testable import EdenCore
 
 /// The file has always kept 2,000 places; memory kept every one of the
 /// session, with its text and its prefix weights, and the address field
@@ -10,6 +10,17 @@ final class HistoryCapTests: XCTestCase {
     override class func setUp() {
         setenv("EDEN_PROBE", "history-cap-\(getpid())", 1)
         super.setUp()
+    }
+
+    /// The world the history suites share (Store.world is fixed for the
+    /// process, named by whichever ran first): gone with its settings once a
+    /// suite is done, so the last to run leaves nothing.
+    override class func tearDown() {
+        if let world = Store.world, world.hasPrefix("history-") {
+            try? FileManager.default.removeItem(at: Store.folder)
+            UserDefaults.standard.removePersistentDomain(forName: "com.subhajit.eden.beta.test.\(world)")
+        }
+        super.tearDown()
     }
 
     /// What a History holds, read from its private stores: nothing public

@@ -1,9 +1,20 @@
 import Foundation
 import XCTest
-@testable import Eden
+@testable import EdenCore
 
 @MainActor
 final class HistoryLoadingTests: XCTestCase {
+    /// The world the history suites share (Store.world is fixed for the
+    /// process, named by whichever ran first): gone with its settings once a
+    /// suite is done, so the last to run leaves nothing.
+    override class func tearDown() {
+        if let world = Store.world, world.hasPrefix("history-") {
+            try? FileManager.default.removeItem(at: Store.folder)
+            UserDefaults.standard.removePersistentDomain(forName: "com.subhajit.eden.beta.test.\(world)")
+        }
+        super.tearDown()
+    }
+
     private func fixture() throws -> (String, URL) {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

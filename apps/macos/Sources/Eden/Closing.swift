@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // Tabs that close themselves, as in Arc.

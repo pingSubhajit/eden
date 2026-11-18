@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // What was open last time. A list of addresses and their names, and which one

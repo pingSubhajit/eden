@@ -25,37 +25,52 @@ import Foundation
 // Items this build can't read (a newer Eden's, a damaged one) are carried
 // along untouched and never turned into tombstones.
 
-struct SyncEntry: Codable, Equatable {
+public struct SyncEntry: Codable, Equatable {
     /// The item's JSON; nil for one deleted.
-    var v: String?
+    public var v: String?
     /// When it was set, seconds since 1970 — or later, see `SyncMerge.stamp`.
-    var t: Double
+    public var t: Double
     /// The device that set it.
-    var d: String
+    public var d: String
+
+    public init(v: String?, t: Double, d: String) {
+        self.v = v
+        self.t = t
+        self.d = d
+    }
 }
 
 /// One Mac's file in one scope's folder: only that Mac writes it.
-struct SyncFile: Codable, Equatable {
-    var format: Int
-    var device: String
+public struct SyncFile: Codable, Equatable {
+    public var format: Int
+    public var device: String
     /// The Mac's name, for Settings to say who was last seen.
-    var name: String?
+    public var name: String?
     /// "app", or "profile-<id>": a file in the wrong folder is not read.
-    var scope: String
-    var written: Double
-    var items: [String: SyncEntry]
+    public var scope: String
+    public var written: Double
+    public var items: [String: SyncEntry]
+
+    public init(format: Int, device: String, name: String?, scope: String, written: Double, items: [String: SyncEntry]) {
+        self.format = format
+        self.device = device
+        self.name = name
+        self.scope = scope
+        self.written = written
+        self.items = items
+    }
 }
 
-enum SyncMerge {
+public enum SyncMerge {
     /// The file format. A file of another is passed over, not misread.
-    static let format = 1
+    public static let format = 1
     /// How long a deletion is remembered: a Mac away longer than this may
     /// bring back what was deleted meanwhile, and nothing worse.
-    static let tombstoneLife: Double = 365 * 24 * 60 * 60
+    public static let tombstoneLife: Double = 365 * 24 * 60 * 60
 
     /// Whether `a` beats `b` for the same item. Total and the same on every
     /// Mac: two Macs that read the same files agree.
-    static func wins(_ a: SyncEntry, over b: SyncEntry) -> Bool {
+    public static func wins(_ a: SyncEntry, over b: SyncEntry) -> Bool {
         if a.t != b.t { return a.t > b.t }
         if a.d != b.d { return a.d > b.d }
         switch (a.v, b.v) {
@@ -67,7 +82,7 @@ enum SyncMerge {
     }
 
     /// Every map's items, the winner of each.
-    static func merge(_ maps: [[String: SyncEntry]]) -> [String: SyncEntry] {
+    public static func merge(_ maps: [[String: SyncEntry]]) -> [String: SyncEntry] {
         var out: [String: SyncEntry] = [:]
         for map in maps {
             for (key, entry) in map {
@@ -83,7 +98,7 @@ enum SyncMerge {
     /// build can read: only those can be found missing and deleted.
     /// `joining`: this Mac's first pass with a folder other Macs already
     /// use — its items are stamped 0, so theirs win where both have one.
-    static func stamp(current: [String: String], base: [String: SyncEntry], device: String, now: Double,
+    public static func stamp(current: [String: String], base: [String: SyncEntry], device: String, now: Double,
                       joining: Bool = false,
                       understood: (String, String) -> Bool = { _, _ in true }) -> [String: SyncEntry] {
         // Later than anything seen, whatever this Mac's clock says.
@@ -111,7 +126,7 @@ enum SyncMerge {
     /// base (nil before its first pass), merged with the other Macs' maps,
     /// old deletions forgotten. What comes back is the new base, this Mac's
     /// file, and — its live items — what this Mac should now have.
-    static func pass(current: [String: String], base: [String: SyncEntry]?, theirs: [[String: SyncEntry]],
+    public static func pass(current: [String: String], base: [String: SyncEntry]?, theirs: [[String: SyncEntry]],
                      device: String, now: Double,
                      understood: (String, String) -> Bool = { _, _ in true }) -> [String: SyncEntry] {
         let mine = stamp(current: current, base: base ?? [:], device: device, now: now,
@@ -121,28 +136,28 @@ enum SyncMerge {
 
     /// The kinds of item whose vanishing all at once is not taken as their
     /// deletion (see `stamp`), and how many there must have been.
-    static let wholeKinds = ["bm:", "kids:", "pin:", "order:pins:", "title:pin:", "space:"]
-    static let wholeKindFloor = 5
+    public static let wholeKinds = ["bm:", "kids:", "pin:", "order:pins:", "title:pin:", "space:"]
+    public static let wholeKindFloor = 5
 
     /// The items that are there, without the tombstones.
-    static func live(_ map: [String: SyncEntry]) -> [String: String] {
+    public static func live(_ map: [String: SyncEntry]) -> [String: String] {
         map.compactMapValues(\.v)
     }
 
     /// The keys deleted.
-    static func tombstoned(_ map: [String: SyncEntry]) -> Set<String> {
+    public static func tombstoned(_ map: [String: SyncEntry]) -> Set<String> {
         Set(map.filter { $0.value.v == nil }.keys)
     }
 
     /// Deletions older than `tombstoneLife` forgotten.
-    static func prune(_ map: [String: SyncEntry], now: Double) -> [String: SyncEntry] {
+    public static func prune(_ map: [String: SyncEntry], now: Double) -> [String: SyncEntry] {
         map.filter { $0.value.v != nil || $0.value.t >= now - tombstoneLife }
     }
 
     /// Another Mac's file, if it is one this build can read for this scope:
     /// damaged, foreign, other-format and wrong-folder files are nil, and an
     /// entry with a stamp that is not a number is left out.
-    static func decode(_ data: Data, scope: String) -> SyncFile? {
+    public static func decode(_ data: Data, scope: String) -> SyncFile? {
         guard var file = try? JSONDecoder().decode(SyncFile.self, from: data),
               file.format == format, file.scope == scope, !file.device.isEmpty
         else { return nil }
@@ -150,7 +165,7 @@ enum SyncMerge {
         return file
     }
 
-    static func encode(_ file: SyncFile) -> Data? {
+    public static func encode(_ file: SyncFile) -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try? encoder.encode(file)
@@ -158,13 +173,13 @@ enum SyncMerge {
 
     /// A value as an item's text: sorted keys, so the same value is always
     /// the same text and "changed" means changed.
-    static func text<T: Encodable>(_ value: T) -> String? {
+    public static func text<T: Encodable>(_ value: T) -> String? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
     }
 
-    static func value<T: Decodable>(_ type: T.Type, _ text: String) -> T? {
+    public static func value<T: Decodable>(_ type: T.Type, _ text: String) -> T? {
         try? JSONDecoder().decode(type, from: Data(text.utf8))
     }
 
@@ -172,7 +187,7 @@ enum SyncMerge {
     /// as it has them, then the rest in `fallback`'s order, then any left by
     /// id — so an item added on one Mac while another reordered is kept, at
     /// the end, and every Mac ends with the same list.
-    static func ordered(_ ids: Set<String>, order: [String], fallback: [String] = []) -> [String] {
+    public static func ordered(_ ids: Set<String>, order: [String], fallback: [String] = []) -> [String] {
         var out: [String] = []
         var seen = Set<String>()
         for id in order + fallback where ids.contains(id) && !seen.contains(id) {
@@ -188,40 +203,40 @@ enum SyncMerge {
 /// The parts of a space that sync: what it is called and looks like, and
 /// whether it has sign-ins of its own. Never its cookies, sign-ins, tabs
 /// or downloads folder.
-struct SyncedSpace: Codable, Equatable {
-    var name: String
-    var colour: Int
-    var icon: String?
-    var sharesSignIns: Bool?
+public struct SyncedSpace: Codable, Equatable {
+    public var name: String
+    public var colour: Int
+    public var icon: String?
+    public var sharesSignIns: Bool?
 }
 
 /// The parts of a pin that sync. Its title is the page's, which changes as
 /// you browse; it goes once, beside it, for a Mac that makes the pin anew.
-struct SyncedPin: Codable, Equatable {
-    var letter: String
-    var home: String
-    var name: String?
-    var listed: Bool?
+public struct SyncedPin: Codable, Equatable {
+    public var letter: String
+    public var home: String
+    public var name: String?
+    public var listed: Bool?
 }
 
 /// A bookmark or a folder (no url), without its place: the folder that
 /// holds it lists it.
-struct SyncedBookmark: Codable, Equatable {
-    var title: String
-    var url: String?
+public struct SyncedBookmark: Codable, Equatable {
+    public var title: String
+    public var url: String?
 }
 
-enum SyncItems {
+public enum SyncItems {
     // MARK: spaces
 
-    static let spacesOrder = "order:spaces"
+    public static let spacesOrder = "order:spaces"
 
-    static func spaceKey(_ id: UUID) -> String { "space:" + id.uuidString }
+    public static func spaceKey(_ id: UUID) -> String { "space:" + id.uuidString }
 
     /// One profile's spaces, as items. Whether a space has sign-ins of its
     /// own is what was agreed when it was first synced (`base`), never
     /// changed after: a store can't change under a space's open tabs.
-    static func spaces(_ list: [Space], base: [String: String] = [:]) -> [String: String] {
+    public static func spaces(_ list: [Space], base: [String: String] = [:]) -> [String: String] {
         var out: [String: String] = [:]
         for space in list {
             let agreed = base[spaceKey(space.id)].flatMap { SyncMerge.value(SyncedSpace.self, $0) }
@@ -237,7 +252,7 @@ enum SyncItems {
     /// as merged, in the merged order; what is only this Mac's — the
     /// downloads folder — kept; whether one has its own sign-ins is never
     /// changed once it is made. `home` is never taken away.
-    static func applySpaces(_ live: [String: String], to local: [Space], profile: UUID, home: UUID) -> [Space] {
+    public static func applySpaces(_ live: [String: String], to local: [Space], profile: UUID, home: UUID) -> [Space] {
         var found: [String: SyncedSpace] = [:]
         for (key, text) in live where key.hasPrefix("space:") {
             guard UUID(uuidString: String(key.dropFirst(6))) != nil, let space = SyncMerge.value(SyncedSpace.self, text) else { continue }
@@ -254,7 +269,7 @@ enum SyncItems {
         return ordered.compactMap { text -> Space? in
             guard let id = UUID(uuidString: text) else { return nil }
             var space = local.first { $0.id == id }
-                ?? Space(id: id, name: "", colour: 0, profile: profile == Profile.personalID ? nil : profile)
+                ?? Space(id: id, name: "", colour: 0, profile: profile == Space.personalProfileID ? nil : profile)
             if let synced = found[text] {
                 space.name = synced.name
                 space.colour = synced.colour
@@ -268,15 +283,15 @@ enum SyncItems {
 
     // MARK: pins
 
-    static let sharedSpace = "shared"
+    public static let sharedSpace = "shared"
 
-    static func pinKey(_ space: String, _ id: UUID) -> String { "pin:\(space):\(id.uuidString)" }
-    static func pinOrder(_ space: String) -> String { "order:pins:\(space)" }
-    static func pinTitle(_ id: UUID) -> String { "title:pin:\(id.uuidString)" }
+    public static func pinKey(_ space: String, _ id: UUID) -> String { "pin:\(space):\(id.uuidString)" }
+    public static func pinOrder(_ space: String) -> String { "order:pins:\(space)" }
+    public static func pinTitle(_ id: UUID) -> String { "title:pin:\(id.uuidString)" }
 
     /// A profile's pins as items: each space's own, and the ones every space
     /// shows. A pin's title is the one already agreed, if there is one.
-    static func pins(bySpace: [UUID: [PinDef]], shared: [PinDef], base: [String: String]) -> [String: String] {
+    public static func pins(bySpace: [UUID: [PinDef]], shared: [PinDef], base: [String: String]) -> [String: String] {
         var out: [String: String] = [:]
         func add(_ defs: [PinDef], _ space: String) {
             for def in defs {
@@ -294,7 +309,7 @@ enum SyncItems {
     /// ones. A pin in both the shared list and a space's (shared on one Mac
     /// while edited on another) is shared. Titles: the one agreed, else the
     /// one this Mac had, else the page's address.
-    static func applyPins(_ live: [String: String], spaces: [UUID], local: [UUID: [PinDef]], localShared: [PinDef])
+    public static func applyPins(_ live: [String: String], spaces: [UUID], local: [UUID: [PinDef]], localShared: [PinDef])
         -> (bySpace: [UUID: [PinDef]], shared: [PinDef]) {
         let known = (Array(local.values).flatMap { $0 } + localShared)
         func defs(_ space: String, fallback: [PinDef]) -> [PinDef] {
@@ -325,14 +340,14 @@ enum SyncItems {
 
     // MARK: bookmarks
 
-    static let rootFolder = "root"
+    public static let rootFolder = "root"
 
-    static func bookmarkKey(_ id: UUID) -> String { "bm:" + id.uuidString }
-    static func childrenKey(_ folder: String) -> String { "kids:" + folder }
+    public static func bookmarkKey(_ id: UUID) -> String { "bm:" + id.uuidString }
+    public static func childrenKey(_ folder: String) -> String { "kids:" + folder }
 
     /// A bookmarks tree as items: each bookmark and folder, and each
     /// folder's list of what it holds, the top level under "root".
-    static func bookmarks(_ roots: [Bookmark]) -> [String: String] {
+    public static func bookmarks(_ roots: [Bookmark]) -> [String: String] {
         var out: [String: String] = [:]
         func walk(_ nodes: [Bookmark], in folder: String) {
             if !nodes.isEmpty { out[childrenKey(folder)] = SyncMerge.text(nodes.map(\.id.uuidString)) }
@@ -349,7 +364,7 @@ enum SyncItems {
     /// any more — its folder deleted on one Mac while it was added there on
     /// another, or two folders moved into each other — goes at the end of
     /// the top level rather than being lost.
-    static func applyBookmarks(_ live: [String: String]) -> [Bookmark] {
+    public static func applyBookmarks(_ live: [String: String]) -> [Bookmark] {
         var nodes: [String: SyncedBookmark] = [:]
         for (key, text) in live where key.hasPrefix("bm:") {
             let id = String(key.dropFirst(3))
@@ -378,15 +393,23 @@ enum SyncItems {
         return roots
     }
 
+    /// The keys of the settings that sync, as "set:<key>" items: the Mac's
+    /// SyncSettings writes them, and any device reads them.
+    public static let knownSettings: Set<String> = [
+        "look", "glyph", "search.engine", "search.custom", "search.suggest", "search.keywords", "spaces",
+        "pins.list", "pins.home", "tabs.close.after", "tabs.newPlace", "tabs.shortcuts", "shield",
+        "privacy.clickIDs", "privacy.gpc", "bookmarks.bar", "quit.confirm",
+    ]
+
     /// Whether this build can read an item: only those can be found missing
     /// here and so deleted everywhere.
-    static func understood(_ key: String, _ text: String) -> Bool {
+    public static func understood(_ key: String, _ text: String) -> Bool {
         if key.hasPrefix("space:") { return SyncMerge.value(SyncedSpace.self, text) != nil }
         if key.hasPrefix("pin:") { return SyncMerge.value(SyncedPin.self, text) != nil }
         if key.hasPrefix("bm:") { return SyncMerge.value(SyncedBookmark.self, text) != nil }
         if key.hasPrefix("order:") || key.hasPrefix("kids:") { return SyncMerge.value([String].self, text) != nil }
         if key.hasPrefix("title:pin:") { return SyncMerge.value(String.self, text) != nil }
-        if key.hasPrefix("set:") { return SyncSettings.known.contains(String(key.dropFirst(4))) }
+        if key.hasPrefix("set:") { return knownSettings.contains(String(key.dropFirst(4))) }
         return false
     }
 }

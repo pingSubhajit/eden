@@ -8,9 +8,10 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 swiftc \
   -parse-as-library \
   -swift-version 5 \
-  "$repo_root/Sources/Eden/Address.swift" \
-  "$repo_root/Sources/Eden/History.swift" \
-  "$repo_root/Sources/Eden/Fuzzy.swift" \
+  "$repo_root/Sources/EdenCore/Address.swift" \
+  "$repo_root/Sources/EdenCore/History.swift" \
+  "$repo_root/Sources/EdenCore/Suggestion.swift" \
+  "$repo_root/Sources/EdenCore/Fuzzy.swift" \
   "$repo_root/Tests/HistoryRegression/Stubs.swift" \
   "$repo_root/Tests/HistoryRegression/main.swift" \
   -o "$test_root/history-regression"

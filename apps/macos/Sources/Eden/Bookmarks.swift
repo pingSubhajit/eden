@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import SwiftUI
 
@@ -6,46 +7,6 @@ import SwiftUI
 // Shown as the app's own kind of list rather than a system menu, on purpose:
 // a menu can't be dragged into, and can't be asked a second thing by
 // right-clicking it. A folder you actually keep things in wants both.
-
-struct Bookmark: Codable, Identifiable, Hashable {
-    var id = UUID()
-    var title: String
-    /// Nil for a folder.
-    var url: String?
-    var children: [Bookmark]?
-
-    var isFolder: Bool { url == nil }
-
-    /// A bookmark whose name was emptied, as in Chrome and Safari: on the
-    /// bar it is its icon alone. There is no setting; emptying it is the
-    /// choice. A folder always has a name.
-    var unnamed: Bool {
-        !isFolder && title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// What a list reads it as: its name, or for one without, its address
-    /// as the address field shows it, so the list is still readable.
-    var label: String {
-        guard unnamed else { return title }
-        return url.flatMap { URL(string: $0) }.map(Address.pretty) ?? url ?? ""
-    }
-
-    var host: String? {
-        url.flatMap { URL(string: $0)?.host()?.lowercased() }
-    }
-
-    var address: URL? {
-        url.flatMap { URL(string: $0) }
-    }
-
-    static func site(_ title: String, _ url: URL) -> Bookmark {
-        Bookmark(title: title.isEmpty ? Address.pretty(url) : title, url: url.absoluteString, children: nil)
-    }
-
-    static func folder(_ title: String, _ children: [Bookmark]) -> Bookmark {
-        Bookmark(title: title, url: nil, children: children)
-    }
-}
 
 /// Observable: only what reads the list hears it change, the Bookmarks
 /// menu's first item included (Tests/bookmark_menu_title.py), not every row.

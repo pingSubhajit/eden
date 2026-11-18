@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 import Security
 import SQLite3

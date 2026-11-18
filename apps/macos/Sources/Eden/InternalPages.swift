@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import SwiftUI
 
@@ -29,7 +30,7 @@ struct InternalPage: Equatable {
         self.detail = detail?.isEmpty == true ? nil : detail
     }
 
-    static let scheme = "eden"
+    static let scheme = Address.internalScheme
 
     /// eden://settings, eden://settings/privacy, eden://import/Arc.
     init?(url: URL) {

@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // Reading mode: the article, and nothing that was arranged around it.

@@ -5,84 +5,32 @@ import Foundation
 // small file next to the app's own settings, written a moment after a visit
 // rather than on every keystroke.
 
-struct Suggestion: Identifiable, Equatable {
-    /// What you could type to get here, kept reversible for completion.
-    let key: String
-    let title: String
-    let url: URL
-    let kind: Kind
-    /// Set when this is a page you already have open somewhere.
-    var tab: UUID?
-
-    enum Kind: Equatable {
-        /// A page that is open right now.
-        case open
-        /// Somewhere you have actually been.
-        case visited
-        /// One of your bookmarks, the window's profile's.
-        case bookmark
-        /// One of the well-known addresses the field knows from the start.
-        case known
-        /// Not a place at all — words, and an engine to ask.
-        case search
-        /// Words the engine itself suggested, from what was typed so far
-        /// (Settings › General › Suggestions from your search engine).
-        case suggested
-        /// Words you searched a site in the field for before, read from
-        /// this window's history (SiteSearch.pastSearches).
-        case searched
-        /// Not a place either: something the app itself does.
-        case command(AddressCommand)
-
-        var isCommand: Bool { if case .command = self { return true }; return false }
-    }
-
-    /// A command's row can read the same as the search for the same word
-    /// ("Settings" typed with its capital), and two rows can't share a name.
-    var id: String {
-        if kind.isCommand { return "command " + key }
-        if case .suggested = kind { return "suggested " + key }
-        // By the page: the same words searched on two sites are two rows.
-        if case .searched = kind { return "searched " + History.identity(for: url) }
-        if case .visited = kind { return History.identity(for: url) }
-        if case .bookmark = kind { return History.identity(for: url) }
-        return key
-    }
-
-    /// A command goes nowhere, but the field still needs *a* URL to carry;
-    /// `take` and `submit` read the kind first and never follow this one.
-    @MainActor
-    static func command(_ command: AddressCommand) -> Suggestion {
-        Suggestion(key: command.title, title: "", url: URL(string: "about:blank")!, kind: .command(command))
-    }
-}
-
 private struct Visit: Codable, Sendable {
-    var url: String
-    var key: String
-    var title: String
-    var count: Int
-    var last: Date
+    public var url: String
+    public var key: String
+    public var title: String
+    public var count: Int
+    public var last: Date
 }
 
 private struct PageText: Sendable {
-    let address: String
-    let searchable: String
-    let host: String
-    let homepage: Bool
-    let findable: String
+    public let address: String
+    public let searchable: String
+    public let host: String
+    public let homepage: Bool
+    public let findable: String
     /// Prefixes its visits count for: host, host/team, host/team/api.
-    let trail: [String]
-    var weight = 0.0
+    public let trail: [String]
+    public var weight = 0.0
 }
 
 private struct LoadedHistory: Sendable {
-    var visits: [String: Visit] = [:]
-    var pageText: [String: PageText] = [:]
-    var weights: [String: Double] = [:]
-    var visitedHosts: Set<String> = []
-    var cleaned = false
-    var corrupt = false
+    public var visits: [String: Visit] = [:]
+    public var pageText: [String: PageText] = [:]
+    public var weights: [String: Double] = [:]
+    public var visitedHosts: Set<String> = []
+    public var cleaned = false
+    public var corrupt = false
 }
 
 // Quitting may need the result before the main queue gets its turn. The work
@@ -92,16 +40,16 @@ private final class HistoryLoad: @unchecked Sendable {
     private let lock = NSLock()
     private var loaded = LoadedHistory()
 
-    init() { group.enter() }
+    public init() { group.enter() }
 
-    func finish(_ result: LoadedHistory) {
+    public func finish(_ result: LoadedHistory) {
         lock.lock()
         loaded = result
         lock.unlock()
         group.leave()
     }
 
-    func result() -> LoadedHistory {
+    public func result() -> LoadedHistory {
         group.wait()
         lock.lock()
         defer { lock.unlock() }
@@ -110,7 +58,7 @@ private final class HistoryLoad: @unchecked Sendable {
 }
 
 @MainActor
-final class History: ObservableObject {
+public final class History: ObservableObject {
     private var visits: [String: Visit] = [:] {
         didSet {
             recentCache = nil
@@ -124,7 +72,7 @@ final class History: ObservableObject {
     /// and passing on every change to the history — a background tab's
     /// title counting its unread mail, say — drew every window and the menu
     /// bar again for a list that was the same.
-    let recentChanges = PassthroughSubject<Void, Never>()
+    public let recentChanges = PassthroughSubject<Void, Never>()
     /// What the menu was last drawn from: which places, in order, and whether
     /// each had a title yet (an untitled one shows its address). Not the
     /// title itself: one that keeps ticking is the same list for the menu.
@@ -156,15 +104,19 @@ final class History: ObservableObject {
     /// A write waiting out `save`'s pause.
     private var pausing = false
     /// Visits counted at most: far more than anyone makes, and room to add.
-    static let mostVisits = 1_000_000_000
+    /// Told the address of a page forgotten, so what the app keeps for it
+    /// beside the history — the Mac's icons — goes too.
+    public static var forgotten: ((URL) -> Void)?
+
+    public static let mostVisits = 1_000_000_000
     /// Places kept: in the file, and in memory once a session has run long
     /// enough to be cut (see `prune`).
-    nonisolated static let cap = 2_000
+    public nonisolated static let cap = 2_000
     /// How far memory may run past `cap` before it is cut back to it, so a
     /// busy day's browsing sorts the history once every few hundred pages
     /// and not once for each. Also how many of the newest places the cut
     /// keeps whatever they score.
-    static let slack = 250
+    public static let slack = 250
     /// These are derived once when a visit enters memory. Suggestions run on
     /// every keystroke, so neither URL parsing nor address formatting belongs
     /// in that loop.
@@ -187,13 +139,13 @@ final class History: ObservableObject {
     private var duringLoad: [(History) -> Void] = []
     private var publishingLoad = false
 
-    init(file: String = "history.json", read: @escaping @Sendable (URL) -> Data? = { try? Data(contentsOf: $0) }) {
+    public init(file: String = "history.json", read: @escaping @Sendable (URL) -> Data? = { try? Data(contentsOf: $0) }) {
         fileName = file
         load(read: read)
     }
 
     /// Its profile deleted: emptied, its file removed, and nothing written again.
-    func retire() {
+    public func retire() {
         retired = true
         visits = [:]
         pageText = [:]
@@ -204,7 +156,7 @@ final class History: ObservableObject {
 
     /// URL identity ignores fragments, normalizes only the scheme and host,
     /// and keeps the spelling and encoding of the path and query intact.
-    nonisolated static func identity(for url: URL) -> String {
+    public nonisolated static func identity(for url: URL) -> String {
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }
@@ -221,7 +173,7 @@ final class History: ObservableObject {
     /// A page as it is kept: without a name and password written into its
     /// address. They were never part of which page it is, and the history
     /// file is no place for a password. Nil if they can't be taken off.
-    nonisolated static func kept(_ url: URL) -> URL? {
+    public nonisolated static func kept(_ url: URL) -> URL? {
         guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
         guard parts.user != nil || parts.password != nil else { return url }
         parts.user = nil
@@ -262,7 +214,7 @@ final class History: ObservableObject {
         return trail + [own]
     }
 
-    nonisolated static func stripped(_ address: String) -> String {
+    public nonisolated static func stripped(_ address: String) -> String {
         var text = address.trimmingCharacters(in: .whitespaces).lowercased()
         for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
             text = String(text.dropFirst(scheme.count))
@@ -317,7 +269,7 @@ final class History: ObservableObject {
 
     // MARK: - writing
 
-    func record(_ url: URL, title: String) {
+    public func record(_ url: URL, title: String) {
         if loading != nil { duringLoad.append { $0.record(url, title: title) } }
         guard History.isWeb(url), let url = History.kept(url) else { return }
         let key = History.identity(for: url)
@@ -391,7 +343,7 @@ final class History: ObservableObject {
     /// Somewhere another browser has been. Counted as it was counted there,
     /// so a site visited daily for a year outranks one seen once — the day
     /// you switch, the field already knows you.
-    func take(_ url: URL, title: String, count: Int, last: Date) {
+    public func take(_ url: URL, title: String, count: Int, last: Date) {
         if loading != nil { duringLoad.append { $0.take(url, title: title, count: count, last: last) } }
         guard History.isWeb(url), let url = History.kept(url) else { return }
         let key = History.identity(for: url)
@@ -413,10 +365,10 @@ final class History: ObservableObject {
     }
 
     /// After a batch of `take`s.
-    func settle() { save() }
+    public func settle() { save() }
 
     /// A page's title usually lands a beat after the page does.
-    func retitle(_ url: URL, _ title: String) {
+    public func retitle(_ url: URL, _ title: String) {
         if loading != nil { duringLoad.append { $0.retitle(url, title) } }
         let key = History.identity(for: url)
         guard !title.isEmpty, var seen = visits[key], seen.title != title else { return }
@@ -441,7 +393,7 @@ final class History: ObservableObject {
         if first { save() } else { owed = true }
     }
 
-    func forget() {
+    public func forget() {
         if loading != nil { duringLoad.append { $0.forget() } }
         visits = [:]
         pageText = [:]
@@ -451,19 +403,28 @@ final class History: ObservableObject {
     }
 
     /// Everywhere you have been, newest first, for the window that shows it.
-    struct Trace: Identifiable, Equatable {
-        let key: String
+    public struct Trace: Identifiable, Equatable {
+        public let key: String
         /// A reversible address for display; `key` is the stable URL identity.
-        let address: String
-        let title: String
-        let url: URL
-        let last: Date
-        let count: Int
+        public let address: String
+        public let title: String
+        public let url: URL
+        public let last: Date
+        public let count: Int
 
-        var id: String { key }
+        public init(key: String, address: String, title: String, url: URL, last: Date, count: Int) {
+            self.key = key
+            self.address = address
+            self.title = title
+            self.url = url
+            self.last = last
+            self.count = count
+        }
+
+        public var id: String { key }
     }
 
-    func everything(matching typed: String = "") -> [Trace] {
+    public func everything(matching typed: String = "") -> [Trace] {
         let needle = typed.trimmingCharacters(in: .whitespaces).lowercased()
         return visits.values
             // Every visit to a page also credits its domain, so the address
@@ -493,10 +454,10 @@ final class History: ObservableObject {
             }
     }
 
-    func forget(_ key: String) {
+    public func forget(_ key: String) {
         if loading != nil { duringLoad.append { $0.forget(key) } }
         // Its page's icon is a trace of the visit too.
-        if let url = visits[key].flatMap({ URL(string: $0.url) }) { Favicons.shared.forget(url) }
+        if let url = visits[key].flatMap({ URL(string: $0.url) }) { History.forgotten?(url) }
         visits[key] = nil
         forgetText(for: key)
         save()
@@ -504,7 +465,7 @@ final class History: ObservableObject {
 
     /// The last eight places, newest first; worked out again only once the
     /// history has changed.
-    func recent() -> [Trace] {
+    public func recent() -> [Trace] {
         if let recentCache { return recentCache }
         // One pass keeping the newest eight, as `everything()` would list
         // them, rather than sorting the whole history and making a Trace of
@@ -528,7 +489,7 @@ final class History: ObservableObject {
     // MARK: - reading
 
     /// Best matches first: `score = fit × log(2 + popularity)`.
-    func suggestions(for typed: String, limit: Int = 5) -> [Suggestion] {
+    public func suggestions(for typed: String, limit: Int = 5) -> [Suggestion] {
         let needle = strip(typed)
         // An empty field proposes nothing. A list of guesses in front of
         // someone who has not yet said what they want is noise, and it is in
@@ -619,7 +580,7 @@ final class History: ObservableObject {
     /// against another (SiteSearch.match): every page on its host and the
     /// host's subdomains, or under its path for one like google.com/maps —
     /// so a site counts at least as often as any part of it.
-    func visits(to sites: [String]) -> [String: Int] {
+    public func visits(to sites: [String]) -> [String: Int] {
         let wanted = sites.map { site -> (site: String, host: String, path: String) in
             let bare = site.lowercased().hasPrefix("www.") ? String(site.lowercased().dropFirst(4)) : site.lowercased()
             let host = bare.split(separator: "/", maxSplits: 1).first.map(String.init) ?? bare
@@ -642,7 +603,7 @@ final class History: ObservableObject {
 
     /// What the field should draw greyed out after the caret: the rest of the
     /// best match, or nothing if it doesn't carry on from what was typed.
-    func completion(for typed: String, among options: [Suggestion]) -> String? {
+    public func completion(for typed: String, among options: [Suggestion]) -> String? {
         guard !typed.isEmpty else { return nil }
         // One letter finishes only the top row, and only when it is the
         // front door of a site you have been to: "x" becomes x.com, as in
@@ -826,7 +787,7 @@ final class History: ObservableObject {
     /// Quitting: whatever the file doesn't have yet — the write still waiting
     /// out `save`'s pause, a title that changed since — made before the
     /// process ends rather than never.
-    func flush() {
+    public func flush() {
         if let loading { loaded(loading) }
         write(now: true)
     }

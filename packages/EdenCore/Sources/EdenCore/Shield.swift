@@ -9,20 +9,20 @@ import WebKit
 // in the way a JavaScript blocker does.
 
 @MainActor
-final class Shield: ObservableObject {
-    static let shared = Shield()
+public final class Shield: ObservableObject {
+    public static let shared = Shield()
 
     private let store: WKContentRuleListStore?
 
-    convenience init() {
+    public convenience init() {
         self.init(store: WKContentRuleListStore.default())
     }
 
-    init(store: WKContentRuleListStore?) {
+    public init(store: WKContentRuleListStore?) {
         self.store = store
     }
 
-    private(set) var list: WKContentRuleList?
+    public private(set) var list: WKContentRuleList?
     private var waiting: [WKUserContentController] = []
     private var preparing = false
 
@@ -30,26 +30,26 @@ final class Shield: ObservableObject {
     /// Settings can say "on" all it wants; nothing is actually blocked until
     /// this is nil, so it is the one thing worth telling a person about
     /// rather than failing the quiet way a missing ad is quiet.
-    @Published private(set) var trouble: String?
+    @Published public private(set) var trouble: String?
 
     /// On unless somebody said otherwise. Every tab's controller is told when
     /// this changes, so it takes effect on the next request rather than the
     /// next launch.
-    var enabled = true
+    public var enabled = true
 
     /// Sites it is off for — the ones it broke. A checkout that never
     /// finishes, a video that never starts: switching off here, for this site,
     /// beats switching off everywhere and forgetting to switch back.
-    private(set) var paused: Set<String> = Set(
+    public private(set) var paused: Set<String> = Set(
         Store.settings.stringArray(forKey: "shield.paused") ?? []
     )
 
-    func isPaused(on host: String?) -> Bool {
+    public func isPaused(on host: String?) -> Bool {
         guard let host else { return false }
         return paused.contains(host)
     }
 
-    func pause(_ host: String, _ off: Bool) {
+    public func pause(_ host: String, _ off: Bool) {
         if off { paused.insert(host) } else { paused.remove(host) }
         Store.settings.set(Array(paused).sorted(), forKey: "shield.paused")
     }
@@ -58,7 +58,7 @@ final class Shield: ObservableObject {
     /// heading to. A rule list is enforced from the moment it is added, so
     /// doing this at the navigation is what makes "off for this site" true
     /// for the whole page rather than for the second half of it.
-    func tune(_ controller: WKUserContentController, for host: String?) {
+    public func tune(_ controller: WKUserContentController, for host: String?) {
         guard list != nil else { return }
         set(controller, on: enabled && !isPaused(on: host))
     }
@@ -123,13 +123,13 @@ final class Shield: ObservableObject {
         (["*cnn.com"], ".ad-slot-header__wrapper"),
     ]
 
-    static func networkFilter(for domain: String) -> String {
+    public static func networkFilter(for domain: String) -> String {
         let escaped = domain.replacingOccurrences(of: ".", with: "\\.")
         // WebKit's canonical HTTP URLs end the host with a port or a slash.
         return "^https?://([^/]+\\.)?\(escaped)[:/]"
     }
 
-    func compile() {
+    public func compile() {
         guard list == nil, !preparing else { return }
         trouble = nil
         var rules: [[String: Any]] = Shield.unwanted.map { domain in
@@ -145,8 +145,8 @@ final class Shield: ObservableObject {
             "trigger": ["url-filter": ".*"],
             "action": ["type": "css-display-none", "selector": Shield.slots.joined(separator: ", ")],
         ])
-        // YouTube's ad reports and ad paths (see YouTubeAds.swift).
-        rules += YouTubeAds.rules
+        // YouTube's ad reports and ad paths (see YouTubeRules.swift).
+        rules += YouTubeRules.rules
         rules += Shield.slotsBySite.map { entry in
             [
                 "trigger": ["url-filter": ".*", "if-domain": entry.sites],
@@ -207,7 +207,7 @@ final class Shield: ObservableObject {
     }
 
     /// Every tab asks for it; whoever asks before it is ready is remembered.
-    func protect(_ controller: WKUserContentController) {
+    public func protect(_ controller: WKUserContentController) {
         if list != nil {
             if enabled { set(controller, on: true, again: true) }
         } else {
@@ -216,7 +216,7 @@ final class Shield: ObservableObject {
     }
 
     /// Switched on or off for every page that is already open.
-    func apply(to controllers: [WKUserContentController]) {
+    public func apply(to controllers: [WKUserContentController]) {
         guard list != nil else { return }
         for controller in controllers { set(controller, on: enabled, again: true) }
     }

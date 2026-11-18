@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // Pinned tabs are the same in every window: pinned, unpinned, moved,
@@ -14,22 +15,6 @@ import Foundation
 // Tabs › Pins in every space is on: Arc's favourites, above every space.
 // pins.json keeps them under "shared", which 1.0.4 reads as no space and
 // passes over; another profile's (see Profiles.swift) under "shared:<id>".
-
-struct PinDef: Codable, Equatable {
-    var id: UUID
-    var letter: String
-    /// The page it was pinned at (see Browser.goHome).
-    var home: String
-    var title: String
-    var name: String?
-    /// A row, not a square (see Tab.listed). Nil rather than false, so a
-    /// pins file with no rows in it is written as it always was.
-    var listed: Bool? = nil
-    /// The folder among the pinned rows that holds it (see PinFolders.swift),
-    /// nil at the top of them. Written only when it is in one, so the file
-    /// is unchanged for anyone with no folders.
-    var folder: UUID? = nil
-}
 
 @MainActor
 enum Pins {

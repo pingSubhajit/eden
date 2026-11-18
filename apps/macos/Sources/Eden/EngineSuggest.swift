@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 /// Settings › General › Suggestions from your search engine (idea 347): the

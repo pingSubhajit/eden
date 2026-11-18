@@ -4,12 +4,12 @@ import Foundation
 // search, whatever the default engine is. Firefox calls these keyword
 // bookmarks; there is no bookmark here, only the word and where it sends you.
 
-struct Keyword: Codable, Identifiable, Equatable {
-    let id: UUID
-    var keyword: String
-    var template: String
+public struct Keyword: Codable, Identifiable, Equatable {
+    public let id: UUID
+    public var keyword: String
+    public var template: String
 
-    init(id: UUID = UUID(), keyword: String = "", template: String = "") {
+    public init(id: UUID = UUID(), keyword: String = "", template: String = "") {
         self.id = id
         self.keyword = keyword
         self.template = template
@@ -17,7 +17,7 @@ struct Keyword: Codable, Identifiable, Equatable {
 
     /// What a row calls this: the site's own name, stood in for by its host,
     /// the same way Engine.name(custom:) does for the one default engine.
-    var name: String { Engine.bareHost(of: template) ?? template }
+    public var name: String { Engine.bareHost(of: template) ?? template }
 
     /// `typed` starts with this keyword, a space, and something after it —
     /// the words to search with. Nil if the keyword is unset, there's no
@@ -33,7 +33,7 @@ struct Keyword: Codable, Identifiable, Equatable {
     /// The first keyword in the list that `typed` names, and the words to
     /// search it with — or nothing, if none of them were asked for. One whose
     /// address wouldn't be saved today is passed over rather than followed.
-    static func match(_ typed: String, in keywords: [Keyword]) -> (Keyword, String)? {
+    public static func match(_ typed: String, in keywords: [Keyword]) -> (Keyword, String)? {
         for keyword in keywords where accepts(keyword.template) {
             if let rest = keyword.matches(typed) { return (keyword, rest) }
         }
@@ -44,7 +44,7 @@ struct Keyword: Codable, Identifiable, Equatable {
     /// whatever is searched for, and a single %s in the path, query or
     /// fragment. Anywhere else, in the host or before an @, the words would
     /// decide where you end up rather than what you look for there.
-    static func accepts(_ template: String) -> Bool {
+    public static func accepts(_ template: String) -> Bool {
         let trimmed = template.trimmingCharacters(in: .whitespacesAndNewlines)
         guard Engine.accepts(trimmed),
               trimmed.components(separatedBy: "%s").count == 2,
@@ -58,7 +58,7 @@ struct Keyword: Codable, Identifiable, Equatable {
 
     /// Why `word` and `template` can't be saved alongside `keywords` yet, in
     /// a line Settings can show — or nil when they can.
-    static func problem(word: String, template: String, among keywords: [Keyword]) -> String? {
+    public static func problem(word: String, template: String, among keywords: [Keyword]) -> String? {
         let word = word.trimmingCharacters(in: .whitespacesAndNewlines)
         if word.isEmpty { return "A word to type first, like yt" }
         if word.contains(where: \.isWhitespace) { return "One word, with no spaces in it" }

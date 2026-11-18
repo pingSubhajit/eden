@@ -1,6 +1,6 @@
 import Foundation
 
-// The regression runner compiles History.swift outside the app target. These
+// The regression runner compiles History.swift outside the EdenCore package. These
 // small stand-ins keep that compile honest while fixing storage to a fresh
 // directory made by run.sh.
 protocol ObservableObject {}
@@ -11,19 +11,6 @@ final class ChangePublisher {
 
 extension ObservableObject {
     var objectWillChange: ChangePublisher { ChangePublisher() }
-}
-
-// History tells the icons when an address goes; this runner keeps none.
-@MainActor
-final class Favicons {
-    static let shared = Favicons()
-    func forget(_ url: URL) {}
-}
-
-enum AddressCommand {
-    case settings
-
-    var title: String { "Settings" }
 }
 
 enum Store {
@@ -67,6 +54,3 @@ enum Disk {
         try? FileManager.default.removeItem(at: file)
     }
 }
-
-/// Address.swift names Eden's own pages' scheme (see InternalPages.swift).
-enum InternalPage { static let scheme = "eden" }

@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 
 // Links from elsewhere. A click in Mail, in Slack, in a PDF — macOS hands the

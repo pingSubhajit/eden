@@ -1,3 +1,4 @@
+import EdenCore
 import AppKit
 import SwiftUI
 import WebKit
@@ -31,7 +32,7 @@ struct Profile: Codable, Identifiable, Equatable {
     /// what a window of the profile shows with spaces off.
     var home: UUID
 
-    static let personalID = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1") ?? UUID()
+    static let personalID = Space.personalProfileID
     var isPersonal: Bool { id == Profile.personalID }
     static let personal = Profile(id: personalID, name: "Personal", home: Space.firstID)
 }
@@ -105,6 +106,9 @@ final class Profiles: ObservableObject {
     /// file of its own.
     static func history(_ id: UUID) -> History {
         if let made = histories[id] { return made }
+        // A place forgotten from any history takes its icon with it, which
+        // EdenCore's History leaves to the app.
+        if History.forgotten == nil { History.forgotten = { Favicons.shared.forget($0) } }
         let made = History(file: id == Profile.personalID ? "history.json" : "history-\(id.uuidString).json")
         histories[id] = made
         return made

@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // A bookmarks file, as every browser exports one: Chrome, Safari, Firefox,

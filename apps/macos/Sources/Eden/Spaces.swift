@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 import WebKit
 
@@ -17,32 +18,8 @@ import WebKit
 // after half an hour as any tab does, pins included unless their site may
 // send notifications (Sleep.swift). ⌃1–⌃9 switch, as in Arc.
 
-struct Space: Codable, Identifiable, Equatable {
-    var id: UUID
-    var name: String
-    /// Which of `Spaces.colours` its icon wears, so a glance at the dot
-    /// says which space this is. 0 is none, the grey every space had: the
-    /// field dates from before icons, and every list from then reads 0.
-    var colour: Int
-    /// Its icon, one of `Spaces.icons`.
-    var icon: String?
-    /// Signed in wherever the first space is — the same cookies and
-    /// sign-ins, only the tabs its own — rather than a store of its own.
-    /// Chosen when it is made; nil, for a space from before the choice, is
-    /// a store of its own.
-    var sharesSignIns: Bool?
-    /// Where this space's downloads go; nil for the folder in Settings.
-    var downloads: String?
-    /// The profile it belongs to (see Profiles.swift); nil for Personal,
-    /// which every space from before profiles is in.
-    var profile: UUID?
-
+extension Space {
     var profileID: UUID { profile ?? Profile.personalID }
-
-    /// The first space: the session and the store there were before spaces.
-    static let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID()
-    var isFirst: Bool { id == Space.firstID }
-    static func first() -> Space { Space(id: firstID, name: "Personal", colour: 0) }
 
     /// The icon it shows: its own, or a house for the first and a
     /// briefcase for any other that has none yet.

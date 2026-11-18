@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // The column as icons only (idea 413, Settings › Appearance › Tabs, Icons

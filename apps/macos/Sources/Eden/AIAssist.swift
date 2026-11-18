@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // The AI add-on as you meet it: Summarize Page and Ask About This Page…, and

@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // Arc's sidebar, read: its spaces and what is pinned in each, and the

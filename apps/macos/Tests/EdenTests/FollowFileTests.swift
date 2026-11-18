@@ -1,3 +1,4 @@
+import EdenCore
 import XCTest
 @testable import Eden
 

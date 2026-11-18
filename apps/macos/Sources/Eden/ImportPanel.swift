@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 /// Bringing things over from another browser, all in one place: which

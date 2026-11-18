@@ -1,3 +1,4 @@
+import EdenCore
 import WebKit
 import XCTest
 @testable import Eden

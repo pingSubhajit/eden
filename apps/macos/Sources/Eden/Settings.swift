@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 /// Everything there is to set. Sections down the left, under a field that
