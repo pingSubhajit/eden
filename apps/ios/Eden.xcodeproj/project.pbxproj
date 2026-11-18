@@ -74,6 +74,19 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "9EE13EB1937D05FB24128CD6";
 		};
+		"B747EAD6A8D7189EE159E1E4" = {
+			"isa" = "XCLocalSwiftPackageReference";
+			"relativePath" = "../../packages/EdenCore";
+		};
+		"8D6A224FA1D1DD751157EB0C" = {
+			"isa" = "XCSwiftPackageProductDependency";
+			"package" = "B747EAD6A8D7189EE159E1E4";
+			"productName" = "EdenCore";
+		};
+		"D9F82689E8F760ECED47CA3E" = {
+			"isa" = "PBXBuildFile";
+			"productRef" = "8D6A224FA1D1DD751157EB0C";
+		};
 		"38A007151ABE87CC01A5B6E9" = {
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
@@ -112,7 +125,7 @@
 		"69680EDE0CF9B24DB8DBFE04" = {
 			"isa" = "PBXFrameworksBuildPhase";
 			"buildActionMask" = "2147483647";
-			"files" = ();
+			"files" = ("D9F82689E8F760ECED47CA3E");
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
 		"ED8772ADEC3A6C25161BC957" = {
@@ -249,6 +262,7 @@
 			"buildPhases" = ("F612CD2E22E187AC48B5913C", "69680EDE0CF9B24DB8DBFE04", "86F6FE2DD6E869C1842A14B3");
 			"dependencies" = ();
 			"buildRules" = ();
+			"packageProductDependencies" = ("8D6A224FA1D1DD751157EB0C");
 		};
 		"19170B56EA5642A46C383F29" = {
 			"isa" = "XCConfigurationList";
@@ -317,6 +331,7 @@
 			"projectDirPath" = "";
 			"projectRoot" = "";
 			"targets" = ("F75109BEB4DD8800DA6B45F8", "C062A5A4A7F4F37DD90F54CB");
+			"packageReferences" = ("B747EAD6A8D7189EE159E1E4");
 		};
 	};
 	"rootObject" = "98F54143AB4E86B28C3AFEE0";

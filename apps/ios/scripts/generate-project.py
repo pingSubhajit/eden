@@ -65,6 +65,11 @@ for source in sorted(root.glob('Tests/**/*.swift')):
     test_refs.append(reference)
     test_builds.append(add('test-build:' + relative, isa='PBXBuildFile', fileRef=reference))
 
+# EdenCore, the code the app shares with the Mac app, as a local package.
+core_package = add('core-package', isa='XCLocalSwiftPackageReference', relativePath='../../packages/EdenCore')
+core_product = add('core-product', isa='XCSwiftPackageProductDependency', package=core_package, productName='EdenCore')
+core_build = add('core-build', isa='PBXBuildFile', productRef=core_product)
+
 product = add('product', isa='PBXFileReference', explicitFileType='wrapper.application', path='Eden.app', sourceTree='BUILT_PRODUCTS_DIR')
 test_product = add('test-product', isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='EdenTests.xctest', sourceTree='BUILT_PRODUCTS_DIR')
 products = add('products', isa='PBXGroup', name='Products', children=[product, test_product], sourceTree='<group>')
@@ -72,7 +77,7 @@ main = add('main', isa='PBXGroup', children=refs + test_refs + [icon_ref, privac
 
 sources_phase = add('sources-phase', isa='PBXSourcesBuildPhase', buildActionMask='2147483647', files=builds, runOnlyForDeploymentPostprocessing='0')
 resources_phase = add('resources-phase', isa='PBXResourcesBuildPhase', buildActionMask='2147483647', files=[icon_build, privacy_build], runOnlyForDeploymentPostprocessing='0')
-frameworks_phase = add('frameworks-phase', isa='PBXFrameworksBuildPhase', buildActionMask='2147483647', files=[], runOnlyForDeploymentPostprocessing='0')
+frameworks_phase = add('frameworks-phase', isa='PBXFrameworksBuildPhase', buildActionMask='2147483647', files=[core_build], runOnlyForDeploymentPostprocessing='0')
 
 project_configs, target_configs = [], []
 for mode, debug in [('Debug', True), ('Release', False)]:
@@ -111,7 +116,8 @@ project_list = add('project-configs', isa='XCConfigurationList', buildConfigurat
 target_list = add('target-configs', isa='XCConfigurationList', buildConfigurations=target_configs, defaultConfigurationIsVisible='0', defaultConfigurationName='Release')
 target = add('app-target', isa='PBXNativeTarget', name='Eden', productName='Eden', productType='com.apple.product-type.application',
              productReference=product, buildConfigurationList=target_list,
-             buildPhases=[sources_phase, frameworks_phase, resources_phase], dependencies=[], buildRules=[])
+             buildPhases=[sources_phase, frameworks_phase, resources_phase], dependencies=[], buildRules=[],
+             packageProductDependencies=[core_product])
 test_list = add('test-configs', isa='XCConfigurationList', buildConfigurations=test_configs, defaultConfigurationIsVisible='0', defaultConfigurationName='Release')
 test_sources_phase = add('test-sources-phase', isa='PBXSourcesBuildPhase', buildActionMask='2147483647', files=test_builds, runOnlyForDeploymentPostprocessing='0')
 test_frameworks_phase = add('test-frameworks-phase', isa='PBXFrameworksBuildPhase', buildActionMask='2147483647', files=[], runOnlyForDeploymentPostprocessing='0')
@@ -124,7 +130,8 @@ test_target = add('test-target', isa='PBXNativeTarget', name='EdenTests', produc
 project = add('project', isa='PBXProject', attributes={'LastUpgradeCheck': '2720', 'BuildIndependentTargetsInParallel': '1',
                                                     'TargetAttributes': {test_target: {'TestTargetID': target}}},
               buildConfigurationList=project_list, compatibilityVersion='Xcode 14.0', developmentRegion='en',
-              knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[target, test_target])
+              knownRegions=['en', 'Base'], mainGroup=main, productRefGroup=products, projectDirPath='', projectRoot='', targets=[target, test_target],
+              packageReferences=[core_package])
 
 folder = root / 'Eden.xcodeproj'
 folder.mkdir(exist_ok=True)

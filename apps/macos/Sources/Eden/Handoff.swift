@@ -1,4 +1,5 @@
 import AppKit
+import EdenCore
 import SwiftUI
 
 // Handoff: the page in front, offered to your other devices, and a page
@@ -25,12 +26,13 @@ import SwiftUI
 // Whatever the switch says, as nothing leaves the Mac for it.
 //
 // The activity types are listed in the app's Info.plist (build.sh) and the
-// iOS app's (apps/ios/Configuration/Info.plist), and must stay the same in
-// all three places.
+// iOS app's (apps/ios/Configuration/Info.plist); Eden's own is Continuity's
+// in EdenCore, and the rule for which pages may go is too.
 
 enum Handoff {
-    /// Eden's own activity: a page in Eden, on any of your devices.
-    static let browsing = "com.subhajit.eden.beta.browsing"
+    /// Eden's own activity: a page in Eden, on any of your devices
+    /// (Continuity, in EdenCore, which the iOS app shares).
+    static let browsing = Continuity.browsing
     /// The system's activity for a web page, as Safari and other browsers
     /// offer it.
     static let web = NSUserActivityTypeBrowsingWeb
@@ -41,7 +43,7 @@ enum Handoff {
     /// and only an ordinary web page of an ordinary tab. Nil offers nothing.
     static func offered(_ address: URL?, on: Bool, private shy: Bool, bench: Bool, popup: Bool) -> URL? {
         guard on, !shy, !bench, !popup else { return nil }
-        return web(address)
+        return Continuity.page(address)
     }
 
     /// The address of a page handed over by another device, to open here:
@@ -49,16 +51,7 @@ enum Handoff {
     /// anything else.
     static func received(_ activity: NSUserActivity) -> URL? {
         guard taken.contains(activity.activityType) else { return nil }
-        return web(activity.webpageURL)
-    }
-
-    /// An http or https address with a host and no name or password in it.
-    private static func web(_ address: URL?) -> URL? {
-        guard let address, let scheme = address.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = address.host(), !host.isEmpty,
-              address.user(percentEncoded: false) == nil, address.password(percentEncoded: false) == nil
-        else { return nil }
-        return address
+        return Continuity.page(activity.webpageURL)
     }
 
     /// The title an activity carries: the name you gave the tab, else the

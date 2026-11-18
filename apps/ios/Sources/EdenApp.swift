@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 import WebKit
 
@@ -17,23 +18,18 @@ struct EdenApp: App {
 
 /// The two kinds of page another device can hand over: the system's own,
 /// from Safari or any browser, and Eden's, from Eden on the Mac. The Mac app
-/// (apps/macos/Sources/Eden/Handoff.swift) uses the same two.
+/// (apps/macos/Sources/Eden/Handoff.swift) uses the same two, and the same
+/// rule for which pages may go (Continuity, in EdenCore).
 enum Activity {
     static let web = NSUserActivityTypeBrowsingWeb
     /// From Info.plist (EDEN_ACTIVITY_BROWSING in Base.xcconfig), so it follows
     /// the bundle id.
     static let browsing = Bundle.main.object(forInfoDictionaryKey: "EdenActivityBrowsing") as? String
-        ?? "com.subhajit.eden.beta.browsing"
+        ?? Continuity.browsing
 
-    /// An http or https address with a host and no name or password in it:
-    /// the only kind of page taken or offered.
-    static func web(_ address: URL?) -> URL? {
-        guard let address, let scheme = address.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = address.host(), !host.isEmpty,
-              address.user(percentEncoded: false) == nil, address.password(percentEncoded: false) == nil
-        else { return nil }
-        return address
-    }
+    /// The page, when it may be taken or offered at all: the rule the Mac
+    /// app uses too (Continuity, in EdenCore).
+    static func web(_ address: URL?) -> URL? { Continuity.page(address) }
 }
 
 /// What the app offers your other devices: the page on screen, when it is a
