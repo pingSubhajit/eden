@@ -15,7 +15,7 @@ public enum Engine: String, CaseIterable, Identifiable {
         case .ecosia: return "Ecosia"
         case .startpage: return "Startpage"
         case .kagi: return "Kagi"
-        case .brave: return "Brave Eden"
+        case .brave: return "Brave Search"
         case .qwant: return "Qwant"
         case .custom: return "Custom"
         }
