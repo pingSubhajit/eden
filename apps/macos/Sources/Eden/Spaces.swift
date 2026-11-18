@@ -118,8 +118,9 @@ enum Spaces {
     /// The whole list, every profile's spaces.
     static func write(_ spaces: [Space]) {
         guard let data = try? JSONEncoder().encode(spaces) else { return }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        // At once, as it is read back at once; through Disk, so a write that
+        // fails is known (sync waits on it: CloudSync).
+        Disk.write(file, now: true) { data }
         MainActor.assumeIsolated { known = Dictionary(spaces.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) }
         // Every window's list follows (see Browser.init).
         NotificationCenter.default.post(name: changed, object: spaces)
