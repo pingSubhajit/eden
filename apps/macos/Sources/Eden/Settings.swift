@@ -491,8 +491,7 @@ struct SettingsPanel: View {
             // page as File › Bring Things Over… and the Welcome's.
             Pill("Bring Things Over…") { browser.lead(to: InternalPage(.importing)) }
         case "sync":
-            // On asks for the folder first; cancelled, it stays off.
-            Switch(on: Binding(get: { sync.on }, set: { $0 ? sync.choose() : sync.turnOff() }))
+            Switch(on: Binding(get: { sync.on }, set: { $0 ? sync.turnOn() : sync.turnOff() }))
         case "handoff": Switch(on: $prefs.handsOff)
         case "quit.confirm": Switch(on: $prefs.confirmsQuit)
         case "downloads.folder": Pill("Change…") { chooseFolder() }

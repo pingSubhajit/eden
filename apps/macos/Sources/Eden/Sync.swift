@@ -1,52 +1,37 @@
 import EdenCore
 import AppKit
 import Combine
+import SwiftUI
 import SystemConfiguration
 
-// Sync with your other Macs, through a folder you choose.
+// Sync with your other devices through iCloud: Eden on your Macs, iPhone
+// and iPad, in your own private CloudKit database (CloudSync and
+// CloudKitStore, in EdenCore, which the iOS app shares). No server of ours,
+// no account but your Apple Account.
 //
-// THE DECISION (17 Nov 2026): a folder, not iCloud's own APIs.
-//   - CloudKit and NSUbiquitousKeyValueStore need an iCloud container and
-//     the com.apple.developer.icloud-* / ubiquity-kvstore entitlements, tied
-//     to a provisioning profile. Eden.entitlements has none of them (only
-//     camera, microphone, location and contacts); Eden.passkeys.entitlements
-//     adds only the web-browser passkey entitlement and its identifiers; and
-//     build.sh signs a Developer ID build with one or the other. Taking that
-//     route means a new Apple container, a new profile in every build and a
-//     dependency on Apple's servers for a browser that has none of its own.
-//   - The app is not sandboxed (no com.apple.security.app-sandbox), so a
-//     folder chosen in an open panel is simply a path: no security-scoped
-//     bookmark to keep.
-//   So: Eden writes small files into a folder the user picks — in iCloud
-//   Drive, Dropbox, a shared disk — and whatever moves that folder between
-//   Macs does the rest. No account, no server, nothing of ours in between.
+// On unless turned off (Settings › General › Sync with iCloud), on a build
+// signed with iCloud: build.sh embeds the provisioning profile that grants
+// it. A build without one says so in Settings and never touches CloudKit,
+// which would end the app. Never in a test world (EDEN_PROBE), which isn't
+// your Mac's Eden: its iCloud is not its to change.
 //
-// Off unless turned on (Settings › General › Sync with your other Macs).
-//
-// In the folder, "Eden Sync/<scope>/<device>.json": one file per Mac per
-// scope, written only by that Mac, so two Macs never write the same file.
-// The scopes: "app" for the settings below, and "profile-<id>" for each
-// profile's spaces, pins and bookmarks — a profile's never mixes with
-// another's. Each file is the whole merged view as that Mac last had it,
-// item by item with stamps and tombstones (see SyncMerge.swift for the
-// rules and the format).
-//
-// What syncs: spaces (name, colour, icon, order, and whether a space has
-// sign-ins of its own — never the sign-ins themselves, its cookies, tabs or
-// downloads folder), pins (each space's and the ones every space shows,
-// their letter, name, page and order), bookmarks, and the settings listed in
-// SyncSettings. What never does: history, passwords, cookies and site data,
-// open tabs that aren't pinned, tab groups (they hold open tabs), private
+// The scopes, each merged on its own (SyncMerge for the rules):
+//   "app": the settings listed in SyncSettings, and each device's open tabs,
+//     one item per device (DeviceTabs), written by that device alone — here
+//     the ordinary tabs of the Personal profile's windows, never a shy
+//     (private) tab, a pop-up's, one the bench drives, or a page that isn't
+//     on the web.
+//   "profile-<id>": a profile's spaces (name, colour, icon, order, whether it
+//     has sign-ins of its own — never the sign-ins themselves, its cookies,
+//     tabs or downloads folder), pins, bookmarks and history. Personal is
+//     the same profile on every device; the iPhone and iPad have only it.
+// What never syncs: passwords, cookies and site data, tab groups, private
 // windows, extensions, the downloads folder, window sizes.
 //
-// Profiles: Personal is the same profile on every Mac. Another profile syncs
-// with the profile of the same id on another Mac; one made separately on each
-// Mac has a different id and stays apart (making them across Macs is still
-// to come).
-//
-// A pass runs a moment after anything synced changes here, when a file in
-// the folder changes, every half minute, and when Eden comes forward. It
-// reads a handful of small files and writes this Mac's only if it changed.
+// A pass runs a moment after anything synced changes here, when another
+// device changes something (a silent push, Links), when Eden comes forward
+// or goes back, and every two minutes. With nothing new, a pass is one small
+// request to iCloud.
 
 enum SyncSettings {
     struct Setting {
@@ -113,23 +98,17 @@ enum SyncSettings {
 final class Sync: ObservableObject {
     static let shared = Sync()
 
-    /// The folder chosen; nil while sync is off.
-    @Published private(set) var folder: URL?
-    @Published private(set) var lastSynced: Date?
-    /// Why the last pass couldn't run, for Settings.
-    @Published private(set) var problem: String?
-    /// The other Macs whose files were read, by name.
-    @Published private(set) var others: [String] = []
+    /// Whether sync is on: the switch, on unless turned off.
+    @Published private(set) var on: Bool
+    /// Where the last pass got to, for Settings.
+    @Published private(set) var status: CloudSync.Status = .idle
+    /// Your other devices' open tabs, newest first, for the History menu.
+    @Published private(set) var otherTabs: [DeviceTabs] = []
 
-    var on: Bool { folder != nil }
-
-    nonisolated static let folderKey = "sync.folder"
+    nonisolated static let onKey = "sync.icloud"
     nonisolated static let deviceKey = "sync.device"
-    /// The folder Eden makes inside the one chosen.
-    nonisolated static let inside = "Eden Sync"
 
-    /// This Mac's id in the folder: made once, kept with the settings, so
-    /// each test world (EDEN_PROBE=<name>) is a Mac of its own.
+    /// This Mac's id in iCloud: made once, kept with the settings.
     let device: String = {
         if let kept = Store.settings.string(forKey: Sync.deviceKey), !kept.isEmpty { return kept }
         let made = UUID().uuidString
@@ -137,211 +116,174 @@ final class Sync: ObservableObject {
         return made
     }()
 
+    private var engine: CloudSync?
     private var bag: Set<AnyCancellable> = []
+    private var historyBag: [UUID: AnyCancellable] = [:]
     private var timer: Timer?
     private var pending: DispatchWorkItem?
-    private var watchers: [String: DispatchSourceFileSystemObject] = [:]
-    private var running = false
+    /// The pass under way, cancelled when sync is turned off.
+    private var passing: Task<Void, Never>?
 
-    private init() {}
+    private init() {
+        on = Store.settings.object(forKey: Sync.onKey) as? Bool ?? true
+    }
+
+    /// Whether this Eden may sync at all: signed with iCloud, and not a test
+    /// world's.
+    static var possible: Bool { !Store.testing && CloudKitStore.entitled }
 
     // MARK: - on and off
 
-    /// At launch: carries on if it was on.
+    /// At launch: carries on if it is on.
     func start() {
-        guard folder == nil, let path = Store.settings.string(forKey: Sync.folderKey), !path.isEmpty else { return }
-        folder = URL(fileURLWithPath: path, isDirectory: true)
+        guard on, engine == nil else { return }
         begin()
     }
 
-    /// The switch turned on: a folder asked for, then the first pass.
-    func choose() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.message = "Choose a folder your Macs share, in iCloud Drive or Dropbox for example. Turn on sync with the same folder in Eden on each Mac."
-        panel.prompt = "Sync Here"
-        let drive = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs", isDirectory: true)
-        if FileManager.default.fileExists(atPath: drive.path) { panel.directoryURL = drive }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        turnOn(url)
-    }
-
-    func turnOn(_ url: URL) {
-        stop()
-        // Always as a Mac joining: what it agreed with another folder, or
-        // with this one long ago, says nothing about what is there now.
-        for scope in scopes { try? FileManager.default.removeItem(at: Sync.stateFile(scope)) }
-        Store.settings.set(url.path, forKey: Sync.folderKey)
-        folder = url
+    func turnOn() {
+        Store.settings.set(true, forKey: Sync.onKey)
+        on = true
         begin()
     }
 
-    /// Off: this Mac's files leave the folder and what it had agreed is
-    /// forgotten, so turning it on again starts as a Mac joining. What is in
-    /// the browser stays as it is.
+    /// Off: what this Mac kept about syncing is forgotten, so turning it on
+    /// again joins afresh, the other devices' items winning where both have
+    /// one. What is in the browser stays as it is; what is in iCloud stays
+    /// for your other devices.
     func turnOff() {
-        if let root {
-            for scope in scopes {
-                try? FileManager.default.removeItem(at: root.appendingPathComponent(scope).appendingPathComponent(device + ".json"))
-            }
-        }
-        for scope in scopes { try? FileManager.default.removeItem(at: Sync.stateFile(scope)) }
         stop()
-        Store.settings.removeObject(forKey: Sync.folderKey)
-        folder = nil
-        lastSynced = nil
-        problem = nil
-        others = []
+        passing?.cancel()
+        passing = nil
+        engine?.forget()
+        engine = nil
+        Store.settings.set(false, forKey: Sync.onKey)
+        on = false
+        status = .idle
+        otherTabs = []
     }
 
     private func begin() {
+        guard Sync.possible else {
+            status = Store.testing ? .idle : .problem(.notEntitled)
+            return
+        }
+        if engine == nil {
+            let made = CloudSync(store: CloudKitStore(), device: device, file: Store.file("cloud-sync.json"))
+            made.changed = { [weak self] status in self?.status = status }
+            engine = made
+        }
         let poke: (Notification) -> Void = { [weak self] _ in self?.schedule() }
-        for name in [Spaces.changed, Pins.changed, Bookmarks.saved, NSApplication.didBecomeActiveNotification] {
+        for name in [Spaces.changed, Pins.changed, Bookmarks.saved, NSApplication.didBecomeActiveNotification,
+                     NSApplication.didResignActiveNotification] {
             NotificationCenter.default.publisher(for: name).sink(receiveValue: poke).store(in: &bag)
         }
         Shared.prefs.objectWillChange.sink { [weak self] in self?.schedule() }.store(in: &bag)
-        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pass() }
+        Profiles.shared.$list.sink { [weak self] _ in self?.schedule() }.store(in: &bag)
+        timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.schedule(after: 0) }
         }
+        // Another device's change arrives as a silent push (Links).
+        NSApp.registerForRemoteNotifications()
         schedule(after: 1)
     }
 
     private func stop() {
         bag.removeAll()
+        historyBag.removeAll()
         timer?.invalidate()
         timer = nil
         pending?.cancel()
         pending = nil
-        for watcher in watchers.values { watcher.cancel() }
-        watchers = [:]
     }
 
     /// A pass a moment from now; anything else that changes meanwhile joins it.
-    private func schedule(after delay: TimeInterval = 2) {
-        guard on, !running else { return }
+    func schedule(after delay: TimeInterval = 3) {
+        guard on, engine != nil else { return }
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.pass() } }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    // MARK: - where
-
-    private var root: URL? { folder?.appendingPathComponent(Sync.inside, isDirectory: true) }
-
-    private var scopes: [String] { ["app"] + Profiles.shared.list.map { Sync.scope($0.id) } }
-
     nonisolated static func scope(_ profile: UUID) -> String { "profile-" + profile.uuidString }
-
-    /// What this Mac last agreed with the folder, per scope: in Eden's own
-    /// folder, never in the shared one.
-    nonisolated static func stateFile(_ scope: String) -> URL { Store.file("sync-\(scope).json") }
 
     // MARK: - a pass
 
     func pass() {
-        guard let folder, let root, !running else { return }
-        pending?.cancel()
+        guard on, let engine else { return }
         pending = nil
-        // A folder not there — a disk not plugged in, Dropbox not running —
-        // is no reason to think everything was deleted: nothing happens.
-        var isFolder: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder), isFolder.boolValue else {
-            problem = "The folder isn\u{2019}t there"
-            return
+        let profiles = Profiles.shared.list
+        // A history still being read would look empty, and what the other
+        // devices have would then look deleted here: the pass waits for it.
+        let histories = profiles.map { Profiles.history($0.id) }
+        guard histories.allSatisfy(\.isLoaded) else { return schedule(after: 1) }
+        for (profile, history) in zip(profiles, histories) where historyBag[profile.id] == nil {
+            historyBag[profile.id] = history.recentChanges.sink { [weak self] in self?.schedule() }
         }
-        running = true
-        defer { running = false }
-        var seen = Set<String>()
+        var scopes = [appScope()]
+        for (profile, history) in zip(profiles, histories) {
+            scopes.append(CloudScope(name: Sync.scope(profile.id), current: { agreed in
+                var items = Sync.items(of: profile.id, base: agreed)
+                items.merge(history.syncItems()) { mine, _ in mine }
+                return items
+            }, apply: { live in
+                Sync.apply(live, to: profile)
+                history.applySynced(live)
+            }, understood: { key, text in
+                SyncItems.understood(key, text) || history.understands(key)
+            }))
+        }
+        passing = Task {
+            guard !Task.isCancelled else { return }
+            await engine.pass(scopes)
+        }
+    }
+
+    /// The settings, and every device's open tabs: only this Mac's own are
+    /// this Mac's to change or delete.
+    private func appScope() -> CloudScope {
         let prefs = Shared.prefs
-        seen.formUnion(run(scope: "app", in: root, current: { _ in SyncSettings.items(prefs) }, apply: { live in
+        let device = device
+        let own = SyncItems.tabsKey(device)
+        return CloudScope(name: "app", current: { agreed in
+            var items = SyncSettings.items(prefs)
+            items.merge(SyncItems.tabs(Sync.openTabs(device: device, agreed: agreed[own]))) { mine, _ in mine }
+            return items
+        }, apply: { [weak self] live in
             SyncSettings.apply(live, to: prefs)
-        }))
-        for profile in Profiles.shared.list {
-            seen.formUnion(run(scope: Sync.scope(profile.id), in: root,
-                               current: { Sync.items(of: profile.id, base: $0) },
-                               apply: { Sync.apply($0, to: profile) }))
-        }
-        others = seen.sorted()
-        if problem == nil { lastSynced = Date() }
+            self?.otherTabs = SyncItems.otherTabs(live, except: device, now: Date().timeIntervalSince1970)
+        }, understood: { key, text in
+            SyncItems.understood(key, text) || key == own
+        })
     }
 
-    /// One scope: stamped, merged with the other Macs' files, applied, and
-    /// written. The names of the other Macs read.
-    private func run(scope: String, in root: URL, current: ([String: String]) -> [String: String],
-                     apply: ([String: String]) -> Void) -> [String] {
-        let files = FileManager.default
-        let folder = root.appendingPathComponent(scope, isDirectory: true)
-        do {
-            try files.createDirectory(at: folder, withIntermediateDirectories: true)
-        } catch {
-            problem = "Eden can\u{2019}t write in that folder"
-            return []
+    /// The tabs last offered, and when they were first: asked twice in a
+    /// pass (CloudSync reads the items again before applying), the answer is
+    /// the same.
+    private static var offered: DeviceTabs?
+
+    /// This Mac's open tabs as its other devices see them. Stamped afresh
+    /// only when they changed, or once a day so they aren't taken for a Mac
+    /// gone quiet: otherwise every pass would save them.
+    static func openTabs(device: String, agreed: String?) -> DeviceTabs {
+        var seen = Set<String>()
+        var pages: [DeviceTabs.Page] = []
+        for browser in Browsers.all where browser.profileID == Profile.personalID && !browser.isPopup {
+            for tab in browser.tabs + browser.parkedTabs where !tab.shy && !tab.bench {
+                guard let url = Continuity.page(tab.restAddress), seen.insert(url.absoluteString).inserted else { continue }
+                let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
+                pages.append(DeviceTabs.Page(url: url.absoluteString, title: title))
+            }
         }
-        problem = nil
-        watch(folder, scope: scope)
-        let stateURL = Sync.stateFile(scope)
-        let state = (try? Data(contentsOf: stateURL)).flatMap { try? JSONDecoder().decode([String: SyncEntry].self, from: $0) }
-        let base = state ?? [:]
         let now = Date().timeIntervalSince1970
-        var theirs: [[String: SyncEntry]] = []
-        var names: [String] = []
-        let own = folder.appendingPathComponent(device + ".json")
-        for url in (try? files.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] {
-            let name = url.lastPathComponent
-            // iCloud Drive keeps a file it has let go of as ".<name>.icloud",
-            // or as a file with nothing in it yet: asked for, it is there
-            // for a later pass. Read now, the read would wait for it.
-            if name.hasPrefix("."), name.hasSuffix(".json.icloud") {
-                try? files.startDownloadingUbiquitousItem(at: url)
-                continue
-            }
-            guard name.hasSuffix(".json"), url != own else { continue }
-            if let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus,
-               status != .current {
-                try? files.startDownloadingUbiquitousItem(at: url)
-                continue
-            }
-            guard let data = try? Data(contentsOf: url), data.count < 32 << 20,
-                  let file = SyncMerge.decode(data, scope: scope), file.device != device
-            else { continue }
-            theirs.append(file.items)
-            names.append(file.name ?? "Another Mac")
+        var mine = DeviceTabs(device: device, name: macName, kind: .mac, tabs: Array(pages.prefix(200)), at: now)
+        for before in [agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }, offered].compactMap({ $0 })
+            where before.tabs == mine.tabs && before.name == mine.name && now - before.at < 24 * 60 * 60 {
+            mine.at = before.at
+            break
         }
-
-        // A Mac joining a folder other Macs already use takes what they
-        // agreed where both have something; the first Mac there sets it.
-        let here = current(SyncMerge.live(base))
-        let merged = SyncMerge.pass(current: here, base: state, theirs: theirs, device: device, now: now,
-                                    understood: SyncItems.understood)
-        let live = SyncMerge.live(merged)
-        if live != here { apply(live) }
-        if merged != base, let data = try? JSONEncoder().encode(merged) {
-            try? files.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: stateURL, options: .atomic)
-        }
-        // This Mac's file, only when it says something new.
-        let written = (try? Data(contentsOf: own)).flatMap { SyncMerge.decode($0, scope: scope) }
-        if written?.items != merged || written?.name != Sync.macName {
-            let file = SyncFile(format: SyncMerge.format, device: device, name: Sync.macName, scope: scope, written: now, items: merged)
-            if let data = SyncMerge.encode(file) { try? data.write(to: own, options: .atomic) }
-        }
-        return names
-    }
-
-    /// A file of another Mac arriving or changing: a pass soon.
-    private func watch(_ folder: URL, scope: String) {
-        guard watchers[scope] == nil else { return }
-        let descriptor = open(folder.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.schedule() } }
-        source.setCancelHandler { close(descriptor) }
-        source.resume()
-        watchers[scope] = source
+        offered = mine
+        return mine
     }
 
     nonisolated static var macName: String {
@@ -387,7 +329,7 @@ final class Sync: ObservableObject {
         Profiles.bookmarks(id).adopt(SyncItems.applyBookmarks(live))
     }
 
-    /// A space deleted on another Mac: as Delete Space does here — its tabs,
+    /// A space deleted on another device: as Delete Space does here — its tabs,
     /// its pins, and, for one with sign-ins of its own, those too.
     private static func removeSpace(_ space: Space, profile: UUID) {
         if let window = Browsers.all.first(where: { $0.profileID == profile && !$0.isPopup && $0.spaces.contains { $0.id == space.id } }) {
@@ -402,17 +344,43 @@ final class Sync: ObservableObject {
 
     // MARK: - for Settings
 
-    /// Where, and when last, in a line.
+    /// Where sync is, in a line.
     var summary: String {
-        guard let folder else { return "" }
-        var place = folder.path
-        let drive = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs"
-        if place.hasPrefix(drive) { place = "iCloud Drive" + place.dropFirst(drive.count) }
-        place = place.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-        if let problem { return "\(place): \(problem.lowercased())" }
-        guard let lastSynced else { return place }
-        let when = RelativeDateTimeFormatter().localizedString(for: lastSynced, relativeTo: Date())
-        let with = others.isEmpty ? "no other Mac yet" : others.joined(separator: ", ")
-        return "\(place) · \(with) · \(when)"
+        switch status {
+        case .idle: return Sync.possible ? "Starting\u{2026}" : CloudProblem.notEntitled.sentence
+        case .syncing: return "Syncing\u{2026}"
+        case .synced(let when):
+            let ago = RelativeDateTimeFormatter().localizedString(for: when, relativeTo: Date())
+            return "Synced \(ago)"
+        case .problem(let problem): return problem.sentence
+        }
+    }
+}
+
+/// History › Tabs on Other Devices: each device with tabs open, newest
+/// first, a submenu of its tabs. Nothing while sync is off or no other
+/// device has any.
+struct OtherTabsMenu: View {
+    @ObservedObject private var sync = Sync.shared
+    let browser: Browser
+
+    var body: some View {
+        if sync.on, !sync.otherTabs.isEmpty {
+            Section("Tabs on Other Devices") {
+                ForEach(sync.otherTabs, id: \.device) { device in
+                    Menu(device.name) {
+                        ForEach(Array(device.tabs.prefix(60).enumerated()), id: \.offset) { _, page in
+                            if let url = URL(string: page.url) {
+                                Button {
+                                    browser.open(url, foreground: true)
+                                } label: {
+                                    MenuLine(title: page.title.isEmpty ? Address.pretty(url) : page.title, url: url)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

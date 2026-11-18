@@ -88,7 +88,7 @@ enum Pins {
         return true
     }
 
-    /// Pins as another Mac left them (see Sync.swift): each of `spaces`
+    /// Pins as another device left them (see Sync.swift): each of `spaces`
     /// given its list and the profile its shared one, and every window
     /// told of what changed, as when another window changes them.
     static func adopt(_ defs: [UUID: [PinDef]], in spaces: [UUID], shared: [PinDef], profile: UUID) {

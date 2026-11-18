@@ -2662,7 +2662,7 @@ final class Browser: NSObject, ObservableObject {
             newsShowing = WhatsNew.due(prefs: prefs, welcoming: welcoming)
             // Once a day, quietly: is there a newer one?
             Updater.shared.checkIfDue { [weak self] line in self?.announce(line) }
-            // With your other Macs, if that is on (see Sync.swift).
+            // With your other devices through iCloud, if that is on (see Sync.swift).
             Sync.shared.start()
             // An icon that arrives is looked for again by every tab showing
             // that site, in every window, not only the one that asked for it:

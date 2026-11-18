@@ -663,10 +663,10 @@ final class Bookmarks {
         NotificationCenter.default.post(name: Bookmarks.saved, object: self)
     }
 
-    /// The list was saved: Sync takes it to the other Macs.
+    /// The list was saved: Sync takes it to your other devices.
     static let saved = Notification.Name("EdenBookmarksSaved")
 
-    /// The list as another Mac left it (see Sync.swift).
+    /// The list as your other devices left it (see Sync.swift).
     func adopt(_ nodes: [Bookmark]) {
         guard nodes != roots else { return }
         roots = nodes

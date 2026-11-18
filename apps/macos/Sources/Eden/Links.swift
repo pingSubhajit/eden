@@ -190,6 +190,12 @@ final class Links: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Another device changed something in iCloud: CloudKit's silent push,
+    /// and a pass soon (see Sync.swift).
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        MainActor.assumeIsolated { Sync.shared.schedule(after: 0.5) }
+    }
+
     /// A page handed over from another device with Handoff (see
     /// Handoff.swift): Eden says yes to its own activity and to a web
     /// page's, so macOS shows the page coming, and opens the page itself.

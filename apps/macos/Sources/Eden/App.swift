@@ -369,6 +369,8 @@ struct EdenApp: App {
                         }
                     }
                 }
+                // What your iPhone, iPad and other Macs have open (Sync.swift).
+                OtherTabsMenu(browser: browser)
                 Divider()
                 Button("Show History…") { browser.recalling = true }
                     .shortcut("history.show")
@@ -417,7 +419,7 @@ private struct QuitAndHelp: Commands {
 }
 
 /// A page, as a line in a menu: its icon if one is known, and its name.
-private struct MenuLine: View {
+struct MenuLine: View {
     let title: String
     let url: URL
 

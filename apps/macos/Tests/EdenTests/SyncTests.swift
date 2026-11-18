@@ -3,10 +3,13 @@ import Foundation
 import XCTest
 @testable import Eden
 
-/// Sync through a shared folder (Sync.swift, SyncMerge.swift): Macs that
-/// each write only their own file agree, item by item, whatever order they
-/// run in — edits on both, deletions, clocks that disagree, a Mac joining
-/// late, files that are damaged or belong to another profile.
+/// The merge every device syncs by (SyncMerge.swift), and the Mac's spaces,
+/// pins, bookmarks and settings as its items (Sync.swift), played by Macs
+/// that each write only their own file, as the folder sync before iCloud
+/// did: they agree, item by item, whatever order they run in — edits on
+/// both, deletions, clocks that disagree, a Mac joining late, files that are
+/// damaged or belong to another profile. The iCloud passes themselves are
+/// EdenCore's CloudSyncTests.
 @MainActor
 final class SyncTests: XCTestCase {
     override class func setUp() {
