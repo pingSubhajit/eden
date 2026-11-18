@@ -25,7 +25,7 @@ struct ArcSidebar: Equatable {
         var name: String
         /// Arc's own, kept for the day it is wanted as it was.
         var emoji: String?
-        /// One of Spaces.icons, from Arc.symbol(emoji:arcIcon:name:).
+        /// One of SpaceAppearance.icons, from Arc.symbol(emoji:arcIcon:name:).
         var symbol: String
         /// The Chromium profile folder the space signs in with: "Default",
         /// or another's ("Profile 1"), which is a space with sign-ins of
@@ -200,7 +200,7 @@ enum Arc {
 
     // MARK: - the space's picture
 
-    /// Arc's emoji as the nearest of Eden's space pictures (Spaces.icons),
+    /// Arc's emoji as the nearest of Eden's space pictures (SpaceAppearance.icons),
     /// then the space's name, then a briefcase. The one table for both.
     static func symbol(emoji: String?, arcIcon: String? = nil, name: String) -> String {
         // One of Arc's own icons, {"icon": "bulb"}, in place of an emoji.

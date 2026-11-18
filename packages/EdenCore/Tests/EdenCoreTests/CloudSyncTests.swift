@@ -1,3 +1,4 @@
+import EdenCoreTesting
 import Foundation
 import XCTest
 @testable import EdenCore

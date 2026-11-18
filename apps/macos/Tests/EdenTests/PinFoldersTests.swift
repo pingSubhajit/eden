@@ -34,8 +34,8 @@ final class PinFoldersTests: XCTestCase {
     func testAPinsFileWithFoldersStillReadsAsPins() throws {
         let space = UUID()
         let a = def("A", folder: UUID())
-        let data = try XCTUnwrap(Pins.encode(bySpace: [space: [a]], shared: []))
-        XCTAssertEqual(Pins.decode(data)?.bySpace[space], [a])
+        let data = try PinsFile.encode(PinCatalog(bySpace: [space: [a]]))
+        XCTAssertEqual(try PinsFile.decode(data).bySpace[space], [a])
     }
 
     func testAFolderSavedWithoutItsStateIsOpenAtTheTop() throws {
@@ -58,7 +58,7 @@ final class PinFoldersTests: XCTestCase {
 
     func testSharingAPinTakesItOutOfItsFolder() {
         let a = def("A", folder: UUID())
-        let moved = Pins.share(a.id, own: [a], shared: [])
+        let moved = PinLists.share(a.id, own: [a], shared: [])
         XCTAssertNil(moved.shared.first?.folder)
     }
 

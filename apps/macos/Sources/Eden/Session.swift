@@ -60,7 +60,7 @@ enum Session {
     /// The first space's is the session there always was; each other space
     /// keeps its own beside it.
     private static func file(_ space: UUID) -> URL {
-        Store.file(space == Space.firstID ? "session.json" : "session-\(space.uuidString).json")
+        Store.file(SpaceSessionFile.name(for: space, stem: "session"))
     }
 
     /// Settings › General › Start with a fresh window, at launch, before any

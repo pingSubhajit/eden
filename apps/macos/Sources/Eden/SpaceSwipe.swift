@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // Spaces, paged through: in the column, two fingers sideways go from one to
@@ -403,7 +404,7 @@ struct NewSpaceCard: View {
     /// picking one puts the list away.
     private var icons: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 4), count: 6), spacing: 4) {
-            ForEach(Array(zip(Spaces.icons, Spaces.iconNames)), id: \.0) { symbol, name in
+            ForEach(Array(zip(SpaceAppearance.icons, SpaceAppearance.iconNames)), id: \.0) { symbol, name in
                 Image(systemName: symbol)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(symbol == icon ? Palette.ink : Palette.muted)

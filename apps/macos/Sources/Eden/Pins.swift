@@ -13,8 +13,8 @@ import Foundation
 //
 // Beside the spaces' pins, the ones every space shows first, while Settings ›
 // Tabs › Pins in every space is on: Arc's favourites, above every space.
-// pins.json keeps them under "shared", which 1.0.4 reads as no space and
-// passes over; another profile's (see Profiles.swift) under "shared:<id>".
+// The file, and how the two lists make a row, are EdenCore's (PinsFile,
+// PinLists), the same on iPhone and iPad.
 
 @MainActor
 enum Pins {
@@ -27,9 +27,6 @@ enum Pins {
 
     /// A space's pins changed in one window; the others follow.
     static let changed = Notification.Name("EdenPinsChanged")
-
-    /// Where pins.json keeps the shared pins, beside the spaces' ids.
-    nonisolated static let sharedKey = "shared"
 
     private static var file: URL { Store.file("pins.json") }
 
@@ -49,9 +46,9 @@ enum Pins {
     static func load() {
         guard !loaded else { return }
         loaded = true
-        if let data = try? Data(contentsOf: file), let saved = decode(data) {
+        if let data = try? Data(contentsOf: file), let saved = try? PinsFile.decode(data) {
             bySpace = saved.bySpace
-            sharedBy = sharedLists(data)
+            sharedBy = saved.sharedByProfile
             return
         }
         for space in Spaces.read() {
@@ -125,80 +122,7 @@ enum Pins {
     }
 
     private static func save() {
-        let bySpace = bySpace, all = sharedBy
-        Disk.write(file) {
-            encode(bySpace: bySpace, shared: all[Profile.personalID] ?? [],
-                   others: all.filter { $0.key != Profile.personalID })
-        }
-    }
-
-    // MARK: - the two lists, worked out
-
-    /// A space's own pin, shown by every space from now on: at the end of
-    /// the shared ones.
-    nonisolated static func share(_ id: UUID, own: [PinDef], shared: [PinDef]) -> (own: [PinDef], shared: [PinDef]) {
-        guard var pin = own.first(where: { $0.id == id }) else { return (own, shared) }
-        // Folders are a space's own: a pin every space shows is in none.
-        pin.folder = nil
-        return (own.filter { $0.id != id }, shared + [pin])
-    }
-
-    /// A shared pin kept by one space only: first among its own.
-    nonisolated static func unshare(_ id: UUID, own: [PinDef], shared: [PinDef]) -> (own: [PinDef], shared: [PinDef]) {
-        guard let pin = shared.first(where: { $0.id == id }) else { return (own, shared) }
-        return ([pin] + own, shared.filter { $0.id != id })
-    }
-
-    /// A row's pins, as the row has them, into the space's own and the
-    /// shared ones, each in the row's order.
-    nonisolated static func split(_ defs: [PinDef], shared ids: Set<UUID>) -> (own: [PinDef], shared: [PinDef]) {
-        (defs.filter { !ids.contains($0.id) }, defs.filter { ids.contains($0.id) })
-    }
-
-    /// What a space's row holds: the shared pins, then its own, while the
-    /// shared ones show; its own alone otherwise.
-    nonisolated static func row(own: [PinDef], shared: [PinDef], showing: Bool) -> [PinDef] {
-        guard showing else { return own }
-        let sharedIDs = Set(shared.map(\.id))
-        return shared + own.filter { !sharedIDs.contains($0.id) }
-    }
-
-    /// What a row's shared pins say the shared list now is: nothing while
-    /// they don't show, and nothing from a row that holds none — a row not
-    /// yet given them, the switch just turned on, must not wipe them.
-    /// Taking the last one out goes through unpin and keepHere, which set
-    /// the list themselves.
-    nonisolated static func sharedToWrite(_ rowShared: [PinDef], showing: Bool) -> [PinDef]? {
-        showing && !rowShared.isEmpty ? rowShared : nil
-    }
-
-    nonisolated static func decode(_ data: Data) -> (bySpace: [UUID: [PinDef]], shared: [PinDef])? {
-        guard let saved = try? JSONDecoder().decode([String: [PinDef]].self, from: data) else { return nil }
-        var bySpace: [UUID: [PinDef]] = [:]
-        for (key, defs) in saved {
-            if let space = UUID(uuidString: key) { bySpace[space] = defs }
-        }
-        return (bySpace, saved[sharedKey] ?? [])
-    }
-
-    /// Every profile's shared pins, Personal's under "shared".
-    nonisolated static func sharedLists(_ data: Data) -> [UUID: [PinDef]] {
-        guard let saved = try? JSONDecoder().decode([String: [PinDef]].self, from: data) else { return [:] }
-        var out: [UUID: [PinDef]] = [:]
-        for (key, defs) in saved where !defs.isEmpty {
-            if key == sharedKey { out[Profile.personalID] = defs }
-            else if key.hasPrefix(sharedKey + ":"), let id = UUID(uuidString: String(key.dropFirst(sharedKey.count + 1))) { out[id] = defs }
-        }
-        return out
-    }
-
-    /// No shared pins, no "shared" key: the file stays what it was for
-    /// anyone who never turns them on.
-    nonisolated static func encode(bySpace: [UUID: [PinDef]], shared: [PinDef], others: [UUID: [PinDef]] = [:]) -> Data? {
-        var out: [String: [PinDef]] = [:]
-        for (space, defs) in bySpace { out[space.uuidString] = defs }
-        if !shared.isEmpty { out[sharedKey] = shared }
-        for (profile, defs) in others where !defs.isEmpty { out[sharedKey + ":" + profile.uuidString] = defs }
-        return try? JSONEncoder().encode(out)
+        let catalog = PinCatalog(bySpace: bySpace, sharedByProfile: sharedBy)
+        Disk.write(file) { try? PinsFile.encode(catalog) }
     }
 }

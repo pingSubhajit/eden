@@ -19,105 +19,45 @@ import WebKit
 // send notifications (Sleep.swift). ⌃1–⌃9 switch, as in Arc.
 
 extension Space {
-    var profileID: UUID { profile ?? Profile.personalID }
-
-    /// The icon it shows: its own, or a house for the first and a
-    /// briefcase for any other that has none yet.
-    var symbol: String { icon.flatMap { Spaces.icons.contains($0) ? $0 : nil } ?? (isFirst ? "house" : "briefcase") }
-
     /// Its colour, or nil for none — an index out of range from a newer
     /// Eden included.
-    var tint: Color? { colour > 0 && Spaces.colours.indices.contains(colour) ? Spaces.colours[colour] : nil }
+    var tint: Color? { tintIndex.map { Spaces.colours[$0] } }
 }
 
 enum Spaces {
-    /// A handful, picked to read on the light ground and the dark one
-    /// alike. The first stands for none and is never drawn.
-    static let colours: [Color] = [
-        Color(red: 0.45, green: 0.47, blue: 0.52), // none
-        Color(red: 0.26, green: 0.52, blue: 0.96), // blue
-        Color(red: 0.20, green: 0.66, blue: 0.45), // green
-        Color(red: 0.96, green: 0.62, blue: 0.20), // orange
-        Color(red: 0.90, green: 0.33, blue: 0.40), // red
-        Color(red: 0.62, green: 0.40, blue: 0.90), // violet
-    ]
-    static let colourNames = ["None", "Blue", "Green", "Orange", "Red", "Violet"]
-
-    /// The icons a space can wear: Apple's own symbols, drawn in one weight
-    /// and one grey, grouped as work, thinking, leisure and life.
-    static let icons = [
-        "briefcase", "building.2", "desktopcomputer", "laptopcomputer", "chevron.left.forwardslash.chevron.right", "terminal",
-        "sparkles", "brain.head.profile", "lightbulb", "gamecontroller", "beach.umbrella", "cup.and.saucer",
-        "music.note", "film", "paintpalette", "camera", "house", "book",
-        "graduationcap", "cart", "airplane", "dumbbell", "leaf", "heart",
-    ]
-    static let iconNames = [
-        "Work", "Office", "Desktop", "Laptop", "Code", "Terminal",
-        "AI", "Thinking", "Ideas", "Games", "Leisure", "Café",
-        "Music", "Film", "Art", "Photos", "Home", "Reading",
-        "Studies", "Shopping", "Travel", "Sport", "Nature", "Personal",
-    ]
+    /// SpaceAppearance's colours, as drawn.
+    static let colours: [Color] = SpaceAppearance.colours.map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
 
     private static var file: URL { Store.file("spaces.json") }
 
     /// Every space of every profile, in the order the user arranged them —
-    /// made on the spot if there is no list yet. The first space is the
-    /// profile's home, not necessarily the leftmost one: it can be moved.
+    /// made on the spot if there is no list yet (SpacesFile).
     static func read() -> [Space] {
-        let saved = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([Space].self, from: $0) } ?? []
-        guard !saved.isEmpty else { return [Space.first()] }
-        var foundHome = false
-        var spaces = saved.compactMap { space -> Space? in
-            var space = space
-            if space.isFirst {
-                // Keep the old reader's repair of a damaged list, without
-                // moving the first home entry away from its chosen place.
-                guard !foundHome else { return nil }
-                foundHome = true
-                space.profile = nil
-            }
-            return space
-        }
-        // The first space is the store and session there were before
-        // spaces. A file without it still has to leave that home reachable,
-        // once the profile's other spaces are restored.
-        if !spaces.contains(where: \.isFirst) { spaces.insert(Space.first(), at: 0) }
-        if keepsOrder(in: saved) { return spaces }
-        return spaces.filter(\.isFirst) + spaces.filter { !$0.isFirst }
+        SpacesFile.spaces(from: saved(), orderKept: orderKept, home: home(of:))
     }
 
     /// One profile's spaces in their saved order: what a window of that
     /// profile shows, and all it shows.
     static func read(profile: UUID) -> [Space] {
-        let saved = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([Space].self, from: $0) } ?? []
-        let mine = read().filter { $0.profileID == profile }
-        guard !keepsOrder(in: saved) else { return mine }
-        let home = profile == Profile.personalID
-            ? Space.firstID
-            : (Profiles.read().first { $0.id == profile }?.home ?? mine.first?.id ?? Space.firstID)
-        return mine.filter { $0.id == home } + mine.filter { $0.id != home }
+        let saved = saved()
+        let all = SpacesFile.spaces(from: saved, orderKept: orderKept, home: home(of:))
+        return SpacesFile.spaces(of: profile, in: all, saved: saved, orderKept: orderKept, home: home(of:))
     }
 
-    /// Whether a spaces.json carries the user's order. A move made now marks
-    /// it. A move made by an older Eden is also recognised: within each
-    /// profile's block, its home away from the front could only have been
-    /// written by that move. Older untouched files still read home first.
-    private static func keepsOrder(in spaces: [Space]) -> Bool {
-        if Store.settings.bool(forKey: "spaces.orderKept") { return true }
-        for profile in Set(spaces.map(\.profileID)) {
-            let block = spaces.filter { $0.profileID == profile }
-            guard let first = block.first else { continue }
-            let home = profile == Profile.personalID
-                ? Space.firstID
-                : (Profiles.read().first { $0.id == profile }?.home ?? first.id)
-            if first.id != home { return true }
-        }
-        return false
+    /// The list as the file has it, unrepaired; none for a file that won't read.
+    private static func saved() -> [Space] {
+        (try? Data(contentsOf: file)).flatMap { try? SpacesFile.decode($0) } ?? []
     }
+
+    /// Whether a space has been moved: the order is the user's from then on.
+    private static var orderKept: Bool { Store.settings.bool(forKey: "spaces.orderKept") }
+
+    /// A profile's home space, for SpacesFile.
+    private static func home(of profile: UUID) -> UUID? { Profiles.read().first { $0.id == profile }?.home }
 
     /// The whole list, every profile's spaces.
     static func write(_ spaces: [Space]) {
-        guard let data = try? JSONEncoder().encode(spaces) else { return }
+        guard let data = try? SpacesFile.encode(spaces) else { return }
         // At once, as it is read back at once; through Disk, so a write that
         // fails is known (sync waits on it: CloudSync).
         Disk.write(file, now: true) { data }
@@ -129,12 +69,7 @@ enum Spaces {
     /// One profile's spaces as a window now has them, in their order: the
     /// other profiles' are kept as the file has them.
     static func write(_ spaces: [Space], profile: UUID) {
-        let mine = spaces.map { space -> Space in
-            var space = space
-            space.profile = profile == Profile.personalID ? nil : profile
-            return space
-        }
-        write(read().filter { $0.profileID != profile } + mine)
+        write(SpacesFile.replacing(profile: profile, in: read(), with: spaces))
     }
 
     /// The list of spaces changed, in one window or another.
@@ -157,12 +92,10 @@ enum Spaces {
     /// store there always was — for the first space of each profile and any
     /// space made signed in with the others; a store of its own otherwise.
     @MainActor static func store(for id: UUID) -> WKWebsiteDataStore {
-        let space = known[id]
-        let profile = space?.profileID ?? Profile.personalID
-        if id == Space.firstID || space?.sharesSignIns == true
-            || (profile != Profile.personalID && Profiles.shared.profile(profile).home == id) {
-            return Profiles.store(profile)
-        }
+        let space = known[id] ?? Space(id: id, name: "", colour: 0)
+        let profile = space.profileID
+        let home = profile == Profile.personalID ? Space.firstID : Profiles.shared.profile(profile).home
+        if case .profile(let owner) = space.storeKey(profileHome: home) { return Profiles.store(owner) }
         if let made = stores[id] { return made }
         let made = WKWebsiteDataStore(forIdentifier: id)
         if Store.keepsSignIns { Store.followSignIns(made) } else { Store.followCookies(made) }
@@ -415,10 +348,7 @@ extension Browser {
     }
 
     /// The icon a new space gets unless told: the first no space wears yet.
-    var freeIcon: String {
-        let used = Set(spaces.map(\.symbol))
-        return Spaces.icons.first { !used.contains($0) } ?? "briefcase"
-    }
+    var freeIcon: String { SpaceAppearance.freeIcon(among: spaces) }
 
     /// A new space — signed in where the others are, or starting afresh with
     /// its own cookies and sign-ins. By default it starts empty and on screen.
@@ -481,7 +411,7 @@ extension Browser {
     }
 
     func setSpaceColour(_ id: UUID, to colour: Int) {
-        guard let at = spaces.firstIndex(where: { $0.id == id }), Spaces.colours.indices.contains(colour) else { return }
+        guard let at = spaces.firstIndex(where: { $0.id == id }), SpaceAppearance.colours.indices.contains(colour) else { return }
         spaces[at].colour = colour
         Spaces.write(spaces, profile: profileID)
     }
@@ -649,7 +579,7 @@ enum SpaceMenu {
     /// A space's icon for the menu, in its colour if it has one.
     private static func image(_ symbol: String, colour: Int) -> NSImage? {
         let plain = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        guard colour > 0, Spaces.colours.indices.contains(colour) else { return plain }
+        guard colour > 0, SpaceAppearance.colours.indices.contains(colour) else { return plain }
         return plain?.withSymbolConfiguration(.init(paletteColors: [NSColor(Spaces.colours[colour])]))
     }
 
@@ -657,7 +587,7 @@ enum SpaceMenu {
     private static func swatch(_ colour: Int) -> NSImage {
         let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
             let dot = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
-            if colour > 0, Spaces.colours.indices.contains(colour) {
+            if colour > 0, SpaceAppearance.colours.indices.contains(colour) {
                 NSColor(Spaces.colours[colour]).setFill()
                 dot.fill()
             } else {
@@ -667,7 +597,7 @@ enum SpaceMenu {
             }
             return true
         }
-        image.accessibilityDescription = Spaces.colourNames.indices.contains(colour) ? Spaces.colourNames[colour] : nil
+        image.accessibilityDescription = SpaceAppearance.colourNames.indices.contains(colour) ? SpaceAppearance.colourNames[colour] : nil
         return image
     }
 
@@ -715,7 +645,7 @@ enum SpaceMenu {
             Ask.name("Rename Space", placeholder: here.name, initial: here.name, confirm: "Rename") { browser.renameSpace(here.id, to: $0) }
         })
         let icons = NSMenu()
-        for (symbol, name) in zip(Spaces.icons, Spaces.iconNames) {
+        for (symbol, name) in zip(SpaceAppearance.icons, SpaceAppearance.iconNames) {
             let choice = item(name, checked: here.symbol == symbol) { browser.setSpaceIcon(here.id, to: symbol) }
             choice.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
             icons.addItem(choice)
@@ -724,7 +654,7 @@ enum SpaceMenu {
         icon.submenu = icons
         menu.addItem(icon)
         let colours = NSMenu()
-        for (index, name) in Spaces.colourNames.enumerated() {
+        for (index, name) in SpaceAppearance.colourNames.enumerated() {
             let choice = item(name, checked: here.colour == index || (index == 0 && here.tint == nil)) {
                 browser.setSpaceColour(here.id, to: index)
             }

@@ -34,17 +34,17 @@ final class ProfilesTests: XCTestCase {
     func testSharedPinsKeepEachProfileApartAndPersonalWhereItWas() throws {
         let other = UUID()
         let mine = [def("A")], theirs = [def("B")]
-        let data = try XCTUnwrap(Pins.encode(bySpace: [:], shared: mine, others: [other: theirs]))
+        let data = try PinsFile.encode(PinCatalog(sharedByProfile: [Profile.personalID: mine, other: theirs]))
         let raw = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         // Personal's under "shared", as 1.0.4 to 1.0.6 wrote and read them.
         XCTAssertNotNil(raw["shared"])
         XCTAssertNotNil(raw["shared:\(other.uuidString)"])
-        let lists = Pins.sharedLists(data)
+        let lists = try PinsFile.decode(data).sharedByProfile
         XCTAssertEqual(lists[Profile.personalID], mine)
         XCTAssertEqual(lists[other], theirs)
         // An older reader takes the other profile's key for no space.
-        XCTAssertEqual(Pins.decode(data)?.shared, mine)
-        XCTAssertEqual(Pins.decode(data)?.bySpace.isEmpty, true)
+        XCTAssertEqual(try PinsFile.decode(data).shared(by: Profile.personalID), mine)
+        XCTAssertEqual(try PinsFile.decode(data).bySpace.isEmpty, true)
     }
 
     func testSpacesFromBeforeProfilesAreAllPersonal() throws {

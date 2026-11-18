@@ -1,3 +1,4 @@
+import EdenCore
 import XCTest
 @testable import Eden
 
@@ -12,7 +13,7 @@ final class ArcIconTests: XCTestCase {
 
     func testEveryArcIconIsOneOfSearchs() {
         for name in ["construction", "people", "star", "bulb", "leaf", "pizza"] {
-            XCTAssertTrue(Spaces.icons.contains(Arc.symbol(emoji: nil, arcIcon: name, name: "")), name)
+            XCTAssertTrue(SpaceAppearance.icons.contains(Arc.symbol(emoji: nil, arcIcon: name, name: "")), name)
         }
     }
 

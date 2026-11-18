@@ -10,6 +10,8 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS("27.0")],
     products: [
         .library(name: "EdenCore", targets: ["EdenCore"]),
+        // For tests of sync, in this package and the apps: iCloud in memory.
+        .library(name: "EdenCoreTesting", targets: ["EdenCoreTesting"]),
     ],
     targets: [
         .target(
@@ -19,9 +21,15 @@ let package = Package(
             // in and is still compiled with there.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .target(
+            name: "EdenCoreTesting",
+            dependencies: ["EdenCore"],
+            path: "Sources/EdenCoreTesting",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "EdenCoreTests",
-            dependencies: ["EdenCore"],
+            dependencies: ["EdenCore", "EdenCoreTesting"],
             path: "Tests/EdenCoreTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
