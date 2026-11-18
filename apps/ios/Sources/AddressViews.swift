@@ -175,6 +175,13 @@ struct BrowserMenu: View {
                     browser.toggleReading(tab)
                 }
                 .accessibilityIdentifier("reading-mode")
+                Button("Hide Elements…", systemImage: "eye.slash") { browser.startHiding(tab) }
+                    .disabled(tab.shown == nil)
+                    .accessibilityIdentifier("hide-elements")
+                if !browser.veils(for: tab).isEmpty {
+                    Button("Hidden on This Site", systemImage: "eye") { sheet = .hidden }
+                        .accessibilityIdentifier("hidden-here")
+                }
                 Divider()
             }
             Button("New Tab", systemImage: "plus.square") { browser.newTab() }
@@ -192,6 +199,6 @@ struct BrowserMenu: View {
 
 /// The sheets the menu opens.
 enum BrowserSheet: String, Identifiable {
-    case bookmarks, history, settings
+    case bookmarks, history, settings, hidden
     var id: String { rawValue }
 }

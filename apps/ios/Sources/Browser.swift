@@ -9,8 +9,11 @@ import WebKit
 @Observable
 final class Browser {
     private(set) var tabs: [Tab] = []
-    /// The tab in front, ordinary or private.
-    private(set) var activeID: Tab.ID?
+    /// The tab in front, ordinary or private. Another in front ends picking
+    /// on the one that was (Hiding.swift).
+    private(set) var activeID: Tab.ID? {
+        didSet { if let session = picking, session.tab != activeID { stopHiding() } }
+    }
     /// A short line said over the page a moment, and gone (RootView).
     private(set) var notice: String?
     @ObservationIgnored private var noticeClears: Task<Void, Never>?
@@ -18,6 +21,17 @@ final class Browser {
     @ObservationIgnored let history: History
     @ObservationIgnored let bookmarks: BookmarkStore
     @ObservationIgnored let settings: Settings
+    /// What you have taken off each site (Hiding.swift).
+    let curtain: Curtain
+    /// Picking, while it is on (Hiding.swift).
+    var picking: PickingSession?
+    /// What a tap on that page offered, to hide, widen or let go.
+    var offered: VeilMessage.Choice?
+    /// Carries what every page's picker says back (Hiding.swift).
+    @ObservationIgnored let veilRelay = VeilRelay()
+    /// The script putting on what is kept, made once per change to it; empty
+    /// when nothing is (Hiding.swift).
+    @ObservationIgnored var keptStyle: String?
     /// Where the ordinary tabs are kept between launches; nil keeps none.
     @ObservationIgnored private let sessionFile: URL?
     /// Told when the ordinary tabs change, so sync shows them on your other
@@ -26,12 +40,14 @@ final class Browser {
     /// Sync through iCloud, once the app has made it.
     @ObservationIgnored var sync: Syncing?
 
-    init(history: History, bookmarks: BookmarkStore, settings: Settings,
+    init(history: History, bookmarks: BookmarkStore, settings: Settings, curtain: Curtain = Curtain(),
          sessionFile: URL? = Store.file("tabs.json")) {
         self.history = history
         self.bookmarks = bookmarks
         self.settings = settings
+        self.curtain = curtain
         self.sessionFile = sessionFile
+        veilRelay.received = { [weak self] said, origin in self?.heard(said, from: origin) }
         restore()
         // Always a tab to type into: a first launch, or a session of none,
         // starts with an empty one.
@@ -60,7 +76,7 @@ final class Browser {
     /// page's own, in front, made with WebKit's configuration. The page loads
     /// what it asked for itself; `request` only names it until then.
     func adopt(configuration: WKWebViewConfiguration, request: URLRequest, from opener: Tab) -> Tab? {
-        let tab = Tab(isPrivate: opener.isPrivate, configuration: configuration)
+        let tab = Tab(isPrivate: opener.isPrivate, configuration: configuration, sharing: opener.privateHiding)
         if let url = request.url { tab.opening(url) }
         insert(tab, after: opener)
         activeID = tab.id
@@ -108,6 +124,7 @@ final class Browser {
     /// its kind, else the one before, else none.
     func close(_ tab: Tab) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        if picking?.tab == tab.id { stopHiding() }
         let wasActive = tab.id == activeID
         tabs.remove(at: index)
         tab.close()

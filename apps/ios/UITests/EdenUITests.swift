@@ -215,6 +215,30 @@ final class EdenUITests: XCTestCase {
         XCTAssertEqual(notice.label, "Nothing to read on this page")
     }
 
+    func testAThingHiddenByTouchStaysHiddenUntilRestored() throws {
+        try open("hide.html", showing: "BANNER-TEXT")
+        openMenu("Hide Elements…")
+        XCTAssertTrue(app.descendants(matching: .any)["hiding-bar"].waitForExistence(timeout: 5))
+        app.webViews.staticTexts["BANNER-TEXT"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["hiding-offer"].waitForExistence(timeout: 5), "the tap offers it")
+        shot("offered")
+        app.buttons["hide-confirm"].tap()
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.webViews.staticTexts["BANNER-TEXT"])
+        waitForExpectations(timeout: 5)
+        app.buttons["hide-done"].tap()
+        // Opened again, it is still hidden.
+        try open("hide.html", showing: "CONTENT-TEXT")
+        XCTAssertFalse(app.webViews.staticTexts["BANNER-TEXT"].exists)
+        openMenu("Hidden on This Site")
+        let row = all("hidden-row").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        row.swipeLeft()
+        labelled("Restore").tap()
+        app.buttons["Done"].firstMatch.tap()
+        expectPage("BANNER-TEXT")
+    }
+
     func testHistoryKeepsPlacesAndForgetsThem() throws {
         try open("page-one.html", showing: "PAGE-ONE")
         openMenu("History")

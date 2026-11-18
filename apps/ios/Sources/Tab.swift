@@ -44,12 +44,21 @@ final class Tab: NSObject, Identifiable {
 
     /// Eden's own content world, where its scripts run apart from the page's.
     static let world = WKContentWorld.world(name: "Eden")
+    /// A private tab's own changes to what is hidden (Hiding.swift); nil for
+    /// an ordinary tab.
+    let privateHiding: PrivateHiding?
+    /// The page showing, once WebKit has committed to one with a site.
+    private(set) var shown: ShownPage?
+    /// Counts the pages committed to, for `shown`.
+    @ObservationIgnored private var commits = 0
 
     /// A new tab. `configuration` is WebKit's own when a page opens a window
-    /// (Browser.adopt), so the window keeps its opener.
-    init(isPrivate: Bool, configuration: WKWebViewConfiguration? = nil) {
+    /// (Browser.adopt), so the window keeps its opener, and `own` the opener's
+    /// own changes to what is hidden, which a private window shares.
+    init(isPrivate: Bool, configuration: WKWebViewConfiguration? = nil, sharing own: PrivateHiding? = nil) {
         self.isPrivate = isPrivate
         self.configuration = configuration ?? Tab.configuration(private: isPrivate)
+        privateHiding = isPrivate ? own ?? PrivateHiding() : nil
         super.init()
     }
 
@@ -93,6 +102,7 @@ final class Tab: NSObject, Identifiable {
         refresh.addTarget(self, action: #selector(pulled(_:)), for: .valueChanged)
         view.scrollView.refreshControl = refresh
         Shield.shared.protect(configuration.userContentController)
+        browser?.prepare(configuration.userContentController, for: self)
         built = view
         watch(view)
         if let pending {
@@ -148,6 +158,19 @@ final class Tab: NSObject, Identifiable {
 
     /// Whether the page has an address to load once it is made.
     var isPending: Bool { pending != nil }
+
+    // MARK: - hiding (Hiding.swift)
+
+    /// The page's content controller, shared with the windows it opens.
+    var contentController: WKUserContentController { configuration.userContentController }
+
+    /// One of Eden's scripts run on the page showing, in Eden's world.
+    func run(_ script: String) {
+        built?.evaluateJavaScript(script, in: nil, in: Tab.world)
+    }
+
+    /// Whether this tab's page is `page`.
+    func shows(_ page: WKWebView?) -> Bool { page != nil && built === page }
 
     // MARK: - reading
 
@@ -256,9 +279,13 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // Another page: whatever was being read was the last one's.
+        // Another page: whatever was being read, or picked from, was the
+        // last one's.
         generation += 1
         isReading = false
+        commits += 1
+        shown = Curtain.host(of: webView.url).map { ShownPage(number: commits, host: $0) }
+        browser?.pageChanged(in: self)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

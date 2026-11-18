@@ -189,6 +189,77 @@ struct BrowserTests {
     }
 }
 
+/// Hidden elements on iPhone and iPad (Hiding.swift): a private tab puts
+/// back what is kept, and its own changes — shared with the windows it opens
+/// — last as long as it, never kept, merged with what is kept by selector.
+@MainActor
+struct HidingTests {
+    private let site = "example.com"
+    private let folder = FileManager.default.temporaryDirectory.appendingPathComponent("hiding-\(UUID().uuidString)")
+
+    private func browser() -> (Browser, Curtain) {
+        let curtain = Curtain(file: folder.appendingPathComponent("hidden.json"))
+        curtain.hide("#kept", label: "Kept", note: "", on: site)
+        let name = "eden-tests-\(UUID().uuidString)"
+        let browser = Browser(history: History(file: "history-\(UUID().uuidString).json", read: { _ in nil }),
+                              bookmarks: BookmarkStore(file: folder.appendingPathComponent("bookmarks.json")),
+                              settings: Settings(store: UserDefaults(suiteName: name)!), curtain: curtain,
+                              sessionFile: nil)
+        return (browser, curtain)
+    }
+
+    private func choice(_ selector: String) -> VeilMessage.Choice {
+        VeilMessage.Choice(selector: selector, label: selector, note: "")
+    }
+
+    @Test func aPrivateTabsOwnHidingIsItsAloneAndNeverKept() throws {
+        let (browser, curtain) = browser()
+        let shy = browser.newTab(private: true)
+        let plain = browser.newTab()
+        browser.hide(choice("#mine"), on: site, in: shy)
+        browser.hide(choice("#elsewhere"), on: "other.example", in: shy)
+        #expect(browser.veils(on: site, in: shy.privateHiding).map(\.selector) == ["#kept", "#mine"], "only this site's")
+        #expect(browser.veils(on: site, in: plain.privateHiding).map(\.selector) == ["#kept"], "never another tab's")
+
+        browser.restore(try #require(curtain.veils(on: site).first), on: site, in: shy)
+        #expect(browser.veils(on: site, in: shy.privateHiding).map(\.selector) == ["#mine"])
+        browser.restoreAll(on: site, in: shy)
+        #expect(browser.veils(on: site, in: shy.privateHiding).isEmpty)
+        #expect(curtain.veils(on: site).map(\.selector) == ["#kept"], "what is kept, untouched")
+        #expect(browser.stylesheets(in: shy.privateHiding)["other.example"] == "#elsewhere { display: none !important; }")
+        #expect(browser.stylesheets(in: shy.privateHiding)[site] == "")
+    }
+
+    @Test func aPrivateChangeHoldsWhateverIsKeptDoes() throws {
+        let (browser, curtain) = browser()
+        let shy = browser.newTab(private: true)
+        let plain = browser.newTab()
+
+        // Shown here, then no longer kept, then hidden here again: hidden.
+        browser.restore(try #require(curtain.veils(on: site).first), on: site, in: shy)
+        browser.restoreAll(on: site, in: plain)
+        browser.hide(choice("#kept"), on: site, in: shy)
+        #expect(browser.veils(on: site, in: shy.privateHiding).map(\.selector) == ["#kept"])
+
+        // Hidden here, then kept too: once.
+        browser.hide(choice("#both"), on: site, in: shy)
+        browser.hide(choice("#both"), on: site, in: plain)
+        let selectors = browser.veils(on: site, in: shy.privateHiding).map(\.selector)
+        #expect(selectors == ["#both", "#kept"], "kept first, each once")
+    }
+
+    @Test func aPrivateWindowSharesItsOpenersChanges() throws {
+        let (browser, _) = browser()
+        let opener = browser.newTab(private: true)
+        let page = try #require(URL(string: "https://example.com/"))
+        let popUp = try #require(browser.adopt(configuration: Tab.configuration(private: true),
+                                               request: URLRequest(url: page), from: opener))
+        #expect(popUp.privateHiding === opener.privateHiding, "the same scripts serve both")
+        #expect(browser.newTab().privateHiding == nil)
+        #expect(browser.newTab(private: true).privateHiding !== opener.privateHiding)
+    }
+}
+
 /// Your bookmarks, kept in their file.
 @MainActor
 struct BookmarkStoreTests {

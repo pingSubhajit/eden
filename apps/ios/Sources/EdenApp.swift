@@ -111,6 +111,9 @@ struct RootView: View {
             }
         }
         .overlay(alignment: .top) { NoticeView(line: browser.notice) }
+        .overlay(alignment: .bottom) {
+            if browser.picking != nil { HidingBar(browser: browser) }
+        }
         .onContinueUserActivity(Activity.web, perform: take)
         .onContinueUserActivity(Activity.browsing, perform: take)
         // The page in front, offered to your other devices as Eden's own

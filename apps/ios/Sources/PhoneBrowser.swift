@@ -114,6 +114,8 @@ struct BrowserSheets: View {
         case .bookmarks: BookmarksSheet(browser: browser, open: open)
         case .history: HistorySheet(browser: browser, open: open)
         case .settings: SettingsSheet(settings: browser.settings, browser: browser)
+        case .hidden:
+            if let tab = browser.active { HiddenSheet(browser: browser, tab: tab, curtain: browser.curtain) }
         }
     }
 
