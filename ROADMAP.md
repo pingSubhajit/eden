@@ -30,8 +30,9 @@ the Mac.
    elements come next, from the Mac.
 4. **Your tabs on every device** *Built, on unless turned off.* Open tabs
    from your other devices, bookmarks, history, spaces, pins and settings,
-   through your private CloudKit database (CloudSync in EdenCore) under the
-   existing merge (SyncMerge.swift). Development builds only until the
+   through your private CloudKit database, on Apple's CKSyncEngine
+   (CloudSync and CloudKitTransport in EdenCore) under the existing merge
+   (SyncMerge.swift). Development builds only until the
    schema is deployed to production (TODO.md). Pins and spaces on iPhone
    and iPad come with them.
 

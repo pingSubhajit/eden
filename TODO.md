@@ -38,8 +38,9 @@ build goes to anyone else. Each item names where it is in the code.
 
 - [ ] **Deploy the CloudKit schema to production** In CloudKit Console,
   container `iCloud.com.subhajit.eden.beta`: the record type `Item`
-  (fields `key`, `v`, `t`, `d`) and the zone subscription, made in the
-  development environment by the first development builds that synced.
+  (fields `key`, `v`, `t`, `d`) and the database subscription CKSyncEngine
+  keeps (`eden-sync`), made in the development environment by the first
+  development builds that synced.
   Until then only development-signed builds sync (TestFlight, the App
   Store and Developer ID builds use production).
 - [ ] **iCloud in the Developer ID profile** The Mac's Developer ID
