@@ -138,9 +138,21 @@ public final class History: ObservableObject {
     private var loading: HistoryLoad?
     private var duringLoad: [(History) -> Void] = []
     private var publishingLoad = false
+    /// The places you deleted here, by sync key, and when: only these are
+    /// deleted on your other devices too (see `understands`). A place that
+    /// leaves because the history is full is not one of them. Kept beside
+    /// the history, for a month.
+    private var erased: [String: Double] = [:]
+    nonisolated static let erasedLife = 30.0 * 86_400
 
     public init(file: String = "history.json", read: @escaping @Sendable (URL) -> Data? = { try? Data(contentsOf: $0) }) {
         fileName = file
+        // Small, and read here rather than through `read`, which may wait.
+        if let data = try? Data(contentsOf: Store.file(History.erasedName(file))),
+           let kept = try? JSONDecoder().decode([String: Double].self, from: data) {
+            let now = Date().timeIntervalSince1970
+            erased = kept.filter { now - $0.value < History.erasedLife }
+        }
         load(read: read)
     }
 
@@ -307,6 +319,7 @@ public final class History: ObservableObject {
             )
         }
         if let seen = visits[key] { remember(seen, url: url) }
+        if erased.removeValue(forKey: History.syncKey(key)) != nil { keepErased() }
         prune()
         save()
     }
@@ -395,6 +408,9 @@ public final class History: ObservableObject {
 
     public func forget() {
         if loading != nil { duringLoad.append { $0.forget() } }
+        let now = Date().timeIntervalSince1970
+        for key in syncedKeys() { erased[History.syncKey(key)] = now }
+        keepErased()
         visits = [:]
         pageText = [:]
         weights = [:]
@@ -456,6 +472,15 @@ public final class History: ObservableObject {
 
     public func forget(_ key: String) {
         if loading != nil { duringLoad.append { $0.forget(key) } }
+        if visits[key] != nil {
+            erased[History.syncKey(key)] = Date().timeIntervalSince1970
+            keepErased()
+        }
+        drop(key)
+    }
+
+    /// A place gone, not by your hand here: deleted on another device.
+    private func drop(_ key: String) {
         // Its page's icon is a trace of the visit too.
         if let url = visits[key].flatMap({ URL(string: $0.url) }) { History.forgotten?(url) }
         visits[key] = nil
@@ -840,3 +865,102 @@ public final class History: ObservableObject {
         (host: host, title: title, findable: title.lowercased() + " " + host)
     }
 }
+
+// MARK: - syncing (CloudSync)
+
+/// A place you have been, as it syncs: its address, title, how often and
+/// when last.
+public struct SyncedVisit: Codable, Equatable, Sendable {
+    public var url: String
+    public var title: String
+    public var count: Int
+    public var last: Double
+}
+
+extension History {
+    /// Whether the history has finished reading its file. Until then what it
+    /// holds is not all there is, and nothing in it is synced or forgotten:
+    /// a place not read yet is not a place forgotten.
+    public var isLoaded: Bool { loading == nil }
+
+    /// The key a place syncs under.
+    public nonisolated static func syncKey(_ key: String) -> String { "visit:" + key }
+
+    /// Every place, as `visit:<identity>` items: the ones listed in the
+    /// History window, not the credit each site's front door gets from its
+    /// pages, which every device works out for itself.
+    public func syncItems() -> [String: String] {
+        guard isLoaded else { return [:] }
+        var out: [String: String] = [:]
+        for key in syncedKeys() {
+            guard let visit = visits[key] else { continue }
+            let synced = SyncedVisit(url: visit.url, title: visit.title, count: visit.count,
+                                     last: visit.last.timeIntervalSince1970)
+            out[History.syncKey(visit.key)] = SyncMerge.text(synced)
+        }
+        return out
+    }
+
+    private func syncedKeys() -> [String] {
+        visits.values.filter { !($0.title.isEmpty && pageText[$0.key]?.homepage == true) }.map(\.key)
+    }
+
+    /// The places as every device now agrees on them: one new or changed
+    /// elsewhere taken in, one deleted elsewhere forgotten here. A place this
+    /// history is too full to keep — it would score under every place here —
+    /// is left out rather than taken and cut again at once. Written soon.
+    public func applySynced(_ live: [String: String]) {
+        guard isLoaded else { return }
+        var changed = false
+        var wanted: Set<String> = []
+        let now = Date()
+        let full = visits.count >= History.cap
+        let floor = full ? visits.values.map { History.score($0, now: now) }.min() ?? 0 : 0
+        for (key, text) in live where key.hasPrefix("visit:") {
+            guard let synced = SyncMerge.value(SyncedVisit.self, text), let url = URL(string: synced.url) else { continue }
+            let identity = String(key.dropFirst("visit:".count))
+            wanted.insert(identity)
+            // Alive by every device's account: deleted here before, it has
+            // been brought back since, kept here or not.
+            if erased.removeValue(forKey: key) != nil { keepErased() }
+            let last = Date(timeIntervalSince1970: synced.last)
+            if let held = visits[identity] {
+                if held.count >= synced.count, held.last >= last, held.title == synced.title || synced.title.isEmpty {
+                    continue
+                }
+            } else if full {
+                let incoming = Visit(url: synced.url, key: identity, title: synced.title, count: synced.count, last: last)
+                if History.score(incoming, now: now) <= floor { continue }
+            }
+            take(url, title: synced.title, count: synced.count, last: last)
+            if !synced.title.isEmpty, visits[identity]?.title != synced.title { retitle(url, synced.title) }
+            changed = true
+        }
+        let gone = syncedKeys().filter { !wanted.contains($0) }
+        for key in gone { drop(key) }
+        if changed || !gone.isEmpty { save() }
+    }
+
+    /// Whether a sync key is one this history speaks for, now, once its file
+    /// is read: a place it holds, or one you deleted here. Only those can be
+    /// found missing and deleted everywhere; a place that left because the
+    /// history was full, or that was never taken in, is carried for the
+    /// devices that keep it.
+    public func understands(_ key: String) -> Bool {
+        guard key.hasPrefix("visit:"), isLoaded else { return false }
+        return visits[String(key.dropFirst("visit:".count))] != nil || erased[key] != nil
+    }
+
+    nonisolated static func erasedName(_ file: String) -> String {
+        (file.hasSuffix(".json") ? String(file.dropLast(5)) : file) + "-erased.json"
+    }
+
+    private func keepErased() {
+        guard !retired else { return }
+        let now = Date().timeIntervalSince1970
+        erased = erased.filter { now - $0.value < History.erasedLife }
+        let snapshot = erased
+        Disk.write(Store.file(History.erasedName(fileName))) { try? JSONEncoder().encode(snapshot) }
+    }
+}
+

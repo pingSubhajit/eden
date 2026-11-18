@@ -1,31 +1,35 @@
 import Foundation
 
-// The merge behind Sync (see Sync.swift): plain values in, plain values out,
-// nothing read or written here, so every rule can be tested on its own.
+// The merge behind sync through iCloud (CloudSync.swift): plain values in,
+// plain values out, nothing read or written here, so every rule can be
+// tested on its own. It began as the Mac's sync through a shared folder,
+// one file per Mac, which is why some of it still speaks of files: in
+// iCloud, "the other Macs' files" are the server's items.
 //
-// What is synced is a flat map of items, key → a small JSON text. Each Mac
-// keeps, for every item, the value it last agreed on with a stamp (when it
-// was set, in seconds) and the device that set it; a deletion is the same
-// entry with no value, a tombstone, so "gone" travels as surely as "changed".
+// What is synced is a flat map of items, key → a small JSON text. Each
+// device keeps, for every item, the value it last agreed on with a stamp
+// (when it was set, in seconds) and the device that set it; a deletion is
+// the same entry with no value, a tombstone, so "gone" travels as surely as
+// "changed".
 //
-// A pass on one Mac:
-//   1. stamp: the items as this Mac has them now, compared with what it last
-//      agreed (its base). What differs is an edit made here since, stamped
-//      later than anything it has seen (so a Mac whose clock runs behind
-//      still wins over a value it already saw); what it agreed on and no
-//      longer has is a tombstone. A first pass (no base: joining) stamps 0,
-//      so what is already in the folder wins where both have the same item
-//      and nothing here is lost where only this Mac has it.
-//   2. merge: this map and every other Mac's file, item by item, the latest
-//      stamp winning, then the device id, then a tombstone, then the larger
-//      text — the same answer on every Mac whatever order it reads them in.
+// A pass on one device:
+//   1. stamp: the items as this device has them now, compared with what it
+//      last agreed (its base). What differs is an edit made here since,
+//      stamped later than anything it has seen (so a device whose clock runs
+//      behind still wins over a value it already saw); what it agreed on and
+//      no longer has is a tombstone. A first pass (no base: joining) stamps
+//      0, so what the other devices already hold wins where both have the
+//      same item and nothing here is lost where only this device has it.
+//   2. merge: this map and the others', item by item, the latest stamp
+//      winning, then the device id, then a tombstone, then the larger text —
+//      the same answer on every device whatever order it reads them in.
 //   3. what changed is applied here, and the merged map is the new base and
-//      this Mac's own file.
+//      what this device holds on the server.
 //
 // Items this build can't read (a newer Eden's, a damaged one) are carried
 // along untouched and never turned into tombstones.
 
-public struct SyncEntry: Codable, Equatable {
+public struct SyncEntry: Codable, Equatable, Sendable {
     /// The item's JSON; nil for one deleted.
     public var v: String?
     /// When it was set, seconds since 1970 — or later, see `SyncMerge.stamp`.
@@ -41,7 +45,7 @@ public struct SyncEntry: Codable, Equatable {
 }
 
 /// One Mac's file in one scope's folder: only that Mac writes it.
-public struct SyncFile: Codable, Equatable {
+public struct SyncFile: Codable, Equatable, Sendable {
     public var format: Int
     public var device: String
     /// The Mac's name, for Settings to say who was last seen.
@@ -96,8 +100,8 @@ public enum SyncMerge {
     /// The items as this Mac has them now (`current`), written over what it
     /// last agreed (`base`). `understood` says which of base's items this
     /// build can read: only those can be found missing and deleted.
-    /// `joining`: this Mac's first pass with a folder other Macs already
-    /// use — its items are stamped 0, so theirs win where both have one.
+    /// `joining`: this device's first pass where others already sync — its
+    /// items are stamped 0, so theirs win where both have one.
     public static func stamp(current: [String: String], base: [String: SyncEntry], device: String, now: Double,
                       joining: Bool = false,
                       understood: (String, String) -> Bool = { _, _ in true }) -> [String: SyncEntry] {
@@ -131,7 +135,10 @@ public enum SyncMerge {
                      understood: (String, String) -> Bool = { _, _ in true }) -> [String: SyncEntry] {
         let mine = stamp(current: current, base: base ?? [:], device: device, now: now,
                          joining: base == nil && !theirs.isEmpty, understood: understood)
-        return prune(merge([mine] + theirs), now: now)
+        // A deletion past its life counts for nothing, coming in as going out:
+        // it stays on the iCloud server (CloudSync), and must not delete what a
+        // device joining now brings.
+        return prune(merge([mine] + theirs.map { prune($0, now: now) }), now: now)
     }
 
     /// The kinds of item whose vanishing all at once is not taken as their
