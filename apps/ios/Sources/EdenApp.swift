@@ -110,6 +110,7 @@ struct RootView: View {
                 PhoneBrowser(browser: browser)
             }
         }
+        .overlay(alignment: .top) { NoticeView(line: browser.notice) }
         .onContinueUserActivity(Activity.web, perform: take)
         .onContinueUserActivity(Activity.browsing, perform: take)
         // The page in front, offered to your other devices as Eden's own
@@ -137,6 +138,25 @@ struct RootView: View {
             tab.load(url)
         } else {
             browser.newTab(url: url)
+        }
+    }
+}
+
+/// A short line over the page — "Nothing to read on this page" — for a
+/// moment (Browser.announce).
+struct NoticeView: View {
+    let line: String?
+
+    var body: some View {
+        if let line {
+            Text(line)
+                .font(.footnote.weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityIdentifier("notice")
         }
     }
 }

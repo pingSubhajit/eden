@@ -170,6 +170,11 @@ struct BrowserMenu: View {
                     browser.bookmarks.toggle(url, title: tab.title.isEmpty ? Address.pretty(url) : tab.title)
                 }
                 ShareLink(item: url) { Label("Share", systemImage: "square.and.arrow.up") }
+                Button(tab.isReading ? "Leave Reading Mode" : "Reading Mode",
+                       systemImage: tab.isReading ? "doc.richtext" : "doc.plaintext") {
+                    browser.toggleReading(tab)
+                }
+                .accessibilityIdentifier("reading-mode")
                 Divider()
             }
             Button("New Tab", systemImage: "plus.square") { browser.newTab() }

@@ -1,6 +1,7 @@
 import EdenCore
 import Foundation
 import Observation
+import UIKit
 import WebKit
 
 /// The tabs, which one is in front, and what they share: history, bookmarks,
@@ -10,6 +11,9 @@ final class Browser {
     private(set) var tabs: [Tab] = []
     /// The tab in front, ordinary or private.
     private(set) var activeID: Tab.ID?
+    /// A short line said over the page a moment, and gone (RootView).
+    private(set) var notice: String?
+    @ObservationIgnored private var noticeClears: Task<Void, Never>?
 
     @ObservationIgnored let history: History
     @ObservationIgnored let bookmarks: BookmarkStore
@@ -123,6 +127,27 @@ final class Browser {
     /// Every tab of one kind gone — all the private ones, say.
     func closeAll(private isPrivate: Bool) {
         for tab in tabs where tab.isPrivate == isPrivate { close(tab) }
+    }
+
+    /// A line said over the page for a few seconds, and to VoiceOver.
+    func announce(_ line: String) {
+        notice = line
+        UIAccessibility.post(notification: .announcement, argument: line)
+        noticeClears?.cancel()
+        noticeClears = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
+    /// The tab's page as its article, or back to the page. "Nothing to read"
+    /// is said only about the page still in front.
+    func toggleReading(_ tab: Tab) {
+        Task {
+            guard await tab.toggleReading(twins: settings.readsTwins) == .nothing, activeID == tab.id else { return }
+            announce("Nothing to read on this page")
+        }
     }
 
     /// A page arrived somewhere new: written down, for the next launch.

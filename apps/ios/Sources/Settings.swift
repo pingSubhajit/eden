@@ -42,6 +42,12 @@ final class Settings {
         didSet { store.set(handsOff, forKey: Keys.handsOff) }
     }
 
+    /// Reading mode asks a site for the Markdown copy of a page first, as the
+    /// Mac can: the article as its writer gave it. Off unless turned on.
+    var readsTwins: Bool {
+        didSet { store.set(readsTwins, forKey: Keys.readsTwins) }
+    }
+
     /// Tabs, bookmarks, history and these settings synced with your other
     /// devices through iCloud (Syncing). On unless turned off.
     var syncs: Bool {
@@ -58,6 +64,7 @@ final class Settings {
         static let blocks = "shield"
         static let handsOff = "handoff"
         static let syncs = "sync.icloud"
+        static let readsTwins = "reader.twins"
     }
 
     init(store: UserDefaults = Store.settings) {
@@ -67,6 +74,7 @@ final class Settings {
         blocks = store.object(forKey: Keys.blocks) as? Bool ?? true
         handsOff = store.bool(forKey: Keys.handsOff)
         syncs = store.object(forKey: Keys.syncs) as? Bool ?? true
+        readsTwins = store.bool(forKey: Keys.readsTwins)
     }
 
     /// The search address words go to, with %s where they go: the Mac's

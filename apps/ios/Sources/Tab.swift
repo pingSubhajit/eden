@@ -22,6 +22,9 @@ final class Tab: NSObject, Identifiable {
     private(set) var canGoForward = false
     /// Set when the page never arrived, shown in place of the page.
     private(set) var failure: String?
+    /// The page stripped back to its article (EdenCore's ReadingMode), until
+    /// the next page or a reload.
+    private(set) var isReading = false
 
     /// Who the tab tells about pages it loads and windows it opens.
     @ObservationIgnored weak var browser: Browser?
@@ -33,6 +36,14 @@ final class Tab: NSObject, Identifiable {
     /// WebKit loads itself (Browser.adopt).
     @ObservationIgnored private var pending: URL?
     @ObservationIgnored private var watching: [NSKeyValueObservation] = []
+    /// Counts the pages the tab has shown, so an answer about one that has
+    /// gone is never applied to the next.
+    @ObservationIgnored private var generation = 0
+    /// Looking for the article now: asking again meanwhile is the same request.
+    @ObservationIgnored private var seekingArticle = false
+
+    /// Eden's own content world, where its scripts run apart from the page's.
+    static let world = WKContentWorld.world(name: "Eden")
 
     /// A new tab. `configuration` is WebKit's own when a page opens a window
     /// (Browser.adopt), so the window keeps its opener.
@@ -129,11 +140,37 @@ final class Tab: NSObject, Identifiable {
 
     func reload() {
         failure = nil
+        // Whatever was being looked for is for the page as it was.
+        generation += 1
+        isReading = false
         if let built, built.url != nil { built.reload() } else if let url { load(url) }
     }
 
     /// Whether the page has an address to load once it is made.
     var isPending: Bool { pending != nil }
+
+    // MARK: - reading
+
+    /// Into reading mode, or out of it, which reloads the page. How it went
+    /// (`.gone` too when a look was already under way, the same request).
+    func toggleReading(twins: Bool) async -> ReadingMode.Outcome {
+        guard let built, Continuity.page(url) != nil else { return .nothing }
+        guard !isReading else {
+            reload()
+            return .read
+        }
+        guard !seekingArticle else { return .gone }
+        seekingArticle = true
+        defer { seekingArticle = false }
+        let asked = generation
+        let page = built.url
+        let outcome = await ReadingMode.enter(built, twins: twins, look: .system, world: Tab.world) { [weak self, weak built] in
+            guard let self, let built else { return false }
+            return self.generation == asked && self.built === built && built.url == page
+        }
+        if outcome == .read { isReading = true }
+        return outcome
+    }
 
     func stop() { built?.stopLoading() }
 
@@ -214,6 +251,14 @@ extension Tab: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         failure = nil
+        // Leaving: an article being looked for belongs to the page going.
+        generation += 1
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // Another page: whatever was being read was the last one's.
+        generation += 1
+        isReading = false
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

@@ -74,6 +74,15 @@ struct SyncingTests {
         #expect(settings.searchTemplate == Engine.standard.template(custom: ""))
     }
 
+    @Test func readingModeAsksForMarkdownCopiesOnlyOnceTurnedOn() {
+        let store = freshDefaults()
+        let settings = Settings(store: store)
+        #expect(!settings.readsTwins)
+        settings.readsTwins = true
+        #expect(Settings(store: store).readsTwins, "kept under the Mac's own key")
+        #expect(store.bool(forKey: "reader.twins"))
+    }
+
     @Test func syncIsOnUnlessTurnedOffButNeverInATestRun() {
         #expect(Settings(store: freshDefaults()).syncs)
         #expect(!Syncing.possible)

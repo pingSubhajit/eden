@@ -155,6 +155,14 @@ struct SettingsSheet: View {
                     Text("Stopped before they load, as on the Mac.")
                 }
                 Section {
+                    Toggle("Read Sites' Markdown Copies", isOn: $settings.readsTwins)
+                        .accessibilityIdentifier("reads-twins")
+                } header: {
+                    Text("Reading Mode")
+                } footer: {
+                    Text("Many sites publish each page as Markdown too: the article as its writer gave it. Reading mode asks for that copy first, from the same site, and works the article out from the page when there is none.")
+                }
+                Section {
                     Toggle("Hand Off Pages to Your Other Devices", isOn: $settings.handsOff)
                         .accessibilityIdentifier("handoff")
                 } footer: {

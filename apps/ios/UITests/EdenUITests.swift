@@ -196,6 +196,25 @@ final class EdenUITests: XCTestCase {
         XCTAssertTrue(labelled("Remove Bookmark").waitForExistence(timeout: 5))
     }
 
+    func testReadingModeShowsTheArticleAloneUntilLeft() throws {
+        try open("article.html", showing: "ARTICLE-START")
+        expectPage("NAV-HOME")
+        openMenu("Reading Mode")
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.webViews.staticTexts["NAV-HOME"])
+        waitForExpectations(timeout: 10)
+        expectPage("ARTICLE-START")
+        shot("reading")
+        openMenu("Leave Reading Mode")
+        expectPage("NAV-HOME")
+        // A page with nothing to read says so.
+        try open("page-one.html", showing: "PAGE-ONE")
+        openMenu("Reading Mode")
+        let notice = app.descendants(matching: .any)["notice"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertEqual(notice.label, "Nothing to read on this page")
+    }
+
     func testHistoryKeepsPlacesAndForgetsThem() throws {
         try open("page-one.html", showing: "PAGE-ONE")
         openMenu("History")
