@@ -317,7 +317,11 @@ public enum SyncItems {
 
     /// The pins the merged items say each of `spaces` has, and the shared
     /// ones. A pin in both the shared list and a space's (shared on one Mac
-    /// while edited on another) is shared. Titles: the one agreed, else the
+    /// while edited on another) is shared. One pin a page: two pinned apart
+    /// on two devices at the same page are one (onePerPage), and a space's
+    /// own pin of a page every space already shows gives way to that one.
+    /// The one given up goes from the device that made it at its next pass,
+    /// its tab carrying on as the other's (handedOver). Titles: the one agreed, else the
     /// one this Mac had, else the page's address. Which folder holds a row is
     /// this Mac's alone and never syncs: a pin still a row in the same space
     /// keeps the one it had here; shared, moved or made a square, it is in
@@ -342,16 +346,52 @@ public enum SyncItems {
                               folder: pin.listed == true ? folders[id] : nil)
             }
         }
-        let shared = defs(sharedSpace, fallback: localShared)
-        let sharedIDs = Set(shared.map(\.id))
+        let everyShared = defs(sharedSpace, fallback: localShared)
+        let sharedIDs = Set(everyShared.map(\.id))
+        let shared = onePerPage(everyShared, besides: [])
         var bySpace: [UUID: [PinDef]] = [:]
         for space in spaces {
             let here = local[space] ?? []
             let folders = Dictionary(here.compactMap { def in def.folder.map { (def.id, $0) } }) { first, _ in first }
-            let own = defs(space.uuidString, fallback: here, folders: folders).filter { !sharedIDs.contains($0.id) }
+            let own = onePerPage(defs(space.uuidString, fallback: here, folders: folders).filter { !sharedIDs.contains($0.id) },
+                                 besides: shared)
             if !own.isEmpty { bySpace[space] = own }
         }
         return (bySpace, shared)
+    }
+
+    /// `defs` in their order, without a second pin of a page, here or among
+    /// `besides`, which always keep theirs. Of two here, the one with the
+    /// lower id stays: something every device knows alike and that never
+    /// changes. Not an order, which two devices may see differently for a
+    /// moment, each then keeping its own and giving up the other's, and the
+    /// page losing both.
+    public static func onePerPage(_ defs: [PinDef], besides taken: [PinDef]) -> [PinDef] {
+        func same(_ one: PinDef, _ other: PinDef) -> Bool { PinDef.samePage(URL(string: one.home), URL(string: other.home)) }
+        return defs.filter { def in
+            !taken.contains { same($0, def) }
+                && !defs.contains { $0.id.uuidString < def.id.uuidString && same($0, def) }
+        }
+    }
+
+    /// The pins a device had (`before`) and has now gone, each with the one
+    /// of the same page its space keeps (`after`, or the shared ones): given
+    /// up for it, here or on another device whose merge came first. Each
+    /// one's tab carries on as the one it became.
+    public static func handedOver(before: [UUID: [PinDef]], beforeShared: [PinDef],
+                                  after: [UUID: [PinDef]], afterShared: [PinDef]) -> [UUID: UUID] {
+        let staying = Set((after.values.flatMap { $0 } + afterShared).map(\.id))
+        var became: [UUID: UUID] = [:]
+        func hand(_ gone: [PinDef], to keepers: [PinDef]) {
+            for def in gone where !staying.contains(def.id) {
+                if let kept = keepers.first(where: { PinDef.samePage(URL(string: $0.home), URL(string: def.home)) }) {
+                    became[def.id] = kept.id
+                }
+            }
+        }
+        for (space, defs) in before { hand(defs, to: (after[space] ?? []) + afterShared) }
+        hand(beforeShared, to: afterShared)
+        return became
     }
 
     // MARK: bookmarks

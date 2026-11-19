@@ -31,3 +31,25 @@ public struct PinDef: Codable, Equatable, Sendable {
         self.folder = folder
     }
 }
+
+extension PinDef {
+    /// The same page, give or take a trailing slash on its path: a pin's tab
+    /// at its home, two pins of one page (SyncItems.applyPins), a tab open
+    /// already. Its query and fragment are its own: `?q=/` is not `?q=`.
+    public static func samePage(_ one: URL?, _ other: URL?) -> Bool {
+        guard let one, let other else { return false }
+        func bare(_ url: URL) -> String {
+            guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.absoluteString }
+            while parts.percentEncodedPath.hasSuffix("/") { parts.percentEncodedPath.removeLast() }
+            return parts.string ?? url.absoluteString
+        }
+        return bare(one) == bare(other)
+    }
+
+    /// Whether a pin's tab showing `page` is at its home: then it is the pin,
+    /// which every device has already, rather than one of this device's open
+    /// tabs to offer the others. Gone on to another page, it is that page.
+    public static func atHome(_ home: URL?, showing page: URL?) -> Bool {
+        samePage(home, page)
+    }
+}
