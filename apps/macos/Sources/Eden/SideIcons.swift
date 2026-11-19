@@ -90,7 +90,6 @@ struct IconTile: View {
     @ObservedObject var prefs: Preferences
     @ObservedObject var tab: Tab
     let live: Bool
-    let pill: Namespace.ID
     let close: () -> Void
     var interactive = true
     /// Half of a pair: the pair's tile draws the ground and the edge.
@@ -154,7 +153,8 @@ struct IconTile: View {
         .overlay(alignment: .bottomTrailing) {
             if speaker { CornerSpeaker(tab: tab) }
         }
-        .background { if !half { ground.animation(Motion.quick, value: live) } }
+        // Lit at once when it comes to the front, as a row is.
+        .background { if !half { ground.animation(nil, value: live) } }
         .overlay {
             if browser.selectedTabIDs.contains(tab.id) {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -220,7 +220,6 @@ struct IconTile: View {
         if live {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(greys.pinLive)
-                .matchedGeometryEffect(id: "live", in: pill)
         } else if browser.selectedTabIDs.contains(tab.id) {
             RoundedRectangle(cornerRadius: 9, style: .continuous).fill(greys.wash)
         } else if hovering {
@@ -261,7 +260,6 @@ struct IconPair: View {
     let live: Bool
     var focusedID: Tab.ID? = nil
     let interactive: Bool
-    let pill: Namespace.ID
 
     @Environment(\.greys) private var greys
     /// Carried and about to come apart: the half that stays dims.
@@ -281,6 +279,7 @@ struct IconPair: View {
             // the half the keys go to.
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(live ? greys.wash : greys.tile)
+                .animation(nil, value: live)
         }
         .overlay {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -296,16 +295,19 @@ struct IconPair: View {
     }
 
     private func half(_ tab: Tab) -> some View {
-        IconTile(browser: browser, prefs: prefs, tab: tab, live: focused == tab.id, pill: pill,
+        IconTile(browser: browser, prefs: prefs, tab: tab, live: focused == tab.id,
                  close: { browser.closeTab(tab) }, interactive: interactive, half: true)
             .opacity(separation.leaving.map { leaving in leaving != tab.id && pages.contains { $0.id == leaving } } == true ? 0.35 : 1)
             .background {
-                if focused == tab.id {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(greys.pinLive)
-                        .padding(2)
-                        .matchedGeometryEffect(id: "live", in: pill)
+                // The half the keys go to, lit at once, as a row is.
+                Group {
+                    if focused == tab.id {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(greys.pinLive)
+                            .padding(2)
+                    }
                 }
+                .animation(nil, value: focused == tab.id)
             }
     }
 }

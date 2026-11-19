@@ -6,8 +6,8 @@ import SwiftUI
 /// side, with a single cross at the end for the half under the pointer — two
 /// crosses next to each other are two chances to close the wrong page.
 ///
-/// The page the keys go to wears the live grey, the same one that glides
-/// from tab to tab, so it glides from one half to the other too.
+/// The page the keys go to wears the live grey, there at once as on any
+/// tab, from one half to the other too.
 ///
 /// The pair reads as one thing: a faint ground of its own under both halves
 /// and an outline round them, with a fine line between the halves while
@@ -27,7 +27,6 @@ struct SplitTabItem: View {
     let live: Bool
     var focusedID: Tab.ID? = nil
     let interactive: Bool
-    let pill: Namespace.ID
 
     @Environment(\.greys) private var greys
     @State private var hovered: Tab.ID?
@@ -122,7 +121,6 @@ struct SplitTabItem: View {
             height: height,
             narrow: width.map { ($0 - (count - 1)) / count < 64 } ?? false,
             interactive: interactive,
-            pill: pill,
             hovered: $hovered
         )
         .frame(maxWidth: .infinity, maxHeight: stacked ? height : .infinity)
@@ -181,7 +179,6 @@ private struct SplitTabHalf: View {
     /// Too narrow for a title: the mark alone, as a narrow tab has.
     let narrow: Bool
     let interactive: Bool
-    let pill: Namespace.ID
     @Binding var hovered: Tab.ID?
     @State private var selectedOnPress = false
 
@@ -200,7 +197,8 @@ private struct SplitTabHalf: View {
             .padding(.trailing, stacked ? Metrics.rowCrossInset : 4)
             .frame(height: stacked ? height : Self.pillHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background { ground.animation(Motion.quick, value: stacked && focused).animation(Motion.quick, value: joined) }
+            // The half in front is lit at once, as a row is.
+            .background { ground.animation(nil, value: focused).animation(Motion.quick, value: joined) }
             .frame(height: height)
             .contentShape(Rectangle())
     }
@@ -280,7 +278,6 @@ private struct SplitTabHalf: View {
                 }
             }
             .clipShape(shape)
-            .matchedGeometryEffect(id: "live", in: pill)
         } else if browser.selectedTabIDs.contains(tab.id) {
             shape.fill(greys.wash)
         } else if hovering {

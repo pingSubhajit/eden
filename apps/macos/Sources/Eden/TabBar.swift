@@ -1,19 +1,13 @@
 import SwiftUI
 
-/// The only chrome there is. Titles, one of them in a grey pill, and the pill
-/// slides from the tab you left to the tab you picked rather than blinking out
-/// of one and into the other.
+/// The only chrome there is. Titles, one of them in a grey pill: the tab you
+/// picked, lit at once, nothing gliding over from the tab you left.
 struct TabBar: View {
     /// The room kept at the start for the window's buttons: none to speak of
     /// in full screen, where macOS takes them away (idea 184).
     private var lights: CGFloat { browser.fullScreen ? 12 : Metrics.lights }
 
     @ObservedObject var browser: Browser
-
-    @Namespace private var pill
-    /// The neighbouring spaces' own grey, apart from this one's.
-    @Namespace private var above
-    @Namespace private var below
 
     /// Which tab is under the hand, where it started, and how far it has come.
     @State private var landing = false
@@ -140,11 +134,11 @@ struct TabBar: View {
                                 .modifier(SwipeShift(offset: browser.spaceSwipeOffset))
                         }
                         if browser.spaceSwipeSide > 0, spaceAt > 0 {
-                            page(spaceAt - 1, in: geo.size.width, pill: above)
+                            page(spaceAt - 1, in: geo.size.width)
                                 .modifier(SwipeShift(offset: browser.spaceSwipeOffset, by: -Metrics.strip))
                         }
                         if browser.spaceSwipeSide < 0, browser.drawsPage(after: spaceAt) {
-                            page(spaceAt + 1, in: geo.size.width, pill: below)
+                            page(spaceAt + 1, in: geo.size.width)
                                 .modifier(SwipeShift(offset: browser.spaceSwipeOffset, by: Metrics.strip))
                         }
                     }
@@ -243,7 +237,7 @@ struct TabBar: View {
     /// two read as one bar while they pass — nothing to press until it is
     /// the one on screen. Past the last, the row for a new space.
     @ViewBuilder
-    private func page(_ index: Int, in strip: CGFloat, pill: Namespace.ID) -> some View {
+    private func page(_ index: Int, in strip: CGFloat) -> some View {
         if index == browser.spaces.count {
             NewSpaceCard(browser: browser, inline: true)
                 .fixedSize()
@@ -267,7 +261,7 @@ struct TabBar: View {
                     ForEach(pins) { tab in
                         rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
                                 width: each, room: strip - lights - 12,
-                                height: Metrics.strip, interactive: false, pill: pill)
+                                height: Metrics.strip, interactive: false)
                     }
                     if line { PinLine() }
                     ForEach(groups) { drawn in
@@ -275,20 +269,20 @@ struct TabBar: View {
                         ForEach(drawn.tabs) { tab in
                             rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
                                     width: each, room: strip - lights - 12,
-                                    height: Metrics.strip, interactive: false, pill: pill)
+                                    height: Metrics.strip, interactive: false)
                         }
                     }
                     ForEach(loose) { tab in
                         rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
                                 width: each, room: strip - lights - 12,
-                                height: Metrics.strip, interactive: false, pill: pill)
+                                height: Metrics.strip, interactive: false)
                     }
                 } else {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { index, tab in
                         if line, index == firstLoose { PinLine() }
                         rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
                                 width: each, room: strip - lights - 12,
-                                height: Metrics.strip, interactive: false, pill: pill)
+                                height: Metrics.strip, interactive: false)
                     }
                 }
             }
@@ -326,7 +320,7 @@ struct TabBar: View {
         let isPairRepresentative = pair?.left == tab.id
         return rowItem(tab, in: browser.tabs, splits: browser.splits, activeID: browser.activeID,
                        width: each, room: strip - lights - leading - 12,
-                       height: Metrics.strip, interactive: true, pill: pill)
+                       height: Metrics.strip, interactive: true)
             .background {
                 if browser.prefs.splitView && !isPairRepresentative {
                     SplitDropZone(browser: browser, tab: tab, kind: .strip)
@@ -366,8 +360,7 @@ struct TabBar: View {
         width: CGFloat,
         room: CGFloat,
         height: CGFloat,
-        interactive: Bool,
-        pill: Namespace.ID
+        interactive: Bool
     ) -> some View {
         let pair = browser.prefs.splitView ? splits.first(where: { $0.left == tab.id }) : nil
         let pages = pair.map { pair in pair.tabs.compactMap { id in tabs.first { $0.id == id } } } ?? []
@@ -379,10 +372,10 @@ struct TabBar: View {
                          width: displayedWidth, height: height,
                          live: activeID.map { pair.contains($0) } ?? false,
                          focusedID: activeID,
-                         interactive: interactive, pill: pill)
+                         interactive: interactive)
         } else {
             TabPill(browser: browser, prefs: browser.prefs, tab: tab,
-                    live: tab.id == activeID, width: width, room: room, pill: pill,
+                    live: tab.id == activeID, width: width, room: room,
                     close: interactive ? { browser.closeTab(tab) } : {})
         }
     }
@@ -685,7 +678,6 @@ private struct TabPill: View, Equatable {
     let width: CGFloat
     /// How much of the strip there is, for the field that grows over it.
     let room: CGFloat
-    let pill: Namespace.ID
     let close: () -> Void
     /// Its address being typed in the pill.
     private let editing: Bool
@@ -695,15 +687,13 @@ private struct TabPill: View, Equatable {
     /// Bumped when what was typed in a tab can't be gone to (see Shake).
     private let refusals: Int
 
-    init(browser: Browser, prefs: Preferences, tab: Tab, live: Bool, width: CGFloat, room: CGFloat,
-         pill: Namespace.ID, close: @escaping () -> Void) {
+    init(browser: Browser, prefs: Preferences, tab: Tab, live: Bool, width: CGFloat, room: CGFloat, close: @escaping () -> Void) {
         self.browser = browser
         self.prefs = prefs
         self.tab = tab
         self.live = live
         self.width = width
         self.room = room
-        self.pill = pill
         self.close = close
         editing = browser.editingTab == tab.id
         lettering = browser.editingPin == tab.id
@@ -714,7 +704,7 @@ private struct TabPill: View, Equatable {
     /// The close action is left out: it closes the same tab every time.
     static func == (a: TabPill, b: TabPill) -> Bool {
         a.browser === b.browser && a.prefs === b.prefs && a.tab === b.tab && a.live == b.live
-            && a.width == b.width && a.room == b.room && a.pill == b.pill && a.editing == b.editing
+            && a.width == b.width && a.room == b.room && a.editing == b.editing
             && a.lettering == b.lettering && a.selected == b.selected && a.refusals == b.refusals
     }
 
@@ -773,7 +763,8 @@ private struct TabPill: View, Equatable {
                 loose
             }
         }
-        .background { ground.animation(Motion.quick, value: rowCarrying) }
+        // Lit at once when it comes to the front, as a row is.
+        .background { ground.animation(Motion.quick, value: rowCarrying).animation(nil, value: live) }
         .overlay {
             if selected {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -974,7 +965,6 @@ private struct TabPill: View, Equatable {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .matchedGeometryEffect(id: "live", in: pill)
         } else if selected {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Palette.wash)
