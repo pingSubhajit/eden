@@ -84,39 +84,6 @@ struct OtherDeviceSections: View {
     }
 }
 
-/// The iPhone's tab overview: under the cards, a list for each device, its
-/// pages under their spaces.
-struct OtherDeviceLists: View {
-    let browser: Browser
-    let opened: () -> Void
-
-    var body: some View {
-        let devices = browser.elsewhere.filter(\.hasTabs)
-        if !devices.isEmpty {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("On Your Other Devices").font(.headline)
-                ForEach(devices, id: \.device) { device in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label(device.name, systemImage: device.kind.symbol)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(Array(grouped(device, in: browser).enumerated()), id: \.offset) { _, group in
-                            if let title = group.title {
-                                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                            }
-                            ForEach(Array(group.pages.enumerated()), id: \.offset) { _, page in
-                                ElsewhereRow(browser: browser, device: device, page: page, opened: opened)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
-        }
-    }
-}
-
 // MARK: - opening them here
 
 extension Browser {

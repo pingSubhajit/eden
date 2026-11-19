@@ -24,6 +24,10 @@
 	<!-- A browser goes wherever it is pointed, http included. -->
 	<key>NSAppTransportSecurity</key>
 	<dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+	<!-- Animations at the screen's own rate, 120 a second on a ProMotion
+	     iPhone, not capped at 60: the tab overview's deck moves with the
+	     finger as the system's app switcher does. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key><true/>
 	<!-- One window: every window would show the same tabs, and a tab's page
 	     can only be in one of them. Windows of their own come later. -->
 	<key>UIApplicationSceneManifest</key>

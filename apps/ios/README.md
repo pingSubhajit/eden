@@ -7,10 +7,12 @@ The iOS and iPadOS browser, built on the code it shares with the Mac app
   your other open tabs, bookmarks and history. On iPhone the controls float
   at the bottom on glass, as Safari's do: back (stretching to hold forward
   once there is somewhere to go), the field with the page's menu at its
-  start, and the tabs, which are cards in an overview; reading on down a
-  page shrinks them to the site's name. The page runs up under the status
-  bar, which reads dark or light by the page beneath it. On iPad the tabs
-  run down a sidebar and the field is at the top.
+  start, and the tabs, a deck of cards like the iPhone's app switcher that
+  the page zooms in and out of, a room for each space and one for private.
+  Reading on down a page shrinks the controls to the site's name. The page
+  runs up under the status bar, which reads dark or light by the page
+  beneath it. On iPad the tabs run down a sidebar and the field is at the
+  top.
 - **Private tabs**, with a store of their own that keeps nothing, no history,
   and a dark bar so it's plain which kind is in front.
 - **The Mac's blocker** (Shield and its YouTube rules), on unless turned off.

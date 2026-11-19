@@ -55,6 +55,10 @@ final class Tab: NSObject, Identifiable {
     /// the status bar over its top reads dark on it, as in Safari; nil until
     /// it has said.
     private(set) var isLight: Bool?
+    /// The page as it last showed, small: its card in the tab overview.
+    /// Kept on disk too for the next launch, never a private tab's
+    /// (CardPictures).
+    private(set) var snapshot: UIImage?
 
     /// Who the tab tells about pages it loads and windows it opens.
     @ObservationIgnored weak var browser: Browser?
@@ -250,6 +254,36 @@ final class Tab: NSObject, Identifiable {
     /// One of Eden's scripts run on the page showing, in Eden's world.
     func run(_ script: String) {
         built?.evaluateJavaScript(script, in: nil, in: Tab.world)
+    }
+
+    /// The page as it shows now: kept small as its card (`snapshot`), and
+    /// handed back as drawn, for the page to shrink into that card. Nil with
+    /// no page on screen.
+    @MainActor func capture() async -> UIImage? {
+        guard let built, built.window != nil, url != nil else { return nil }
+        let configuration = WKSnapshotConfiguration()
+        configuration.afterScreenUpdates = false
+        guard let image = try? await built.takeSnapshot(configuration: configuration) else { return nil }
+        // Sharp at a card's size in the tab overview, about two thirds of
+        // the screen across.
+        let width: CGFloat = 290
+        let size = CGSize(width: width, height: (image.size.height * width / max(1, image.size.width)).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.opaque = true
+        let picture = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        snapshot = picture
+        // Kept for the next launch, never a private tab's (CardPictures).
+        if !isPrivate, let url { CardPictures.shared.keep(picture, for: url) }
+        return image
+    }
+
+    /// A picture of its page found for it (CardPictures), while it has none
+    /// of its own.
+    @MainActor func adopt(snapshot picture: UIImage) {
+        if snapshot == nil { snapshot = picture }
     }
 
     /// The same, and what it answered: nil for no page, or no answer.
@@ -456,6 +490,14 @@ extension Tab: WKNavigationDelegate {
             MainActor.assumeIsolated { SiteIcons.shared.learn(from: self, at: url) }
         }
         browser?.tabChanged(self)
+        // Its card in the tab overview, as it shows now, once it has drawn:
+        // not only the tab the overview is opened from has a fresh one.
+        if webView.window != nil {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(400))
+                _ = await self?.capture()
+            }
+        }
         if let arrival {
             self.arrival = nil
             // Only the page it was for: one gone to instead, or a load given

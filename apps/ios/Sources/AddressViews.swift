@@ -8,19 +8,31 @@ import SwiftUI
 struct AddressPill<Leading: View>: View {
     let tab: Tab?
     var height: CGFloat = 44
+    /// Shrunk to the site's name as the page is read (the iPhone's bar): what
+    /// is either side folds away and the name gets smaller, a tap bringing
+    /// the bar back rather than starting to type.
+    var compact = false
+    /// How wide `leading` is, for it to fold away when compact.
+    var leadingWidth: CGFloat?
     let edit: () -> Void
     let leading: Leading
 
-    init(tab: Tab?, height: CGFloat = 44, edit: @escaping () -> Void, @ViewBuilder leading: () -> Leading) {
+    init(tab: Tab?, height: CGFloat = 44, compact: Bool = false, leadingWidth: CGFloat? = nil,
+         edit: @escaping () -> Void, @ViewBuilder leading: () -> Leading) {
         self.tab = tab
         self.height = height
+        self.compact = compact
+        self.leadingWidth = leadingWidth
         self.edit = edit
         self.leading = leading()
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: compact ? 0 : 8) {
             leading
+                .frame(width: compact ? 0 : leadingWidth)
+                .opacity(compact ? 0 : 1)
+                .clipped()
             Button(action: edit) {
                 HStack(spacing: 6) {
                     if let tab, tab.isPrivate {
@@ -30,7 +42,10 @@ struct AddressPill<Leading: View>: View {
                         Image(systemName: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
                     }
                     Text(label)
-                        .font(.body)
+                        // The name smaller, shrunk, as Safari's: its size
+                        // itself moving from one to the other, so it is laid
+                        // out — and fits — at every size between.
+                        .modifier(EasedFont(size: compact ? AddressPill.compactSize : AddressPill.fullSize))
                         .foregroundStyle(tab?.url == nil ? .secondary : .primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -39,8 +54,9 @@ struct AddressPill<Leading: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("address")
+            .accessibilityIdentifier(compact ? "address-tucked" : "address")
             .accessibilityLabel(tab?.url == nil ? "Search or enter address" : "Address, \(label)")
+            .accessibilityHint(compact ? "Shows the toolbar" : "")
 
             if let tab, tab.url != nil {
                 Button(tab.isLoading ? "Stop" : "Reload", systemImage: tab.isLoading ? "xmark" : "arrow.clockwise") {
@@ -49,17 +65,41 @@ struct AddressPill<Leading: View>: View {
                 .labelStyle(.iconOnly)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .frame(width: compact ? 0 : 22)
                 .frame(maxHeight: .infinity)
+                .opacity(compact ? 0 : 1)
+                .allowsHitTesting(!compact)
                 .contentShape(Rectangle())
                 .accessibilityIdentifier("reload")
             }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, compact ? 12 : 14)
         .frame(height: height)
         .overlay(alignment: .bottom) { LoadProgress(tab: tab) }
     }
 
     private var label: String { Address.label(for: tab) }
+}
+
+extension AddressPill {
+    /// The name's size in full, and shrunk: the body's and the footnote's.
+    static var fullSize: CGFloat { UIFont.preferredFont(forTextStyle: .body).pointSize }
+    static var compactSize: CGFloat { UIFont.preferredFont(forTextStyle: .footnote).pointSize }
+}
+
+/// A font whose size moves smoothly as it changes, every size between laid
+/// out as it goes.
+private struct EasedFont: ViewModifier, Animatable {
+    var size: CGFloat
+
+    var animatableData: CGFloat {
+        get { size }
+        set { size = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size))
+    }
 }
 
 extension AddressPill where Leading == EmptyView {

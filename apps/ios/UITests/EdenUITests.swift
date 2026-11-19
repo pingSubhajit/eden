@@ -116,7 +116,10 @@ final class EdenUITests: XCTestCase {
         XCTAssertTrue(app.buttons["address"].waitForExistence(timeout: 5))
     }
 
-    /// The tab at `index` in front, as above.
+    /// The tab at `index` in front: from the sidebar on iPad, and on iPhone
+    /// from the deck, where the tabs keep their order and the one in front
+    /// is at the front: another is behind it or ahead of it, and a sliver
+    /// of it shows either way, near its left edge, to tap.
     private func switchToTab(_ index: Int) {
         if !overview {
             let row = all("tab-row").element(boundBy: index)
@@ -125,8 +128,20 @@ final class EdenUITests: XCTestCase {
         } else {
             app.buttons["tabs"].tap()
             XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5))
-            all("tab-card").element(boundBy: index).tap()
+            let card = all("tab-card").element(boundBy: index)
+            XCTAssertTrue(card.waitForExistence(timeout: 5))
+            card.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.6)).tap()
         }
+    }
+
+    /// The card `behind` cards back from the front of the iPhone's deck,
+    /// swiped to the front.
+    private func frontCard(behind: Int) -> XCUIElement {
+        let cards = all("tab-card")
+        for _ in 0..<behind { app.swipeRight() }
+        let card = cards.element(boundBy: cards.count - 1 - behind)
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        return card
     }
 
     /// The thing showing `words` hidden by touch: picked, offered, hidden.
@@ -237,14 +252,19 @@ final class EdenUITests: XCTestCase {
         let tucked = app.buttons["address-tucked"]
         page.swipeUp()
         XCTAssertTrue(tucked.waitForExistence(timeout: 5), "shrunk while reading on")
-        XCTAssertFalse(app.buttons["tabs"].exists)
+        sleep(1)
+        XCTAssertFalse(app.buttons["tabs"].isHittable, "the tabs folded away")
         shot("bar shrunk")
         tucked.tap()
-        XCTAssertTrue(app.buttons["tabs"].waitForExistence(timeout: 5), "back in full for a tap")
+        XCTAssertTrue(app.buttons["address"].waitForExistence(timeout: 5), "back in full for a tap")
         page.swipeUp()
         XCTAssertTrue(tucked.waitForExistence(timeout: 5))
         page.swipeDown()
         XCTAssertTrue(app.buttons["address"].waitForExistence(timeout: 5), "back in full looking back up")
+        // Shrunk and grown again, the tabs still open.
+        sleep(1)
+        app.buttons["tabs"].tap()
+        XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5), "the tabs open after shrinking")
     }
 
     /// iPhone's tabs: the overview of cards. iPad has its sidebar instead.
@@ -261,16 +281,82 @@ final class EdenUITests: XCTestCase {
         XCTAssertEqual(app.buttons["address"].label, "Search or enter address")
         app.buttons["tabs"].tap()
         XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5))
-        XCTAssertEqual(all("tab-card").count, 2)
-        // Back to the first, by its card.
-        all("tab-card").element(boundBy: 0).tap()
+        // Done is the browser's bar turning, a moment before the cards come.
+        expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: all("tab-card"))
+        waitForExpectations(timeout: 5)
+        // Back to the first: it waits behind the new one, to the left.
+        frontCard(behind: 1).tap()
         expectPage("PAGE-ONE")
-        // Closing it leaves the other.
+        // Thrown up and away, it leaves the other.
         app.buttons["tabs"].tap()
         XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5))
-        all("close-tab").element(boundBy: 0).tap()
-        XCTAssertEqual(all("tab-card").count, 1)
+        frontCard(behind: 0).swipeUp()
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: all("tab-card"))
+        waitForExpectations(timeout: 5)
         app.buttons["tabs-done"].tap()
+    }
+
+    /// iPhone's overview, as the iPhone's app switcher: the deck, a card
+    /// thrown up and away and brought back with Reopen, and the private room.
+    func testTheDeckClosesReopensAndChangesRoom() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "iPad shows its tabs in the sidebar")
+        try open("page-one.html", showing: "PAGE-ONE")
+        newTab()
+        try open("page-two.html", showing: "PAGE-TWO")
+        app.buttons["tabs"].tap()
+        XCTAssertTrue(app.buttons["tabs-done"].waitForExistence(timeout: 5))
+        let cards = all("tab-card")
+        expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: cards)
+        waitForExpectations(timeout: 5)
+        shot("deck")
+
+        // The one behind, brought forward; thrown up, it goes, and Reopen
+        // brings it back.
+        frontCard(behind: 1).swipeUp()
+        expectation(for: NSPredicate(format: "count == 1"), evaluatedWith: cards)
+        waitForExpectations(timeout: 5)
+        let reopen = app.buttons["reopen-tab"]
+        XCTAssertTrue(reopen.waitForExistence(timeout: 5))
+        shot("closed, reopen offered")
+        reopen.tap()
+        expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: cards)
+        waitForExpectations(timeout: 5)
+
+        // The private room, dark and empty.
+        app.buttons["room-private"].tap()
+        expectation(for: NSPredicate(format: "count == 0"), evaluatedWith: cards)
+        waitForExpectations(timeout: 5)
+        shot("private room")
+        app.buttons["room-tabs"].tap()
+        app.buttons["tabs-done"].tap()
+        expectPage("PAGE-TWO")
+    }
+
+    /// At a page's end, as in Safari: reading on to it leaves the controls
+    /// shrunk; pulling the page on past its end brings them back in full,
+    /// and they stay so through another pull.
+    func testTheBarComesBackAtThePagesEndAndStays() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "iPad's bar stays at the top")
+        try open("tall.html", showing: "TOP-TEXT")
+        let page = app.webViews.firstMatch
+        page.swipeUp()
+        XCTAssertTrue(app.buttons["address-tucked"].waitForExistence(timeout: 5), "shrunk while reading on")
+        let bottom = app.webViews.staticTexts["BOTTOM-TEXT"]
+        for _ in 0..<10 where !bottom.isHittable { page.swipeUp() }
+        sleep(1)
+        XCTAssertTrue(app.buttons["address-tucked"].exists, "still shrunk, having read on to the end")
+        func pull() {
+            page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                .press(forDuration: 0.05, thenDragTo: page.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)),
+                       withVelocity: XCUIGestureVelocity(400), thenHoldForDuration: 0.3)
+            sleep(1)
+        }
+        pull()
+        XCTAssertTrue(app.buttons["address"].waitForExistence(timeout: 5), "in full, pulled on past the end")
+        pull()
+        XCTAssertTrue(app.buttons["address"].exists, "still in full after another pull")
+        XCTAssertFalse(app.buttons["address-tucked"].exists)
+        shot("at the end")
     }
 
     /// iPad's tabs: down the sidebar, opened with its + and picked there.

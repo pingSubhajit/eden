@@ -112,6 +112,7 @@ struct HistorySheet: View {
                 Button("Clear History", role: .destructive) {
                     browser.history.forget()
                     SiteIcons.shared.forgetAll()
+                    CardPictures.shared.forgetAll()
                     reread()
                 }
             } message: {
