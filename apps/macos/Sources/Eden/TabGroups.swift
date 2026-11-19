@@ -130,6 +130,14 @@ struct GroupHeading: View {
         if compact { short } else { long }
     }
 
+    /// Its tint: a folded Stone group's none, as its surface has none
+    /// (GroupSurface), until the pointer or something carried is on it.
+    private var shortFill: Color {
+        if dropping || hovering { return group.colour.lit }
+        let bare = group.colour == .stone && group.collapsed && browser.visibleTabs(in: group).isEmpty
+        return bare ? .clear : group.colour.fill
+    }
+
     /// The column of icons' heading: the letter, a fold mark beside it.
     private var short: some View {
         HStack(spacing: 2) {
@@ -142,8 +150,7 @@ struct GroupHeading: View {
         .foregroundStyle(group.colour.ink)
         .frame(maxWidth: .infinity)
         .frame(height: Self.compactHeight)
-        .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(dropping ? group.colour.lit : (hovering ? group.colour.lit : group.colour.fill)))
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(shortFill))
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .onTapGesture { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } }
         .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,

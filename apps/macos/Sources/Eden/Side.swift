@@ -491,7 +491,7 @@ struct SideBar: View {
                                 .padding(.leading, icons ? 0 : GroupLook.indent)
                         }
                     }
-                    .modifier(GroupSurface(colour: drawn.group.colour))
+                    .modifier(GroupSurface(colour: drawn.group.colour, folded: drawn.tabs.isEmpty))
                 }
                 // Under the groups, as on screen.
                 if showsLine(kept: pins.count + listed.count + groups.count, listed: listed.count, loose: rest.count) {
@@ -859,6 +859,7 @@ struct SideBar: View {
                     }
                     // Lit for a tab over it, or a pin carried down onto it.
                     .modifier(GroupSurface(colour: group.colour,
+                                           folded: browser.visibleTabs(in: group).isEmpty,
                                            lit: litGroup == group.id || crossing?.target == .group(group.id)))
                     .zIndex(carryingGroup == group.id ? 1 : 0)
                 }

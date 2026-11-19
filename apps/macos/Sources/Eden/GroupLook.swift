@@ -26,14 +26,26 @@ extension GroupColour {
         }
     }
 
+    /// What the surfaces are tinted with on dark. Stone, the neutral, goes
+    /// much darker there, a quiet grey a little off the column's own, as
+    /// Dia's plain groups are; the colours keep their swatch.
+    private var night: (CGFloat, CGFloat, CGFloat) {
+        self == .stone ? (0x44, 0x42, 0x3F) : rgb
+    }
+
     private func color(_ make: @escaping (_ r: CGFloat, _ g: CGFloat, _ b: CGFloat, _ dark: Bool) -> NSColor) -> Color {
-        let (r, g, b) = rgb
+        let day = rgb, night = night
         return Color(nsColor: NSColor(name: nil) { appearance in
-            make(r / 255, g / 255, b / 255, appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let (r, g, b) = dark ? night : day
+            return make(r / 255, g / 255, b / 255, dark)
         })
     }
 
-    var swatch: Color { color { r, g, b, _ in NSColor(srgbRed: r, green: g, blue: b, alpha: 1) } }
+    var swatch: Color {
+        let (r, g, b) = rgb
+        return Color(nsColor: NSColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1))
+    }
 
     /// The surface: the colour laid thinly over whatever ground the column has.
     var fill: Color { color { r, g, b, dark in NSColor(srgbRed: r, green: g, blue: b, alpha: dark ? 0.30 : 0.24) } }
@@ -42,20 +54,30 @@ extension GroupColour {
     /// Its fine edge.
     var edge: Color { color { r, g, b, dark in NSColor(srgbRed: r, green: g, blue: b, alpha: dark ? 0.45 : 0.40) } }
     /// The heading's name, icon and chevron: the colour darkened on light,
-    /// lightened on dark, to read on its own surface.
+    /// lightened on dark, to read on its own surface. Stone's is the
+    /// column's own ink, as a plain heading's is.
     var ink: Color {
-        color { r, g, b, dark in
+        if self == .stone { return Palette.ink }
+        return color { r, g, b, dark in
             let to: CGFloat = dark ? 1 : 0, t: CGFloat = dark ? 0.30 : 0.32
             return NSColor(srgbRed: r + (to - r) * t, green: g + (to - g) * t, blue: b + (to - b) * t, alpha: 1)
         }
     }
-    /// The tab in front, on the surface: white on light, the colour stronger on dark.
+    /// The tab in front, on the surface: white on light, the colour stronger
+    /// on dark; on Stone's near-black, a lift of white.
     var card: Color {
-        color { r, g, b, dark in
-            dark ? NSColor(srgbRed: r, green: g, blue: b, alpha: 0.42) : NSColor(white: 1, alpha: 0.92)
+        let stone = self == .stone
+        return color { r, g, b, dark in
+            guard dark else { return NSColor(white: 1, alpha: 0.92) }
+            return stone ? NSColor(white: 1, alpha: 0.09) : NSColor(srgbRed: r, green: g, blue: b, alpha: 0.42)
         }
     }
-    var hover: Color { color { r, g, b, dark in NSColor(srgbRed: r, green: g, blue: b, alpha: dark ? 0.20 : 0.16) } }
+    var hover: Color {
+        let stone = self == .stone
+        return color { r, g, b, dark in
+            dark && stone ? NSColor(white: 1, alpha: 0.05) : NSColor(srgbRed: r, green: g, blue: b, alpha: dark ? 0.20 : 0.16)
+        }
+    }
 
     /// The greys for the rows on its surface (Greys): its card for the tab in
     /// front and its tint under the pointer.
@@ -106,18 +128,26 @@ enum GroupLook {
 /// The surface around a group's heading and tabs.
 struct GroupSurface: ViewModifier {
     let colour: GroupColour
+    /// Folded with nothing showing under its heading.
+    var folded = false
     /// Something carried over it would join it.
     var lit = false
+
+    /// A folded Stone group, as Dia's plain ones, has no surface at all: a
+    /// heading among the tabs until it is opened, or something carried
+    /// over it would join it. Where it sits doesn't change, only the tint.
+    private var bare: Bool { colour == .stone && folded && !lit }
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: GroupLook.radius, style: .continuous)
         content
             .padding(GroupLook.inset)
             .environment(\.greys, colour.greys)
-            .background(shape.fill(lit ? colour.lit : colour.fill))
-            .overlay(shape.strokeBorder(colour.edge, lineWidth: 0.5))
+            .background(shape.fill(lit ? colour.lit : colour.fill).opacity(bare ? 0 : 1))
+            .overlay(shape.strokeBorder(colour.edge, lineWidth: 0.5).opacity(bare ? 0 : 1))
             .animation(Motion.quick, value: lit)
             .animation(Motion.quick, value: colour)
+            .animation(GroupLook.fold, value: bare)
     }
 }
 
