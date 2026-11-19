@@ -222,38 +222,66 @@ struct PinStrip: View {
     /// Told once a pin is picked: a sheet showing them goes away.
     var picked: () -> Void = {}
     @State private var renaming: Tab?
-    private let squares = [GridItem(.adaptive(minimum: 56), spacing: 10)]
+    /// A square's height, and the room between squares.
+    private static let height: CGFloat = 56
+    private static let gap: CGFloat = 8
 
     var body: some View {
         let pins = browser.shownPins
         let rows = browser.settings.listsPins ? pins.filter { $0.def.listed == true } : []
         let tiles = pins.filter { pin in !rows.contains { $0.id == pin.id } }
         VStack(alignment: .leading, spacing: 10) {
-            if !tiles.isEmpty {
-                LazyVGrid(columns: squares, alignment: .leading, spacing: 10) {
-                    ForEach(tiles) { pin in square(pin) }
-                }
-            }
+            if !tiles.isEmpty { grid(tiles) }
             ForEach(rows) { pin in row(pin) }
         }
         .pinRenaming($renaming, browser: browser)
     }
 
+    /// The squares as the Mac's column lays them out (PinRows): no more than
+    /// four to a row, the rows even, each spanning the width, its squares
+    /// sharing it; one row alone of fewer than three keeps three places.
+    /// Past a square, a cell grows into a wide button, never a bigger icon.
+    private func grid(_ tiles: [ShownPin]) -> some View {
+        let split = PinRows.split(tiles.count, most: 4)
+        let places = PinRows.places(split, least: 3)
+        let starts = split.indices.map { split[..<$0].reduce(0, +) }
+        return VStack(spacing: Self.gap) {
+            ForEach(split.indices, id: \.self) { line in
+                HStack(spacing: Self.gap) {
+                    ForEach(tiles[starts[line]..<starts[line] + split[line]]) { pin in square(pin) }
+                    ForEach(0..<(places[line] - split[line]), id: \.self) { _ in
+                        Color.clear.frame(maxWidth: .infinity).frame(height: Self.height)
+                    }
+                }
+            }
+        }
+    }
+
     private func square(_ pin: ShownPin) -> some View {
         let active = pin.tab.id == browser.activeID
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         return Button { open(pin) } label: {
-            Text(pin.def.letter)
-                .font(.title3.weight(.semibold))
-                .frame(width: 56, height: 56)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            PinMark(pin: pin, size: 28)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.height)
+                .background(Color(.secondarySystemBackground), in: shape)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 14).strokeBorder(active ? Color.accentColor : .clear, lineWidth: 2)
+                    // The pin in front lit in its icon's own colour, as on
+                    // the Mac; in the accent, with no icon or no colour.
+                    if active {
+                        if let colour = PinMark.accent(of: pin) {
+                            PinGlow(colour: colour, shape: shape)
+                        } else {
+                            shape.strokeBorder(Color.accentColor, lineWidth: 2)
+                        }
+                    }
                 }
                 .overlay(alignment: .topTrailing) {
                     if pin.shared {
                         Image(systemName: "square.on.square").font(.caption2).foregroundStyle(.secondary).padding(4)
                     }
                 }
+                .contentShape(shape)
         }
         .buttonStyle(.plain)
         .contextMenu { PinActions(browser: browser, tab: pin.tab, renaming: $renaming) }
@@ -266,16 +294,16 @@ struct PinStrip: View {
         let active = pin.tab.id == browser.activeID
         return Button { open(pin) } label: {
             HStack(spacing: 10) {
-                Text(pin.def.letter)
-                    .font(.subheadline.weight(.semibold))
+                PinMark(pin: pin, size: 18)
                     .frame(width: 28, height: 28)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7))
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 Text(pin.def.label).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 8)
-            .background(active ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .background(active ? (PinMark.accent(of: pin) ?? Color.accentColor).opacity(0.15) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -293,6 +321,51 @@ struct PinStrip: View {
     /// What VoiceOver says: its name, and that every space shows it.
     private func label(_ pin: ShownPin) -> String {
         pin.shared ? "\(pin.def.label), pinned in every space" : "\(pin.def.label), pinned"
+    }
+}
+
+/// A pin's face: its site's icon (SiteIcons), the site it was pinned at,
+/// or its letter until the icon has come.
+struct PinMark: View {
+    let pin: ShownPin
+    let size: CGFloat
+
+    var body: some View {
+        if let icon = SiteIcons.shared.icon(for: PinMark.site(of: pin)) {
+            Image(uiImage: icon)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+        } else {
+            Text(pin.def.letter)
+                .font(.system(size: size * 0.72, weight: .semibold, design: .rounded))
+        }
+    }
+
+    /// Its home's site, whatever page it was taken to since.
+    static func site(of pin: ShownPin) -> URL? { pin.def.homeURL ?? pin.tab.url }
+
+    /// The colour its icon wears, if it has an icon of some colour.
+    @MainActor static func accent(of pin: ShownPin) -> Color? {
+        SiteIcons.shared.icon(for: site(of: pin)).flatMap(SiteIcons.shared.accent(of:))
+    }
+}
+
+/// The pinned tab in front, lit in its site icon's colour, as Dia's is and
+/// the Mac's: a wash, a glow in from the edge, and the edge itself.
+struct PinGlow<Edge: InsettableShape>: View {
+    let colour: Color
+    let shape: Edge
+
+    var body: some View {
+        ZStack {
+            shape.fill(colour.opacity(0.16))
+            shape.strokeBorder(colour.opacity(0.55), lineWidth: 5)
+            shape.strokeBorder(colour.opacity(0.9), lineWidth: 1.5)
+        }
+        .allowsHitTesting(false)
     }
 }
 

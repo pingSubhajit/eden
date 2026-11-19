@@ -247,6 +247,12 @@ final class Tab: NSObject, Identifiable {
         built?.evaluateJavaScript(script, in: nil, in: Tab.world)
     }
 
+    /// The same, and what it answered: nil for no page, or no answer.
+    @MainActor func ask(_ script: String) async -> Any? {
+        guard let built else { return nil }
+        return try? await built.evaluateJavaScript(script, in: nil, contentWorld: Tab.world)
+    }
+
     /// Whether this tab's page is `page`.
     func shows(_ page: WKWebView?) -> Bool { page != nil && built === page }
 
@@ -442,6 +448,7 @@ extension Tab: WKNavigationDelegate {
         self.url = url
         if !isPrivate, ["http", "https"].contains(url.scheme?.lowercased()) {
             browser?.history.record(url, title: webView.title ?? "")
+            MainActor.assumeIsolated { SiteIcons.shared.learn(from: self, at: url) }
         }
         browser?.tabChanged(self)
         if let arrival {

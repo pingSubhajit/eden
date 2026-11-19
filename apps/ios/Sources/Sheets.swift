@@ -111,6 +111,7 @@ struct HistorySheet: View {
             .confirmationDialog("Clear all history?", isPresented: $asking, titleVisibility: .visible) {
                 Button("Clear History", role: .destructive) {
                     browser.history.forget()
+                    SiteIcons.shared.forgetAll()
                     reread()
                 }
             } message: {
