@@ -48,12 +48,13 @@ final class ExtensionEar {
 /// shown are not what they were.
 @MainActor
 final class GroupWatch {
-    /// A group as an extension sees it change: its title and whether it is
-    /// folded, which is all the shim tells (see `shape` there).
+    /// A group as an extension sees it change: its title, whether it is
+    /// folded and its colour, which is all the shim tells (see `shape` there).
     struct Shape: Hashable {
         let id: UUID
         let name: String
         let collapsed: Bool
+        var colour: GroupColour = .stone
     }
 
     private let read: () -> Set<Shape>
@@ -202,7 +203,7 @@ enum ExtensionWatch {
     // never in a group today; if that ever changes, leave private windows out
     // here and in query alike.
     static let groups = GroupWatch(
-        read: { Set(Browsers.all.flatMap(ExtensionShims.listedGroups).map { GroupWatch.Shape(id: $0.id, name: $0.name, collapsed: $0.collapsed) }) },
+        read: { Set(Browsers.all.flatMap(ExtensionShims.listedGroups).map { GroupWatch.Shape(id: $0.id, name: $0.name, collapsed: $0.collapsed, colour: $0.colour) }) },
         soon: { work in DispatchQueue.main.async { MainActor.assumeIsolated { work() } } })
 
     static let idle = IdleWatch(

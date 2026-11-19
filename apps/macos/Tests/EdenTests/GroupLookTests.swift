@@ -127,6 +127,15 @@ final class GroupLookTests: XCTestCase {
         XCTAssertNotEqual(copies[0].id, a.id)
     }
 
+    func testEdensColoursAreChromesNearestForExtensions() {
+        for colour in GroupColour.allCases {
+            XCTAssertEqual(GroupColour(chrome: colour.chrome), colour)
+        }
+        XCTAssertEqual(GroupColour.stone.chrome, "grey")
+        XCTAssertEqual(GroupColour(chrome: "cyan"), .sky)
+        XCTAssertNil(GroupColour(chrome: "magenta"))
+    }
+
     func testCopyAllLinksPutsEachTabsAddressOnALine() throws {
         let a = tab("https://a.example/"), b = tab("https://b.example/")
         let id = browser.addTabGroup(containing: a)

@@ -4247,11 +4247,10 @@ enum ExtensionShims {
         return group
     }
 
-    /// A group as Chrome describes it. Eden's groups have no colour; grey
-    /// is Chrome's first.
+    /// A group as Chrome describes it, its colour the nearest of Chrome's.
     private static func chromeGroup(_ group: TabGroup) -> [String: Any] {
         ["id": TabGroup.number(group.id), "title": group.name, "collapsed": group.collapsed,
-         "color": "grey", "windowId": 1, "shared": false]
+         "color": group.colour.chrome, "windowId": 1, "shared": false]
     }
 
     struct Unsupported: LocalizedError {
@@ -5115,7 +5114,7 @@ enum ExtensionShims {
             return Browsers.all.flatMap(listedGroups).filter { group in
                 (spec["title"] as? String).map { $0 == group.name } ?? true
                     && (spec["collapsed"] as? Bool).map { $0 == group.collapsed } ?? true
-                    && (spec["color"] as? String).map { $0 == "grey" } ?? true
+                    && (spec["color"] as? String).map { $0 == group.colour.chrome } ?? true
             }.map(chromeGroup)
         case "tabGroups.get":
             return chromeGroup(try listedGroup(first).group)
@@ -5124,6 +5123,10 @@ enum ExtensionShims {
             let props = args.dropFirst().first as? [String: Any] ?? [:]
             if let title = props["title"] as? String { browser.renameTabGroup(group.id, to: title) }
             if let collapsed = props["collapsed"] as? Bool, collapsed != group.collapsed { browser.toggleTabGroup(group.id) }
+            if let name = props["color"] as? String {
+                guard let colour = GroupColour(chrome: name) else { throw Unsupported(what: "Invalid color: \(name).") }
+                browser.setColour(colour, ofGroup: group.id)
+            }
             return chromeGroup(browser.tabGroups.first { $0.id == group.id } ?? group)
         case "tabGroups.move":
             throw Unsupported(what: "Eden can't move a tab group for an extension")
@@ -5770,5 +5773,28 @@ enum ExtensionAuth {
             tab.failure = "No site at that address."
         }
         return true
+    }
+}
+
+/// Eden's colours as Chrome names its nine, for extensions: each to the
+/// nearest, and Chrome's cyan, which Eden has no match for, to Sky.
+extension GroupColour {
+    var chrome: String {
+        switch self {
+        case .stone: "grey"
+        case .sage: "green"
+        case .sky: "blue"
+        case .heather: "purple"
+        case .ochre: "yellow"
+        case .rose: "pink"
+        case .madder: "red"
+        case .umber: "orange"
+        }
+    }
+
+    init?(chrome name: String) {
+        if name == "cyan" { self = .sky; return }
+        guard let colour = Self.allCases.first(where: { $0.chrome == name }) else { return nil }
+        self = colour
     }
 }
