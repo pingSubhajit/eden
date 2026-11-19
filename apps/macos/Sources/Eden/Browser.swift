@@ -2104,15 +2104,7 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// The same page, give or take a trailing slash.
-    static func samePage(_ one: URL, _ other: URL?) -> Bool {
-        guard let other else { return false }
-        func bare(_ url: URL) -> String {
-            var text = url.absoluteString
-            while text.hasSuffix("/") { text.removeLast() }
-            return text
-        }
-        return bare(one) == bare(other)
-    }
+    static func samePage(_ one: URL, _ other: URL?) -> Bool { PinDef.samePage(one, other) }
 
     /// Change Letter, or a double-click on the square itself.
     func editLetter(_ tab: Tab) {
@@ -3177,8 +3169,15 @@ final class Browser: NSObject, ObservableObject {
         var pinned = row.filter { $0.pin != nil && !$0.shy }
         let loose = row.filter { $0.pin == nil || $0.shy }
         var out: [Tab] = []
+        let live = Set(defs.map(\.id))
         for def in defs {
             let found = pinned.first { $0.pinID == def.id }
+                // Its pin merged into this one, of the same page, on another
+                // device (SyncItems.applyPins): this one's tab now, page,
+                // history and all, rather than closed for a new one.
+                ?? pinned.first { tab in
+                    tab.pinID.map { !live.contains($0) } == true && PinDef.samePage(tab.home, URL(string: def.home))
+                }
                 ?? pinned.first { $0.pinID == nil && $0.pin == def.letter && ($0.home?.absoluteString ?? "") == def.home }
                 ?? pinned.first { $0.pinID == nil }
             let tab: Tab

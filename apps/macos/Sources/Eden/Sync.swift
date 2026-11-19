@@ -308,6 +308,9 @@ final class Sync: ObservableObject {
             for (space, row) in rows {
                 for tab in row where !tab.shy && !tab.bench {
                     guard let url = Continuity.page(tab.restAddress) else { continue }
+                    // A pin at its home is the pin, which every device has
+                    // already; gone on to another page, it is that page.
+                    if tab.pin != nil, PinDef.atHome(tab.home, showing: url) { continue }
                     let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
                     let page = DeviceTabs.Page(url: url.absoluteString, title: title, space: space,
                                                scroll: DeviceTabs.Page.scroll(tab.reading), reading: tab.reader ? true : nil)
