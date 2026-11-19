@@ -468,15 +468,15 @@ struct SideBar: View {
                 }
                 // Its groups, folded as they were left (see Parked.drawn).
                 ForEach(groups) { drawn in
-                    VStack(spacing: SideBar.gap) {
+                    SideGroup(colour: drawn.group.colour, folded: drawn.tabs.isEmpty,
+                              indent: icons ? 0 : GroupLook.indent) {
                         GroupHeading(browser: browser, group: drawn.group, compact: icons)
+                    } rows: {
                         ForEach(drawn.tabs) { tab in
                             rowItem(tab, tabs: row.tabs, splits: row.splits, activeID: row.active,
                                     interactive: false, close: {})
-                                .padding(.leading, icons ? 0 : GroupLook.indent)
                         }
                     }
-                    .modifier(GroupSurface(colour: drawn.group.colour, folded: drawn.tabs.isEmpty))
                 }
                 // Under the groups, as on screen.
                 if showsLine(kept: pins.count + listed.count + devices.count + groups.count, listed: listed.count, loose: rest.count) {
@@ -856,20 +856,18 @@ struct SideBar: View {
             }
             if prefs.usesTabGroups {
                 ForEach(browser.tabGroups) { group in
-                    VStack(spacing: SideBar.gap) {
+                    let folded = browser.visibleTabs(in: group).isEmpty
+                    let pinOver = crossing?.target == .group(group.id)
+                    // Lit for a tab over it, or a pin carried down onto it,
+                    // which shows where it would go even folded.
+                    SideGroup(colour: group.colour, folded: folded, lit: litGroup == group.id || pinOver,
+                              showsRows: !folded || pinOver, indent: icons ? 0 : GroupLook.indent) {
                         GroupHeading(browser: browser, group: group, dragSpace: "rows", compact: icons) { over in
                             if over { litGroup = group.id } else if litGroup == group.id { litGroup = nil }
                         }
-                        // Folded with none showing, nothing under the
-                        // heading: not even an empty stack, and its gap.
-                        if !browser.visibleTabs(in: group).isEmpty || crossing?.target == .group(group.id) {
-                            groupRows(group)
-                        }
+                    } rows: {
+                        groupRows(group)
                     }
-                    // Lit for a tab over it, or a pin carried down onto it.
-                    .modifier(GroupSurface(colour: group.colour,
-                                           folded: browser.visibleTabs(in: group).isEmpty,
-                                           lit: litGroup == group.id || crossing?.target == .group(group.id)))
                     .zIndex(carryingGroup == group.id ? 1 : 0)
                 }
             }
@@ -962,7 +960,6 @@ struct SideBar: View {
                 rowItem(tab, tabs: browser.tabs, splits: browser.splits,
                         activeID: browser.activeID, interactive: true,
                         close: { browser.closeTab(tab) })
-                    .padding(.leading, icons ? 0 : GroupLook.indent)
                     .modifier(Carried(index: index, steps: memberSteps, vertical: true,
                                       space: "rows", onDropTab: { source, point in drop(source, at: point) },
                                       groupDestination: { source, point in lighting(destination(source, at: point)) },
@@ -979,7 +976,6 @@ struct SideBar: View {
             // A pin carried over its heading goes in at the end.
             if crossing?.target == .group(group.id), let carried = crossingTab {
                 RowGhost(tab: carried, height: rowHeight, size: prefs.sideTitle)
-                    .padding(.leading, icons ? 0 : GroupLook.indent)
             }
         }
         // With icons only, the group's tiles held by a thin bracket in the

@@ -134,11 +134,10 @@ struct DeviceGroups: View {
     }
 }
 
-/// Another device's tabs in the column: a group of its own, on Stone's
-/// surface, the device's symbol and name in its heading. Folded, it keeps
-/// its surface, as Dia's Pull Requests does, where a folded group of yours
-/// has none: the browser's, not yours. It can't be renamed, coloured or
-/// closed, only opened.
+/// Another device's tabs in the column: a group like yours (SideGroup), in
+/// Stone, the device's symbol and name in its heading, folded until opened.
+/// The browser's, not yours: it can be opened, not renamed, coloured or
+/// closed.
 struct DeviceGroup: View {
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
@@ -151,40 +150,27 @@ struct DeviceGroup: View {
     let toggle: () -> Void
 
     var body: some View {
-        VStack(spacing: SideBar.gap) {
-            Button { withAnimation(GroupLook.fold) { toggle() } } label: {
-                HStack(spacing: Metrics.rowSpacing) {
-                    Image(systemName: device.kind.symbol)
-                        .font(.system(size: prefs.sideMark * 0.8, weight: .medium))
-                        .foregroundStyle(Palette.ink)
-                        .frame(width: prefs.sideMark, height: prefs.sideMark)
-                    Text(device.name)
-                        .groupName(Palette.ink, size: prefs.sideTitle)
-                        .lineLimit(1)
-                        .fadesOut(device.name)
-                        .layoutPriority(1)
-                    GroupChevron(collapsed: !opened, ink: Palette.ink)
-                    Spacer(minLength: 0)
-                }
-                .modifier(GroupHeadingFrame(row: prefs.sideRow))
+        SideGroup(colour: .stone, folded: !opened) {
+            GroupLabel(row: prefs.sideRow, toggle: toggle) {
+                Image(systemName: device.kind.symbol)
+                    .font(.system(size: prefs.sideMark * 0.8, weight: .medium))
+                    .foregroundStyle(GroupColour.stone.ink)
+                    .frame(width: prefs.sideMark, height: prefs.sideMark)
+            } title: {
+                GroupName(name: device.name, ink: GroupColour.stone.ink, collapsed: !opened, size: prefs.sideTitle)
+            } end: {
+                EmptyView()
             }
-            .buttonStyle(.plain)
             .help(opened ? "Hide the tabs open on \(device.name)" : "Show the tabs open on \(device.name)")
-            .accessibilityLabel("\(device.name), \(pages.count) \(pages.count == 1 ? "tab" : "tabs")")
-            .accessibilityValue(opened ? "Open" : "Folded")
-            if opened {
-                VStack(spacing: SideBar.gap) {
-                    ForEach(Array(pages.enumerated()), id: \.offset) { _, page in
-                        ElsewhereRow(prefs: prefs, page: page,
-                                     openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
-                            browser.open(Elsewhere.Offer(device: device, page: page))
-                        }
-                        .padding(.leading, GroupLook.indent)
-                    }
+            .groupAccessibility(name: device.name, collapsed: !opened, toggle: toggle)
+        } rows: {
+            ForEach(Array(pages.enumerated()), id: \.offset) { _, page in
+                ElsewhereRow(prefs: prefs, page: page,
+                             openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
+                    browser.open(Elsewhere.Offer(device: device, page: page))
                 }
             }
         }
-        .modifier(GroupSurface(colour: .stone))
     }
 }
 

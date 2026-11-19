@@ -165,21 +165,95 @@ struct GroupSurface: ViewModifier {
     }
 }
 
-/// A group heading's name, in the group's ink: a tab group's and a
-/// device's alike (Elsewhere.swift).
-extension Text {
-    func groupName(_ ink: Color, size: CGFloat) -> Text {
-        font(.system(size: size, weight: .semibold)).foregroundColor(ink)
+// MARK: - a group in the column
+
+/// A group in the column: its heading on its surface, and under it, set in,
+/// its rows. Your tab groups and your other devices' (Elsewhere.swift) are
+/// both one of these, so they fold, light and sit alike; only what their
+/// headings say and what their rows are differ.
+struct SideGroup<Heading: View, Rows: View>: View {
+    let colour: GroupColour
+    /// Folded with nothing showing under its heading: no surface until the
+    /// pointer or something carried is on it (GroupSurface).
+    let folded: Bool
+    var lit = false
+    /// Its rows drawn: while it isn't folded, unless told otherwise (a pin
+    /// carried onto a folded group shows where it would go).
+    var showsRows: Bool?
+    /// How far in its rows sit: none with icons only.
+    var indent = GroupLook.indent
+    @ViewBuilder let heading: Heading
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        VStack(spacing: SideBar.gap) {
+            heading
+            // Nothing under a folded heading: not even an empty stack, and
+            // its gap.
+            if showsRows ?? !folded {
+                VStack(spacing: SideBar.gap) { rows }
+                    .padding(.leading, indent)
+            }
+        }
+        .modifier(GroupSurface(colour: colour, folded: folded, lit: lit))
     }
 }
 
-/// The chevron straight after a group's name: pointing on while folded,
-/// down while open.
-struct GroupChevron: View {
-    let collapsed: Bool
-    let ink: Color
+/// A group's heading in the column: its icon, its name, whatever stands at
+/// its end, one tab's line in all, its icon and cross where a tab's are
+/// (the surface's edge being that much in). A click folds or unfolds it on
+/// the fold's spring, and so do Space and Return once it has the keyboard's
+/// focus, as a button would.
+struct GroupLabel<Icon: View, Title: View, End: View>: View {
+    let row: CGFloat
+    /// Folds or unfolds it; nil while it can't be (its name being typed).
+    let toggle: (() -> Void)?
+    @ViewBuilder let icon: Icon
+    @ViewBuilder let title: Title
+    @ViewBuilder let end: End
 
     var body: some View {
+        HStack(spacing: Metrics.rowSpacing) {
+            icon
+            title
+            Spacer(minLength: 0)
+            end
+        }
+        .padding(.leading, Metrics.rowInset - GroupLook.inset)
+        .padding(.trailing, Metrics.rowCrossInset - GroupLook.inset)
+        .frame(height: GroupLook.heading(row: row))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: fold)
+        .focusable(toggle != nil, interactions: .activate)
+        .onKeyPress(keys: [.space, .return]) { _ in
+            guard toggle != nil else { return .ignored }
+            fold()
+            return .handled
+        }
+    }
+
+    private func fold() {
+        guard let toggle else { return }
+        withAnimation(GroupLook.fold) { toggle() }
+    }
+}
+
+/// A group's name in its heading, in the group's ink, and the chevron
+/// straight after it: pointing on while folded, down while open.
+struct GroupName: View {
+    let name: String
+    let ink: Color
+    let collapsed: Bool
+    let size: CGFloat
+
+    var body: some View {
+        Text(name)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(ink)
+            .lineLimit(1)
+            .fadesOut(name)
+            .layoutPriority(1)
         Image(systemName: "chevron.right")
             .font(.system(size: 8.5, weight: .bold))
             .foregroundStyle(ink.opacity(0.7))
@@ -188,18 +262,15 @@ struct GroupChevron: View {
     }
 }
 
-/// Where a group's heading sits on its surface: one tab's line in all, its
-/// icon and cross where a tab's are, the surface's edge being that much in.
-struct GroupHeadingFrame: ViewModifier {
-    let row: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.leading, Metrics.rowInset - GroupLook.inset)
-            .padding(.trailing, Metrics.rowCrossInset - GroupLook.inset)
-            .frame(height: GroupLook.heading(row: row))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+extension View {
+    /// A group's heading, as VoiceOver reads it: one button, named for the
+    /// group, folded or open, that expands or collapses it.
+    func groupAccessibility(name: String, collapsed: Bool, toggle: @escaping () -> Void) -> some View {
+        accessibilityElement(children: .combine)
+            .accessibilityLabel(name)
+            .accessibilityValue(collapsed ? "Folded" : "Open")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: collapsed ? "Expand" : "Collapse", toggle)
     }
 }
 

@@ -187,9 +187,10 @@ struct GroupHeading: View {
     /// The column's heading: on the group's surface, in its colour.
     private var column: some View {
         let prefs = browser.prefs
-        return HStack(spacing: Metrics.rowSpacing) {
+        return GroupLabel(row: prefs.sideRow, toggle: editing ? nil : { browser.toggleTabGroup(group.id) }) {
             GroupIconView(group: group, first: browser.tabs(in: group.id).first,
                           size: prefs.sideMark, letters: prefs.glyph != .icons)
+        } title: {
             if editing {
                 TextField("Group name", text: $draft)
                     .textFieldStyle(.plain)
@@ -199,14 +200,9 @@ struct GroupHeading: View {
                     .onSubmit(commit)
                     .onExitCommand { browser.editingGroupID = nil }
             } else {
-                Text(group.name)
-                    .groupName(group.colour.ink, size: prefs.sideTitle)
-                    .lineLimit(1)
-                    .fadesOut(group.name)
-                    .layoutPriority(1)
-                GroupChevron(collapsed: group.collapsed, ink: group.colour.ink)
+                GroupName(name: group.name, ink: group.colour.ink, collapsed: group.collapsed, size: prefs.sideTitle)
             }
-            Spacer(minLength: 0)
+        } end: {
             if !editing, group.collapsed, let number = shortcutNumbers[group.id] {
                 TabShortcutNumber(number: number)
             }
@@ -222,17 +218,11 @@ struct GroupHeading: View {
                 .transition(.opacity)
             }
         }
-        .modifier(GroupHeadingFrame(row: prefs.sideRow))
-        .onTapGesture { if !editing { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } } }
         .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
                                        iconEdge: besideColumn, targeted: targeted))
         // At once, as a tab's cross is.
         .onHover { hovering = $0 }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(group.name)
-        .accessibilityValue(group.collapsed ? "Folded" : "Open")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction(named: group.collapsed ? "Expand" : "Collapse") { browser.toggleTabGroup(group.id) }
+        .groupAccessibility(name: group.name, collapsed: group.collapsed) { browser.toggleTabGroup(group.id) }
         .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
         .onChange(of: editing) { _, now in
             if now {
