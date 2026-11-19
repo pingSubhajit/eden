@@ -413,7 +413,7 @@ final class Tab: NSObject, Identifiable {
             guard generation == page else { return }
         }
         guard let scroll = arrival.scroll else {
-            browser?.announce("Continued from \(arrival.from)")
+            browser?.announce("Continued from \(arrival.from)", symbol: "laptopcomputer.and.iphone")
             return
         }
         await scrollTo(scroll, from: arrival.from)
@@ -424,7 +424,8 @@ final class Tab: NSObject, Identifiable {
         guard let built else { return }
         let script = "window.scrollTo(0, \(scroll) * Math.max(0, document.documentElement.scrollHeight - window.innerHeight))"
         _ = try? await built.evaluateJavaScript(script, contentWorld: .page)
-        browser?.announce(scroll > 0 ? "Continued from \(device) at \(Int((scroll * 100).rounded()))%" : "Continued from \(device)")
+        browser?.announce(scroll > 0 ? "Continued from \(device) at \(Int((scroll * 100).rounded()))%" : "Continued from \(device)",
+                          symbol: "laptopcomputer.and.iphone")
     }
 
     private func titleChanged(_ title: String) {

@@ -196,7 +196,8 @@ struct RootView: View {
                 PhoneBrowser(browser: browser)
             }
         }
-        .overlay(alignment: .top) { NoticeView(line: browser.notice) }
+        // The passing messages, dropping in at the top (Toasts).
+        .overlay(alignment: .top) { ToastHost(browser.toasts, top: 8) }
         .onContinueUserActivity(Activity.web, perform: take)
         .onContinueUserActivity(Activity.browsing, perform: take)
         .background { HandoffOffer(browser: browser) }
@@ -213,21 +214,3 @@ struct RootView: View {
     }
 }
 
-/// A short line over the page — "Nothing to read on this page" — for a
-/// moment (Browser.announce).
-struct NoticeView: View {
-    let line: String?
-
-    var body: some View {
-        if let line {
-            Text(line)
-                .font(.footnote.weight(.medium))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
-                .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .accessibilityIdentifier("notice")
-        }
-    }
-}

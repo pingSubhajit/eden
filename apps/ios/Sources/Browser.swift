@@ -29,9 +29,8 @@ final class Browser {
     let pins: PinStore
     /// The spaces' website stores (Spaces.swift).
     @ObservationIgnored let stores: WebsiteStores
-    /// A short line said over the page a moment, and gone (RootView).
-    private(set) var notice: String?
-    @ObservationIgnored private var noticeClears: Task<Void, Never>?
+    /// The passing messages, dropping in at the top (Toasts, RootView).
+    @ObservationIgnored let toasts = Toasts()
 
     @ObservationIgnored let history: History
     @ObservationIgnored let bookmarks: BookmarkStore
@@ -431,16 +430,11 @@ final class Browser {
         }
     }
 
-    /// A line said over the page for a few seconds, and to VoiceOver.
-    func announce(_ line: String) {
-        notice = line
-        UIAccessibility.post(notification: .announcement, argument: line)
-        noticeClears?.cancel()
-        noticeClears = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled else { return }
-            self?.notice = nil
-        }
+    /// A toast at the top (Toasts), read out by VoiceOver: `look` what it
+    /// tells, done or gone wrong; `symbol` before a note; `action` the one
+    /// thing it offers.
+    func announce(_ line: String, look: Toast.Look = .note, symbol: String? = nil, action: Toast.Action? = nil) {
+        toasts.show(Toast(line, look: look, symbol: symbol, action: action))
     }
 
     /// The tab's page as its article, or back to the page. "Nothing to read"

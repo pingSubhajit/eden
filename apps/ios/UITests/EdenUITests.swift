@@ -419,9 +419,9 @@ final class EdenUITests: XCTestCase {
         // A page with nothing to read says so.
         try open("page-one.html", showing: "PAGE-ONE")
         openMenu("Reading Mode")
-        let notice = app.descendants(matching: .any)["notice"]
-        XCTAssertTrue(notice.waitForExistence(timeout: 5))
-        XCTAssertEqual(notice.label, "Nothing to read on this page")
+        let toast = app.descendants(matching: .any)["toast"]
+        XCTAssertTrue(toast.waitForExistence(timeout: 5))
+        XCTAssertEqual(toast.label, "Nothing to read on this page")
     }
 
     func testAThingHiddenByTouchStaysHiddenUntilRestored() throws {

@@ -47,7 +47,6 @@ struct TabOverview: View {
 
     /// The card at the front of the deck.
     @State private var focus: Tab.ID?
-    @State private var closed: Closed?
     @State private var closes = 0
     @State private var managingSpaces = false
     @State private var showingDevices = false
@@ -64,9 +63,8 @@ struct TabOverview: View {
         _focus = State(initialValue: browser.activeID)
     }
 
-    /// The last tab closed, for a moment, to bring back.
-    private struct Closed: Equatable {
-        let id = UUID()
+    /// A tab closed, as much of it as Reopen brings back.
+    private struct Closed {
         let title: String
         let url: URL
         let isPrivate: Bool
@@ -113,7 +111,6 @@ struct TabOverview: View {
             }
         }
         // Over the deck, not in its way: the deck keeps its size.
-        .overlay(alignment: .bottom) { reopenPill.opacity(director.chrome ? 1 : 0) }
         // The controls come in a moment after the page has begun to shrink,
         // so the eye stays on it.
         .onAppear { withAnimation(.smooth(duration: 0.35).delay(0.12)) { director.chrome = true } }
@@ -140,11 +137,6 @@ struct TabOverview: View {
             CardPictures.shared.want(cards.indices.sorted { abs($0 - front) < abs($1 - front) }.map { cards[$0] })
         }
         .onDisappear { CardPictures.shared.stop() }
-        .task(id: closed?.id) {
-            guard closed != nil else { return }
-            try? await Task.sleep(for: .seconds(4))
-            withAnimation(.smooth) { closed = nil }
-        }
     }
 
     // MARK: - the room's head
@@ -175,23 +167,24 @@ struct TabOverview: View {
 
     // MARK: - closing, and bringing back
 
+    /// Closed, it offers itself back for a moment: Reopen on the toast.
     private func close(_ tab: Tab) {
         let ids = deck.map(\.id)
         if let url = tab.url, let at = ids.firstIndex(of: tab.id) {
-            closed = Closed(title: tab.title.isEmpty ? Address.pretty(url) : tab.title, url: url,
-                            isPrivate: tab.isPrivate, after: at > 0 ? ids[at - 1] : nil)
+            let closed = Closed(title: tab.title.isEmpty ? Address.pretty(url) : tab.title, url: url,
+                                isPrivate: tab.isPrivate, after: at > 0 ? ids[at - 1] : nil)
+            browser.announce("Closed “\(closed.title)”", symbol: "xmark",
+                             action: Toast.Action("Reopen", identifier: "reopen-tab") { reopen(closed) })
         }
         withAnimation(.smooth(duration: 0.35)) { browser.close(tab) }
         closes += 1
     }
 
-    private func reopen() {
-        guard let closed else { return }
+    private func reopen(_ closed: Closed) {
         let after = closed.after.flatMap { id in browser.tabs.first { $0.id == id } }
         withAnimation(.smooth(duration: 0.35)) {
             let back = browser.newTab(url: closed.url, private: closed.isPrivate, select: false, after: after)
             focus = back.id
-            self.closed = nil
         }
     }
 
@@ -227,31 +220,7 @@ struct TabOverview: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - the controls at the foot
-
-    /// The last tab closed, for a moment, to bring back.
-    private var reopenPill: some View {
-        VStack {
-            if let closed {
-                Button(action: reopen) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.uturn.backward")
-                        Text("Closed “\(closed.title)”").lineLimit(1)
-                        Text("Reopen").fontWeight(.semibold).foregroundStyle(Color.accentColor)
-                    }
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .frame(height: 40)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .accessibilityIdentifier("reopen-tab")
-            }
-        }
-        .padding(.bottom, 8)
-        .animation(.smooth(duration: 0.3), value: closed)
-    }
+    // MARK: - the cards
 
     /// What each card shows (DeckItem): the page as it last showed, or what
     /// stands in for it.

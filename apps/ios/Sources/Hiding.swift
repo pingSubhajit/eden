@@ -231,7 +231,7 @@ extension Browser {
             picking = nil
             offered = nil
         case .trouble:
-            announce("That can't be hidden")
+            announce("That can't be hidden", look: .problem)
         }
     }
 
@@ -246,7 +246,7 @@ extension Browser {
             curtain.hide(choice.selector, label: choice.label, note: choice.note, on: host)
         }
         rulesChanged(in: tab.privateHiding)
-        announce("Hidden")
+        announce("Hidden", look: .done)
     }
 
     func restore(_ veil: Veil, on host: String, in tab: Tab) {
