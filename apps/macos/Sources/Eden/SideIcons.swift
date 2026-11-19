@@ -13,7 +13,7 @@ import SwiftUI
 //   mute or unmute, as the row's is;
 // - recording (an extension, RecordingIndicator): a red dot in the top
 //   corner;
-// - the address the row says at rest, and private: in the tooltip.
+// - what the page on the tab you're on warns of, and private: in the tooltip.
 // A pair (Split View) is one tile with both marks, one over the other; a
 // group is a short heading with the group's first letter, its tiles held by
 // a thin bracket.
@@ -69,10 +69,11 @@ enum IconTiles {
         pairs[id] = nil
     }
 
-    /// The tooltip: the title, then what a row would have said beside it.
-    static func tip(_ tab: Tab, address: AtRest?) -> String {
+    /// The tooltip: the title, then what its page warns of, then what a row
+    /// would have said beside it.
+    static func tip(_ tab: Tab, warning: AtRest?) -> String {
         var lines = [tab.label.isEmpty ? "New Tab" : tab.label]
-        if let address { lines.append(address.lead + address.name + address.tail) }
+        if let warning { lines.append(warning.text) }
         var marks: [String] = []
         if tab.shy { marks.append("Private") }
         if tab.recording { marks.append("Recording") }
@@ -101,8 +102,9 @@ struct IconTile: View {
     /// This tile, for the bench's list of them (IconTiles).
     @State private var me = UUID()
 
-    private var rest: AtRest? { live ? AtRest.said(tab.restAddress, always: prefs.showsAddress) : nil }
-    private var tip: String { IconTiles.tip(tab, address: rest) }
+    /// What the page warns of, on the tab you're on (AtRest.warning).
+    private var warning: AtRest? { live ? AtRest.warning(tab.restAddress) : nil }
+    private var tip: String { IconTiles.tip(tab, warning: warning) }
     private var speaker: Bool { !tab.loading && (tab.noisy || tab.muted) }
     private var closable: Bool { interactive && live && tab.pin == nil }
 

@@ -34,7 +34,7 @@ BEFORE = {
     "motion.light": "low power", "tabs.newPlace": "new tab position", "tabs.newAfterLast": "last tab",
     "tabs.lazy": "background tabs", "tabs.popupWindows": "pop-ups", "tabs.sleep": "sleep",
     "tabs.sleep.pace": "sleep", "tabs.close.after": "close tabs", "tabs.shortcuts": "numbers",
-    "tabs.address": "address", "search.engine": "search with", "search.custom": "engine",
+    "search.engine": "search with", "search.custom": "engine",
     "search.suggest": "suggestions", "search.keywords": "site shortcuts", "links.little": "small window",
     "reader.twins": "markdown", "reader.follows": "reading mode", "float.style": "picture in picture",
     "float.leave": "float", "float.away": "switch apps", "media.click": "autoplay",
@@ -100,26 +100,23 @@ def case_defaults(t):
     t.ok("pins keep their site, untouched", v["pins.keep"] is True and v["pins.home"] and v["pins.peek"], v)
     t.ok("120 Hz on power, untouched", v["pages.120"] == "onPower", v["pages.120"])
     t.ok("hold a swipe on, untouched", v["swipe.history"] is True)
-    t.ok("address on the tab on, untouched", v["tabs.address"] is True)
     t.ok("links shown and flicks on, as before", v["links.show"] is True and v["float.flicks"] is True)
     t.ok("sleep Normal, float on switching tabs, peek with Shift", (v["tabs.sleep"], v["float.own"], v["links.peek"]) == ("normal", "tabs", "shift"), v)
     t.ok("every always-on feature is on", all(v["always"].values()), v["always"])
-    for key in ["pins.home", "pins.peek", "pages.120.mode", "swipe.history", "tabs.address"]:
+    for key in ["pins.home", "pins.peek", "pages.120.mode", "swipe.history"]:
         t.ok(f"{key} not written by reading it", read(key) is None, read(key))
 
 
 def case_explicit(t):
     """explicit choices stand: offs on removed switches, old 120 Hz, pins"""
     sv.setup(**{"links.show": False, "float.flicks": False, "pages.120": False, "swipe.history": False,
-                "tabs.address": False, "pins.home": False, "splitView": False, "tabs.groups": False,
-                "panel.sites": False})
+                "pins.home": False, "splitView": False, "tabs.groups": False, "panel.sites": False})
     sv.launch()
     v = settings()["values"]
     t.ok("show where links go stays off", v["links.show"] is False)
     t.ok("flick stays off", v["float.flicks"] is False)
     t.ok("an old 120 Hz off is Never", v["pages.120"] == "never", v["pages.120"])
     t.ok("hold a swipe stays off", v["swipe.history"] is False)
-    t.ok("address on the tab stays off", v["tabs.address"] is False)
     t.ok("one pin key off, the other unset: off", v["pins.keep"] is False, v)
     t.ok("an old off on a command-only switch is on now", all(v["always"].values()), v["always"])
     sv.quit(); time.sleep(0.5)

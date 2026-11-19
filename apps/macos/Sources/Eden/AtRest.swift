@@ -1,18 +1,18 @@
 import EdenCore
 import Foundation
 
-/// Where the page on the tab you're on comes from, said at rest — without
-/// clicking the tab to see its address (Settings › Tabs › Show the address on
-/// the tab you're on).
+/// Where a page comes from, worked out from its address: what the tab you're
+/// on warns of beside its title (TabTitle), and what the tooltip of its tile
+/// in the column of icons adds.
 ///
 /// The site is its registrable domain, the part nobody else can register
 /// under: "github.com" in gist.github.com, "bbc.co.uk" in www.bbc.co.uk. That
-/// part is what a look-alike can't fake, so it is drawn in ink and never cut;
-/// the subdomain before it is dim and gives way first. A name in another
-/// alphabet is shown as itself only when it can't pass for a Latin one, as
-/// Safari does; otherwise as the punycode it really is (xn--80ak6aa92e.com,
-/// not "аррӏе.com" in Cyrillic letters). A page over plain http says it isn't
-/// secure, and a file on this Mac is named by its file name.
+/// part is what a look-alike can't fake, so it is kept apart from the
+/// subdomain before it. A name in another alphabet is shown as itself only
+/// when it can't pass for a Latin one, as Safari does; otherwise as the
+/// punycode it really is (xn--80ak6aa92e.com, not "аррӏе.com" in Cyrillic
+/// letters). A page over plain http says it isn't secure, and a file on this
+/// Mac is named by its file name.
 struct AtRest: Equatable {
     enum Kind: Equatable {
         case secure
@@ -25,29 +25,27 @@ struct AtRest: Equatable {
     }
 
     let kind: Kind
-    /// Before the registrable domain, dim: "gist." Never "www.".
+    /// Before the registrable domain: "gist." Never "www.".
     let lead: String
     /// The registrable domain; a file's name; what the page is.
     let name: String
-    /// A port that isn't the scheme's own, dim: ":3000".
+    /// A port that isn't the scheme's own: ":3000".
     let tail: String
 
-    /// Worth saying even with the setting off: a page over plain http, or a
-    /// name shown as the punycode it is because it could pass for another
-    /// (Hosts.display). With Settings › Tabs › Show the address on the tab
-    /// you're on, every page is said; without it, only these.
+    /// Worth a warning: a page over plain http, or a name shown as the
+    /// punycode it is because it could pass for another (Hosts.display).
     var warns: Bool {
         kind == .notSecure || ((kind == .secure) && (lead + name).split(separator: ".").contains { $0.hasPrefix("xn--") })
     }
 
-    /// What the tab you're on says at rest: everything with the setting on,
-    /// only a warning with it off.
-    static func said(_ url: URL?, always: Bool) -> AtRest? {
-        guard let rest = of(url), always || rest.warns else { return nil }
+    /// What the tab you're on warns of beside its title: the page at rest,
+    /// only when it warns.
+    static func warning(_ url: URL?) -> AtRest? {
+        guard let rest = of(url), rest.warns else { return nil }
         return rest
     }
 
-    /// All of it as one line, as read aloud and as the bench reports it.
+    /// All of it as one line, as the tile's tooltip says it.
     var text: String {
         (kind == .notSecure ? "Not secure — " : "") + lead + name + tail
     }

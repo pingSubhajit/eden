@@ -1446,10 +1446,9 @@ private struct SideRow: View, Equatable {
     /// A pinned row with a peek opened from it: the peek's icon at its end,
     /// as on a square's corner.
     private var peeking: Bool { !editing && tab.pin != nil && peek != nil }
-    /// Where the page is, said on the row you're on (Settings › Tabs › Show
-    /// the address on the tab you're on).
-    private var rest: AtRest? { live && !editing ? AtRest.said(tab.restAddress, always: prefs.showsAddress) : nil }
-    private var atRest: Bool { rest != nil }
+    /// What the page warns of, on the row you're on: a glyph before its
+    /// title (TabTitle).
+    private var warning: AtRest? { live ? AtRest.warning(tab.restAddress) : nil }
     /// A pin already put down has nothing left to put down: no minus (#1050).
     private var closable: Bool { tab.pin == nil || !tab.asleep }
     /// A grouped tab holding no page — put away with its minus (Browser.putAway),
@@ -1495,8 +1494,7 @@ private struct SideRow: View, Equatable {
                     PopupSign(browser: browser, tab: tab, colour: colour)
                     // The page is translated (Translate.swift).
                     TranslateSign(tab: tab, colour: colour)
-                    TitleAtRest(label: tab.label, rest: rest, shown: atRest, hovering: hovering,
-                                size: prefs.sideTitle, colour: colour, roomy: true)
+                    TabTitle(label: tab.label, warning: warning, size: prefs.sideTitle, colour: colour)
                 }
                 Spacer(minLength: 0)
             }

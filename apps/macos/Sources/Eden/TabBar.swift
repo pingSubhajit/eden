@@ -721,10 +721,9 @@ private struct TabPill: View, Equatable {
     /// A speaker to press at the end of the pill: the page plays sound, or
     /// was muted. The ring, while the page is still coming, goes first.
     private var speaker: Bool { !editing && !tab.loading && (tab.noisy || tab.muted) }
-    /// Where the page is, said on the tab you're on (Settings › Tabs › Show
-    /// the address on the tab you're on).
-    private var rest: AtRest? { live && !editing ? AtRest.said(tab.restAddress, always: prefs.showsAddress) : nil }
-    private var atRest: Bool { rest != nil }
+    /// What the page warns of, on the tab you're on: a glyph before its
+    /// title (TabTitle).
+    private var warning: AtRest? { live ? AtRest.warning(tab.restAddress) : nil }
 
     /// A pinned tab is a square, an edited one is a field, everything else is
     /// its share of what is left.
@@ -883,8 +882,7 @@ private struct TabPill: View, Equatable {
                 PopupSign(browser: browser, tab: tab, colour: colour)
                 // The page is translated (Translate.swift).
                 TranslateSign(tab: tab, colour: colour)
-                TitleAtRest(label: tab.label, rest: rest, shown: atRest, hovering: hovering,
-                            size: 12.5, colour: colour, roomy: false)
+                TabTitle(label: tab.label, warning: warning, size: 12.5, colour: colour)
             }
 
             Spacer(minLength: 2)

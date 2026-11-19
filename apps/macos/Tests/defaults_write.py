@@ -11,8 +11,8 @@ changed the file and nothing else, and Settings went on showing the old
 value until the next launch. Here the tabs' place (sidebar and
 sidebar.position) and the look are written from outside while the app runs,
 and read back from it: the place as Settings has it, the look with the
-appearance it gives the app. A protection written the same way
-(tabs.address) still waits for the next launch, as agreed on #736.
+appearance it gives the app. A protection written the same way still waits
+for the next launch, as agreed on #736; FollowFileTests checks that.
 """
 import subprocess
 import sys
@@ -25,7 +25,7 @@ import split_view as sv  # noqa: E402
 sv.use("defaults-write")
 
 t = sv.T()
-def values(): return sv.cmd({"do": "settings", "find": "address"})["values"]
+def values(): return sv.cmd({"do": "settings", "find": "sidebar"})["values"]
 def look(): return (p := sv.cmd({"do": "probe"}))["look"], p["appearance"]
 def write(key, kind, value): subprocess.run(["defaults", "write", sv.SUITE, key, kind, value])
 def read(key):
@@ -38,16 +38,13 @@ def becomes(get, want, within=3):
     return v
 try:
     sv.setup(); sv.launch()
-    t.ok("at launch: address on, the Mac's look", (values()["tabs.address"], look()) == (True, ("system", "system")))
+    t.ok("at launch: the Mac's look", look() == ("system", "system"), look())
     write("sidebar", "-bool", "true"); write("sidebar.position", "-string", "right")
     t.ok("the tabs' place written from outside moves", becomes(lambda: values()["tabs.layout"], "right") == "right",
          values()["tabs.layout"])
     write("look", "-string", "dark")
     t.ok("a look written from outside moves, and the app goes dark",
          becomes(look, ("dark", "NSAppearanceNameDarkAqua")) == ("dark", "NSAppearanceNameDarkAqua"), look())
-    write("tabs.address", "-bool", "false"); time.sleep(2)
-    t.ok("a protection written from outside waits for the next launch",
-         (values()["tabs.address"], read("tabs.address")) == (True, "0"), (values()["tabs.address"], read("tabs.address")))
     # The switch still writes the file, and what it wrote isn't read back
     # over: the value the app puts back is the one already there.
     sv.cmd({"do": "ui", "side": "left"}); time.sleep(1.5)

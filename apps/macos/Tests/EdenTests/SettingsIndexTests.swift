@@ -14,7 +14,7 @@ final class SettingsIndexTests: XCTestCase {
 
     private let touched = ["sidebar", "sidebar.position", "tabs.sleep", SleepPace.key, "float.leave", "float.away",
                            "pins.home", "pins.peek", "links.peek", "links.peekClick", "pages.120", "pages.120.mode",
-                           "swipe.history", "tabs.address", "links.show", "float.flicks", "spaces", "pins.list",
+                           "swipe.history", "links.show", "float.flicks", "spaces", "pins.list",
                            "newtab.floating", "search.shift", "search.shiftCustom"]
 
     private func fresh(_ body: () -> Void) {
@@ -45,12 +45,11 @@ final class SettingsIndexTests: XCTestCase {
             XCTAssertTrue(prefs.pinsKeepSite)
             XCTAssertEqual(prefs.fastPages, .onPower)
             XCTAssertTrue(prefs.holdsHistory)
-            XCTAssertTrue(prefs.showsAddress)
             XCTAssertEqual(prefs.sleepChoice, .normal)
             XCTAssertEqual(prefs.floatOwn, .tabs)
             XCTAssertEqual(prefs.peekChoice, .shift)
             // Nothing written just for reading them.
-            for key in ["pins.home", "pins.peek", "pages.120.mode", "swipe.history", "tabs.address"] {
+            for key in ["pins.home", "pins.peek", "pages.120.mode", "swipe.history"] {
                 XCTAssertNil(Store.settings.object(forKey: key), key)
             }
         }
@@ -60,14 +59,12 @@ final class SettingsIndexTests: XCTestCase {
         fresh {
             Store.settings.set(false, forKey: "pages.120")
             Store.settings.set(false, forKey: "swipe.history")
-            Store.settings.set(false, forKey: "tabs.address")
             Store.settings.set(false, forKey: "links.show")
             Store.settings.set(false, forKey: "float.flicks")
             Store.settings.set(false, forKey: "pins.home")
             let prefs = Preferences()
             XCTAssertEqual(prefs.fastPages, .never)
             XCTAssertFalse(prefs.holdsHistory)
-            XCTAssertFalse(prefs.showsAddress)
             XCTAssertFalse(prefs.showsLinks)
             XCTAssertFalse(prefs.floatFlicks)
             XCTAssertFalse(prefs.pinsKeepSite, "one off, the other never set: off")

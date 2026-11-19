@@ -2,8 +2,8 @@ import Foundation
 import XCTest
 @testable import Eden
 
-/// The address at rest on the tab you're on (AtRest.swift): the site it
-/// names, and how a look-alike name is shown.
+/// Where a page comes from (AtRest.swift): the site it names, how a
+/// look-alike name is shown, and when the tab you're on warns of it.
 final class AtRestTests: XCTestCase {
     private func rest(_ address: String) -> AtRest? {
         AtRest.make(URL(string: address)!)
@@ -151,17 +151,19 @@ final class AtRestTests: XCTestCase {
         XCTAssertEqual(AtRest.of(url), AtRest.of(url))
     }
 
-    /// Drice's middle ground: with the setting off, only a warning is said.
-    func testWarningsAreSaidWithTheSettingOff() throws {
+    /// The tab you're on keeps its title and warns beside it only of these.
+    func testOnlyWarningsAreSaid() throws {
         XCTAssertTrue(try XCTUnwrap(rest("http://example.com/")).warns, "plain http")
         XCTAssertTrue(try XCTUnwrap(rest("https://xn--80ak6aa92e.com/")).warns, "a Cyrillic look-alike shown as punycode")
         XCTAssertTrue(try XCTUnwrap(rest("https://xn--80ak6aa92e.example.com/")).warns, "a look-alike subdomain")
         XCTAssertFalse(try XCTUnwrap(rest("https://github.com/")).warns)
         XCTAssertFalse(try XCTUnwrap(rest("http://localhost:3000/")).warns, "this Mac")
         XCTAssertFalse(try XCTUnwrap(rest("https://xn--wgv71a119e.jp/")).warns, "日本語.jp is safe to show as itself")
-        XCTAssertNil(AtRest.said(URL(string: "https://github.com/"), always: false))
-        XCTAssertNotNil(AtRest.said(URL(string: "https://github.com/"), always: true))
-        XCTAssertNotNil(AtRest.said(URL(string: "http://example.com/"), always: false))
-        XCTAssertNil(AtRest.said(URL(string: "about:blank"), always: true))
+        XCTAssertNil(AtRest.warning(URL(string: "https://github.com/")))
+        XCTAssertNil(AtRest.warning(URL(string: "http://localhost:3000/")))
+        XCTAssertEqual(AtRest.warning(URL(string: "http://example.com/"))?.kind, .notSecure)
+        XCTAssertEqual(AtRest.warning(URL(string: "https://xn--80ak6aa92e.com/"))?.name, "xn--80ak6aa92e.com")
+        XCTAssertNil(AtRest.warning(URL(string: "about:blank")))
+        XCTAssertNil(AtRest.warning(nil))
     }
 }

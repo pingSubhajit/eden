@@ -50,10 +50,10 @@ final class IconColumnTests: XCTestCase {
             XCTAssertEqual(frame.minX, 10)
             XCTAssertLessThanOrEqual(frame.maxX, window.frame.width)
         }
-        // The title; on the tab you're on, where it is too, as its row says at rest.
+        // The title, and nothing more on the tab you're on: its page, over
+        // https, has nothing to warn of.
         let tips = browser.tabs.compactMap { IconTiles.tips[$0.id] }
-        XCTAssertEqual(Array(tips.prefix(3)), ["one", "two", "three"])
-        XCTAssertEqual(tips.last, browser.prefs.showsAddress ? "four\nexample.com" : "four")
+        XCTAssertEqual(tips, ["one", "two", "three", "four"])
         // A pulled width is kept, not used.
         XCTAssertGreaterThanOrEqual(browser.prefs.sideWidth, Metrics.sideMin)
     }

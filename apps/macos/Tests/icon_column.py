@@ -71,10 +71,8 @@ try:
     t.ok("tooltip: a tab's title", ts[b]["tip"].split("\n")[0] == "b", ts[b]["tip"])
     t.ok("tooltip: no address on a tab you're not on", "\n" not in ts[b]["tip"], ts[b]["tip"])
     sv.sp("select", id=a); time.sleep(0.4)
-    tip = settle(lambda r: "\n" in tiles(r)[a]["tip"])
-    lines = tiles(tip)[a]["tip"].split("\n")
-    t.ok("tooltip: the tab you're on says where it is (plain http warns, as at rest)",
-         lines[0] == "a" and len(lines) >= 2 and "127.0.0.1" in lines[1], lines)
+    tip = tiles(icons())[a]["tip"]
+    t.ok("tooltip: the tab you're on, on this Mac, has nothing to warn of", tip == "a", tip)
 
     # A drag still moves a tab: what the tile's drag calls when it passes
     # another (Carried.move → Browser.moveDisplayedTab), through the bench.

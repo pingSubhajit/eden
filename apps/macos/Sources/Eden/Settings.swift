@@ -596,11 +596,6 @@ struct SettingsPanel: View {
             .pickerStyle(.menu)
             .fixedSize()
         case "tabs.shortcuts": Switch(on: $prefs.showsTabShortcuts)
-        case "tabs.address":
-            Switch(on: Binding(
-                get: { prefs.showsAddress },
-                set: { on in withAnimation(Motion.glide) { prefs.showsAddress = on } }
-            ))
         case "note.groups", "note.awake": Always()
         default: EmptyView()
         }

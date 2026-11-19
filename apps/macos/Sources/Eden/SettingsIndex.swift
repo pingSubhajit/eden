@@ -253,10 +253,6 @@ enum SettingsIndex {
         .init(id: "tabs.shortcuts", group: "tabbar", icon: "command",
               title: "Show tab numbers while ⌘ is held", detail: "Which tab each ⌘1–9 selects",
               keys: ["tabs.shortcuts"], words: ["numbers", "shortcut"]),
-        .init(id: "tabs.address", group: "tabbar", icon: "lock",
-              title: "Show the address on the tab you're on", detail: "Its site in place of its title; the title comes back under the pointer",
-              more: "Look-alike names in other alphabets show as they really are, and plain http says Not secure. Off, the tab you're on still says so for those two.",
-              keys: ["tabs.address"], words: ["url", "domain", "security", "address bar"]),
 
         // Browsing
         .init(id: "search.engine", group: "search", icon: "magnifyingglass",
@@ -746,7 +742,6 @@ extension SettingsIndex {
             "links.peek": prefs.peekChoice.rawValue,
             "pages.120": prefs.fastPages.rawValue,
             "swipe.history": prefs.holdsHistory,
-            "tabs.address": prefs.showsAddress,
             "links.show": prefs.showsLinks,
             "float.flicks": prefs.floatFlicks,
             "arc": prefs.looksLikeArc,
