@@ -91,7 +91,6 @@ struct SideBar: View {
     /// The column's width: the setting, or where the edge is while it is held.
     private var width: CGFloat { live ?? prefs.columnWidth }
     private static let gap: CGFloat = 2
-    private static let square: CGFloat = 34
     private static let pinGap: CGFloat = 4
 
     private var onRight: Bool { prefs.sidePosition == .right }
@@ -645,12 +644,12 @@ struct SideBar: View {
     private func pinCells(_ count: Int) -> [CGRect] {
         let room = width - 20
         let gap = SideBar.pinGap
-        let fits = Int((room + gap) / (SideBar.square + gap))
+        let fits = Int((room + gap) / (prefs.pinSquare + gap))
         let rows = SideBar.pinRows(count, most: min(4, max(1, fits)))
         // A row of fewer than three keeps three places.
         let slots = rows.map { rows.count == 1 ? max($0, min(3, fits)) : $0 }
         let widths = slots.map { max(20, (room - CGFloat($0 - 1) * gap) / CGFloat($0)) }
-        let height = min(SideBar.square, widths.min() ?? SideBar.square)
+        let height = min(prefs.pinSquare, widths.min() ?? prefs.pinSquare)
         var cells: [CGRect] = []
         for (row, n) in rows.enumerated() {
             for col in 0..<n {
@@ -1283,6 +1282,12 @@ private struct PinSquare: View, Equatable {
     @State private var hovering = false
     @State private var selectedOnPress = false
 
+    /// The colour its glow takes while it is in front: its site icon's own.
+    private var accent: Color? {
+        guard prefs.glyph == .icons, let icon = tab.icon, let colour = IconAccent.of(icon) else { return nil }
+        return Color(nsColor: colour)
+    }
+
     /// Everything drawn inside scales off the shorter edge — the one that
     /// stays put — so the glyph sits at its usual size, centred, rather than
     /// stretching to chase the width.
@@ -1298,11 +1303,12 @@ private struct PinSquare: View, Equatable {
                 // Its page on the way, as a row's ring says.
                 Ring(size: scale * 11 / 34)
             } else if prefs.glyph == .icons, let icon = tab.icon {
-                Mark(icon: icon, letter: tab.pin ?? "", size: scale * 16 / 34, dim: tab.asleep)
+                // At rest or not, a pin looks the same: it is always there.
+                Mark(icon: icon, letter: tab.pin ?? "", size: scale * 16 / 34)
             } else {
                 Text(tab.pin ?? "")
                     .font(.system(size: scale * 12 / 34, weight: .medium))
-                    .foregroundStyle((live ? Palette.ink : Palette.muted).opacity(tab.asleep ? 0.45 : 1))
+                    .foregroundStyle(live ? Palette.ink : Palette.muted)
             }
         }
         .frame(width: scale * 16 / 34, height: scale * 16 / 34)
@@ -1312,9 +1318,11 @@ private struct PinSquare: View, Equatable {
                 if live {
                     // Darker than the resting squares' grey by as much as a live
                     // row is darker than the white it sits on (Drice: the live
-                    // pin barely showed among the others).
+                    // pin barely showed among the others); with a site icon
+                    // of some colour, lit in it too (PinGlow).
                     RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
                         .fill(greys.pinLive)
+                        .overlay { if let accent { PinGlow(colour: accent, radius: scale * 9 / 34) } }
                         .matchedGeometryEffect(id: "live", in: pill)
                 } else {
                     RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
@@ -1358,6 +1366,25 @@ private struct PinSquare: View, Equatable {
         .help(tab.label)
         .animation(nil, value: hovering)
         .transition(.scale(scale: 0.8).combined(with: .opacity))
+    }
+}
+
+/// The pinned tab in front, lit in its site icon's colour, as Dia's is: a
+/// wash of it, a soft glow in from the edge, and the edge itself.
+private struct PinGlow: View {
+    let colour: Color
+    let radius: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ZStack {
+            shape.fill(colour.opacity(0.16))
+            shape.strokeBorder(colour.opacity(0.55), lineWidth: 5)
+                .blur(radius: 4)
+                .clipShape(shape)
+            shape.strokeBorder(colour.opacity(0.9), lineWidth: 1.5)
+        }
+        .allowsHitTesting(false)
     }
 }
 

@@ -240,6 +240,8 @@ final class Preferences: ObservableObject {
     var sideRow: CGFloat { iconColumn ? Metrics.iconTile : roomyTabs ? 36 : 28 }
     var sideMark: CGFloat { roomyTabs ? 17 : 15 }
     var sideTitle: CGFloat { roomyTabs ? 14 : 12.5 }
+    /// A pinned square at its tallest: roomier too, as Dia's are.
+    var pinSquare: CGFloat { roomyTabs ? 42 : 34 }
     /// How wide the column is. Pulled by its edge, and remembered.
     @Published var sideWidth: CGFloat {
         didSet { store.set(Double(sideWidth), forKey: "sidebar.width") }
