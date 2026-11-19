@@ -332,45 +332,49 @@ struct SideBar: View {
                     // did, every row of it each time the pointer crossed a
                     // row (Bench "hoversweep": 22 rows a crossing, not 2).
                     let needed = rowsHeight
-                    Group {
-                        if fits {
+                    ScrollViewReader { proxy in
+                        // Without scroll indicators: the tab column stays quiet
+                        // and distraction-free, matching other vertical-tab browsers.
+                        // The wheel and the trackpad still scroll smoothly.
+                        ScrollView(.vertical, showsIndicators: false) {
                             rows.onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
                                 room.drawn = $0
                                 refit()
                             }
-                        } else {
-                            ScrollViewReader { proxy in
-                                // Without scroll indicators: the tab column stays quiet
-                                // and distraction-free, matching other vertical-tab browsers.
-                                // The wheel and the trackpad still scroll smoothly.
-                                ScrollView(.vertical, showsIndicators: false) {
-                                    rows.onGeometryChange(for: CGFloat.self) { $0.size.height } action: {
-                                        room.drawn = $0
-                                        refit()
-                                    }
-                                }
-                                // The tab you go to is the tab you see — ⌘1–⌘9,
-                                // ⇧⌘], a link opening beside the one on screen.
-                                .onChange(of: browser.activeID) { _, id in
-                                    guard let id else { return }
-                                    let representative = browser.activeSplit?.left ?? id
-                                    // Without the glide on a test run: a hidden
-                                    // probe's window draws no frames, and the
-                                    // scroll stopped where its first one left it.
-                                    withAnimation(Store.testing ? nil : Motion.glide) { proxy.scrollTo(representative) }
-                                }
-                                // A turn of the run loop later, as the row across
-                                // the top does it (TabBar.reveal): the folded
-                                // column comes out mid-animation, and asked at
-                                // once, before the rows had their height, the
-                                // scroll could be dropped and the tab you were on
-                                // left out of sight.
-                                .onAppear {
-                                    guard let id = browser.activeID else { return }
-                                    DispatchQueue.main.async {
-                                        proxy.scrollTo(browser.activeSplit?.left ?? id, anchor: .center)
-                                    }
-                                }
+                        }
+                        // While the rows fit: still, and only as tall as they
+                        // are, the room under them the window's to be dragged
+                        // by. The same scroll view either way, so rows that
+                        // grow past the room (a group opened) are moved, not
+                        // built again, and keep their animation and place.
+                        .scrollDisabled(fits)
+                        .fixedSize(horizontal: false, vertical: fits)
+                        // The tab you go to is the tab you see — ⌘1–⌘9,
+                        // ⇧⌘], a link opening beside the one on screen.
+                        // A turn of the run loop later, once the rows are laid
+                        // out: the tab that makes them run past the room is
+                        // there to be scrolled to only after they do.
+                        .onChange(of: browser.activeID) { _, id in
+                            guard let id else { return }
+                            let representative = browser.activeSplit?.left ?? id
+                            DispatchQueue.main.async {
+                                guard !fits else { return }
+                                // Without the glide on a test run: a hidden
+                                // probe's window draws no frames, and the
+                                // scroll stopped where its first one left it.
+                                withAnimation(Store.testing ? nil : Motion.glide) { proxy.scrollTo(representative) }
+                            }
+                        }
+                        // A turn of the run loop later, as the row across
+                        // the top does it (TabBar.reveal): the folded
+                        // column comes out mid-animation, and asked at
+                        // once, before the rows had their height, the
+                        // scroll could be dropped and the tab you were on
+                        // left out of sight.
+                        .onAppear {
+                            guard let id = browser.activeID else { return }
+                            DispatchQueue.main.async {
+                                proxy.scrollTo(browser.activeSplit?.left ?? id, anchor: .center)
                             }
                         }
                     }
