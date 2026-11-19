@@ -144,4 +144,48 @@ public enum IconPick {
         else { return nil }
         return (top.r / top.weight, top.g / top.weight, top.b / top.weight)
     }
+
+    /// The ink of an icon that is one grey drawn on nothing of its own —
+    /// GitHub's black cat, a white letter — which a tile of the same tone
+    /// all but hides: drawn on its own, it is turned over to the other. Nil
+    /// for an icon with colour in it, one in a mid grey, or one that brings
+    /// its own ground, a square or a circle filled to its edges, which reads
+    /// on any tile as it is.
+    public static func ink(of image: CGImage) -> Ink? {
+        let side = 24
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8,
+                                      bytesPerRow: side * 4, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+
+        var opaque = 0.0, clear = 0.0, coloured = 0.0, light = 0.0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Double(pixels[i + 3]) / 255
+            if alpha < 0.1 { clear += 1 }
+            guard alpha > 0.5 else { continue }
+            opaque += 1
+            let r = Double(pixels[i]) / 255 / alpha, g = Double(pixels[i + 1]) / 255 / alpha
+            let b = Double(pixels[i + 2]) / 255 / alpha
+            let high = max(r, g, b), low = min(r, g, b)
+            if high > 0.3, (high - low) / high > 0.35 { coloured += 1 }
+            light += 0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
+        let total = Double(side * side)
+        // Drawn on nothing: a good part of it shows the tile through. A ring
+        // of corners round a filled circle is about a fifth.
+        guard opaque > total * 0.05, clear > total * 0.15, coloured < opaque * 0.08 else { return nil }
+        let tone = light / opaque
+        if tone < 0.3 { return .dark }
+        if tone > 0.75 { return .light }
+        return nil
+    }
+
+    /// The tone of an icon's ink (`ink(of:)`).
+    public enum Ink: Sendable {
+        case dark, light
+    }
 }

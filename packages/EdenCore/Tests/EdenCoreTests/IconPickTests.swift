@@ -89,4 +89,28 @@ final class IconPickTests: XCTestCase {
         XCTAssertNil(IconPick.accent(of: try image([((0.3, 0.3, 0.3), 0.97), ((0.9, 0.1, 0.1), 0.03)])),
                      "a speck of colour isn't its colour")
     }
+
+    /// A disc of one colour on nothing, filling `share` of the width, as
+    /// GitHub's black cat is drawn.
+    private func disc(_ colour: (Double, Double, Double), share: Double = 0.8) throws -> CGImage {
+        let side = 48.0
+        let context = try XCTUnwrap(CGContext(data: nil, width: Int(side), height: Int(side), bitsPerComponent: 8,
+                                              bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: colour.0, green: colour.1, blue: colour.2, alpha: 1)
+        let inset = side * (1 - share) / 2
+        context.fillEllipse(in: CGRect(x: inset, y: inset, width: side - inset * 2, height: side - inset * 2))
+        return try XCTUnwrap(context.makeImage())
+    }
+
+    func testAGreyIconOnNothingHasTheInkOfItsTone() throws {
+        XCTAssertEqual(IconPick.ink(of: try disc((0.05, 0.05, 0.06))), .dark, "GitHub's black cat")
+        XCTAssertEqual(IconPick.ink(of: try disc((0.97, 0.97, 0.97))), .light)
+    }
+
+    func testAnIconWithColourOrAGroundOfItsOwnKeepsIt() throws {
+        XCTAssertNil(IconPick.ink(of: try disc((0.9, 0.2, 0.15))), "coloured: reads on any tile")
+        XCTAssertNil(IconPick.ink(of: try disc((0.5, 0.5, 0.5))), "a mid grey reads on either")
+        XCTAssertNil(IconPick.ink(of: try image([((0, 0, 0), 1)])), "a square filled to its edges")
+    }
 }
