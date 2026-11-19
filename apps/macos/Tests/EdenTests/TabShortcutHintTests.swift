@@ -25,15 +25,18 @@ final class TabShortcutHintTests: XCTestCase {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.showsTabShortcuts, prefs.usesTabGroups, prefs.splitView)
+        let saved = (prefs.showsTabShortcuts, prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace)
         defer {
             browser.closeAll()
             prefs.showsTabShortcuts = saved.0
             prefs.usesTabGroups = saved.1
             prefs.splitView = saved.2
+            prefs.newTabPlace = saved.3
         }
         prefs.showsTabShortcuts = true
         prefs.usesTabGroups = false
+        // Each new tab after the last, so they stand in the order made.
+        prefs.newTabPlace = .next
         browser.commandHeld = true
         for count in 1...11 {
             if count > 1 { browser.newTab() }
@@ -69,11 +72,13 @@ final class TabShortcutHintTests: XCTestCase {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.showsTabShortcuts, prefs.sidebar, prefs.usesTabGroups, prefs.splitView)
+        let saved = (prefs.showsTabShortcuts, prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace)
         prefs.showsTabShortcuts = true
         prefs.sidebar = true
         prefs.usesTabGroups = false
         prefs.splitView = true
+        // Each new tab after the last, so they stand in the order made.
+        prefs.newTabPlace = .next
         for number in 1...11 {
             if number > 1 { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(number)")!, title: "Tab \(number)")
@@ -95,6 +100,7 @@ final class TabShortcutHintTests: XCTestCase {
             prefs.sidebar = saved.1
             prefs.usesTabGroups = saved.2
             prefs.splitView = saved.3
+            prefs.newTabPlace = saved.4
         }
         try await settle()
         try await flags(.command, in: window)

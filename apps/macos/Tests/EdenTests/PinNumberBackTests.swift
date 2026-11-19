@@ -27,13 +27,16 @@ final class PinNumberBackTests: XCTestCase {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.pinNumberGoesBack, prefs.usesTabGroups)
+        let saved = (prefs.pinNumberGoesBack, prefs.usesTabGroups, prefs.newTabPlace)
         defer {
             browser.closeAll()
             prefs.pinNumberGoesBack = saved.0
             prefs.usesTabGroups = saved.1
+            prefs.newTabPlace = saved.2
         }
         prefs.usesTabGroups = false
+        // Each new tab after the last, so they stand in the order made.
+        prefs.newTabPlace = .next
         for number in 1...4 {
             if number > 1 { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(number)")!, title: "Tab \(number)")

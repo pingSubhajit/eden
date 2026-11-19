@@ -176,10 +176,10 @@ final class PinStuckTests: XCTestCase {
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
         let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs,
-                        prefs.usesSpaces, prefs.sharesPins, prefs.glyph)
+                        prefs.usesSpaces, prefs.sharesPins, prefs.glyph, prefs.newTabPlace)
         restorePreferences = {
             (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs,
-             prefs.usesSpaces, prefs.sharesPins, prefs.glyph) = previous
+             prefs.usesSpaces, prefs.sharesPins, prefs.glyph, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
@@ -190,6 +190,8 @@ final class PinStuckTests: XCTestCase {
         browser.prefs.roomyTabs = false
         browser.prefs.sharesPins = false
         browser.prefs.glyph = .letters
+        // Each new tab after the last, so they stand in the order made.
+        browser.prefs.newTabPlace = .next
         for word in (0..<count).map({ "t\($0)" }) {
             if browser.tabs.last?.isBlank == false { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)

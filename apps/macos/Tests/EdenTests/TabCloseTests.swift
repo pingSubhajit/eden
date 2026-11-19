@@ -11,6 +11,7 @@ final class TabCloseTests: XCTestCase {
     private var browser: Browser!
     private var oldSplitView = false
     private var oldCloseGoesBack = false
+    private var oldNewTabPlace = NewTabPlace.next
 
     override class func setUp() {
         setenv("EDEN_PROBE", "tab-close-\(getpid())", 1)
@@ -24,8 +25,11 @@ final class TabCloseTests: XCTestCase {
         browser = Browser(record: WindowRecord())
         oldSplitView = browser.prefs.splitView
         oldCloseGoesBack = browser.prefs.closeGoesBack
+        oldNewTabPlace = browser.prefs.newTabPlace
         browser.prefs.splitView = false
         browser.prefs.closeGoesBack = true
+        // A page opened from a tab comes in beside it, as these were written for.
+        browser.prefs.newTabPlace = .next
         browser.closeAll()
     }
 
@@ -33,6 +37,7 @@ final class TabCloseTests: XCTestCase {
         browser?.closeAll()
         browser?.prefs.splitView = oldSplitView
         browser?.prefs.closeGoesBack = oldCloseGoesBack
+        browser?.prefs.newTabPlace = oldNewTabPlace
         browser = nil
         super.tearDown()
     }

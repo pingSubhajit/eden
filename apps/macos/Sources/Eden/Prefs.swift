@@ -360,7 +360,8 @@ final class Preferences: ObservableObject {
     @Published var switcherLeavesOutPins: Bool {
         didSet { store.set(switcherLeavesOutPins, forKey: "tabs.switcherLeavesOutPins") }
     }
-    /// Where a new tab goes in the row. Next unless asked for.
+    /// Where a new tab goes in the row: at the top, under the New Tab row
+    /// there, as in Dia, unless asked for otherwise.
     @Published var newTabPlace: NewTabPlace {
         didSet { store.set(newTabPlace.rawValue, forKey: "tabs.newPlace") }
     }
@@ -963,7 +964,7 @@ final class Preferences: ObservableObject {
         switcherBehindFirst = store.bool(forKey: "tabs.switcherBehindFirst")
         switcherLeavesOutPins = store.bool(forKey: "tabs.switcherLeavesOutPins")
         frontLinksBeside = store.bool(forKey: "tabs.frontBeside")
-        newTabPlace = store.string(forKey: "tabs.newPlace").flatMap(NewTabPlace.init(rawValue:)) ?? .next
+        newTabPlace = store.string(forKey: "tabs.newPlace").flatMap(NewTabPlace.init(rawValue:)) ?? .top
         startsFresh = store.bool(forKey: Preferences.freshKey)
         confirmsQuit = store.bool(forKey: Preferences.confirmQuitKey)
         engineSuggests = store.bool(forKey: "search.suggest")

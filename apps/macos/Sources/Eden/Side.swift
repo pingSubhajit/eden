@@ -466,10 +466,17 @@ struct SideBar: View {
                         }
                     }
                 }
-                // Your other devices' groups, as on screen.
+                // Your other devices' groups, their line, and the New Tab
+                // row where new tabs go, as on screen.
+                let keepLine = showsLine(kept: pins.count + listed.count + devices.count + groups.count,
+                                         listed: listed.count, loose: rest.count)
                 if !devices.isEmpty {
                     DeviceGroups(browser: browser, prefs: prefs, space: space, opened: $elsewhereOpened)
                 }
+                if showsDeviceLine(devices: devices.count, groups: groups.count, keepLine: keepLine) {
+                    KeepLine(clears: false) {}
+                }
+                if newTabOnTop { newTab }
                 // Its groups, folded as they were left (see Parked.drawn).
                 ForEach(groups) { drawn in
                     SideGroup(colour: drawn.group.colour, folded: drawn.tabs.isEmpty,
@@ -483,7 +490,7 @@ struct SideBar: View {
                     }
                 }
                 // Under the groups, as on screen.
-                if showsLine(kept: pins.count + listed.count + devices.count + groups.count, listed: listed.count, loose: rest.count) {
+                if keepLine {
                     KeepLine(clears: false) {}
                 }
                 ForEach(rest) { tab in
@@ -491,7 +498,7 @@ struct SideBar: View {
                             interactive: false, close: {})
                 }
             }
-            newTab
+            if !newTabOnTop { newTab.padding(.top, SideBar.gap) }
         }
         .allowsHitTesting(false)
     }
@@ -531,6 +538,9 @@ struct SideBar: View {
             .reduce(0) { $0 + browser.pages($1.tabs, in: browser.spaceID).count }
         let headings = CGFloat(grouped.count + devices.count) * (heading + SideBar.gap)
             + CGFloat(deviceRows) * (rowHeight + SideBar.gap)
+            + (showsDeviceLine(devices: devices.count, groups: grouped.count,
+                               keepLine: showsLine(kept: keptCount, listed: listed, loose: ungrouped))
+                ? KeepLine.height + SideBar.gap : 0)
         let loose = CGFloat(rows.count) * (rowHeight + SideBar.gap) + CGFloat(pairs) * rowHeight + headings
         return listBlock + loose + rowHeight + 8
     }
@@ -853,11 +863,24 @@ struct SideBar: View {
 
     private var loose: some View {
         VStack(spacing: SideBar.gap) {
+            // See the grid: the drag is measured in the column's space, not
+            // the row's, so a row that has just moved keeps its bearings.
+            // Worked out once, not by every row: each look walks the whole
+            // row, and 300 rows asking made redrawing the column quadratic.
+            let loose = looseTabs
+            let devices = devicesHere
+            let keepLine = showsLine(kept: keptCount, listed: browser.listedPins.count, loose: loose.count)
             // Your other devices' tabs first, groups of the browser's own,
-            // above yours (Elsewhere.swift).
-            if !devicesHere.isEmpty {
+            // with a line under them over yours, as Dia's Pull Requests
+            // has (Elsewhere.swift); then where new tabs come in.
+            if !devices.isEmpty {
                 DeviceGroups(browser: browser, prefs: prefs, space: browser.spaceID, opened: $elsewhereOpened)
             }
+            if showsDeviceLine(devices: devices.count, groups: prefs.usesTabGroups ? browser.tabGroups.count : 0,
+                               keepLine: keepLine) {
+                KeepLine(clears: false) {}
+            }
+            if newTabOnTop { newTab }
             if prefs.usesTabGroups {
                 ForEach(browser.tabGroups) { group in
                     let folded = browser.visibleTabs(in: group).isEmpty
@@ -875,14 +898,9 @@ struct SideBar: View {
                     .zIndex(carryingGroup == group.id ? 1 : 0)
                 }
             }
-            // See the grid: the drag is measured in the column's space, not
-            // the row's, so a row that has just moved keeps its bearings.
-            // Worked out once, not by every row: each look walks the whole
-            // row, and 300 rows asking made redrawing the column quadratic.
-            let loose = looseTabs
             // Under the groups: Clear keeps them, as it keeps the pins, so
             // everything above the line is what stays.
-            if showsLine(kept: keptCount, listed: browser.listedPins.count, loose: loose.count) {
+            if keepLine {
                 KeepLine(clears: !loose.isEmpty) { browser.clearTabs() }
             }
             let ghost: Int? = if case .loose(let at)? = crossing?.target { at } else { nil }
@@ -1123,9 +1141,21 @@ struct SideBar: View {
         VStack(alignment: .leading, spacing: 0) {
             listed
             loose
-            newTab
+            if !newTabOnTop { newTab.padding(.top, SideBar.gap) }
         }
     }
+
+    /// The line under your other devices' groups: there unless the line over
+    /// your tabs (KeepLine's, with Clear) would come straight after it, no
+    /// New Tab row nor group of yours between, which then does for both.
+    private func showsDeviceLine(devices: Int, groups: Int, keepLine: Bool) -> Bool {
+        devices > 0 && (newTabOnTop || groups > 0 || !keepLine)
+    }
+
+    /// The New Tab row where new tabs go: at the top of yours, under the
+    /// line, with new tabs going to the top (Settings › Tabs); else under
+    /// them all.
+    private var newTabOnTop: Bool { prefs.newTabPlace == .top }
 
     /// The foot's door and its margin beneath; with icons only, its doors
     /// one above the other.
@@ -1140,10 +1170,8 @@ struct SideBar: View {
         if icons {
             Quiet(icon: "plus", title: "", height: rowHeight, size: prefs.sideTitle, centred: true) { browser.launch() }
                 .help("New Tab   ⌘T")
-                .padding(.top, SideBar.gap)
         } else {
             Quiet(icon: "plus", title: "New tab", height: rowHeight, size: prefs.sideTitle) { browser.launch() }
-                .padding(.top, SideBar.gap)
         }
     }
 

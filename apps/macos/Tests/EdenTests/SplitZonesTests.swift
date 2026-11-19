@@ -79,12 +79,14 @@ final class SplitZonesTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.usesTabGroups, prefs.splitView)
-        restorePreferences = { (prefs.usesTabGroups, prefs.splitView) = previous }
+        let previous = (prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace)
+        restorePreferences = { (prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace) = previous }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = true
+        // Each new tab after the last, so they stand in the order made.
+        browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three"] {
             if browser.tabs.last?.isBlank == false { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)

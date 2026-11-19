@@ -93,13 +93,16 @@ final class TabSelectionTests: XCTestCase {
         // with whatever tabs the last test left (see CloseTabsBelowTests).
         browser.closeAll()
         let prefs = browser.prefs
-        let saved = (prefs.usesTabGroups, prefs.splitView)
+        let saved = (prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace)
         addTeardownBlock { @MainActor in
             browser.closeAll()
             prefs.usesTabGroups = saved.0
             prefs.splitView = saved.1
+            prefs.newTabPlace = saved.2
         }
         prefs.usesTabGroups = false
+        // Each new tab after the last, so they stand in the order made.
+        prefs.newTabPlace = .next
         for word in ["one", "two", "three", "four"] {
             if browser.tabs.last?.isBlank != true { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://\(word).example/")!, title: word)

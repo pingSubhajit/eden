@@ -12,6 +12,7 @@ final class NotificationTabTests: XCTestCase {
     private static let world = "notification-tab-\(getpid())"
     private let site = "https://chat.example"
     private var browsers: [Browser] = []
+    private var newTabPlace = NewTabPlace.next
 
     override class func setUp() {
         setenv("EDEN_PROBE", world, 1)
@@ -34,11 +35,15 @@ final class NotificationTabTests: XCTestCase {
         // A new window starts with the row last saved, and a saved tab in
         // front would load: each test starts from none, and leaves none.
         Session.write(now: true, Session.Shape(tabs: [], active: 0))
+        // Each new tab after the last, so the first made is the first in the row.
+        newTabPlace = Shared.prefs.newTabPlace
+        Shared.prefs.newTabPlace = .next
     }
 
     override func tearDown() async throws {
         for browser in browsers { browser.closeAll() }
         browsers = []
+        Shared.prefs.newTabPlace = newTabPlace
         Session.write(now: true, Session.Shape(tabs: [], active: 0))
         XCTAssertTrue(NSApp.windows.allSatisfy { !$0.isVisible }, "a window was shown")
         XCTAssertFalse(NSApp.isActive, "the app came forward")
