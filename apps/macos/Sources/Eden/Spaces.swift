@@ -100,6 +100,7 @@ enum Spaces {
         let made = WKWebsiteDataStore(forIdentifier: id)
         if Store.keepsSignIns { Store.followSignIns(made) } else { Store.followCookies(made) }
         BrowserProxy.shared.attach(made)
+        SessionCookies.shared.keep(made, restoring: Store.restoresSessions)
         stores[id] = made
         return made
     }
@@ -143,12 +144,15 @@ enum Spaces {
     @MainActor static func eraseStore(_ store: WKWebsiteDataStore?, id: UUID) {
         if let store {
             guard store !== Store.websites else { return }
+            SessionCookies.shared.forget(store)
             Browsers.all.first?.forgetDownloads(of: store)
             let everything = WKWebsiteDataStore.allWebsiteDataTypes()
             store.removeData(ofTypes: everything, modifiedSince: .distantPast) {}
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 store.removeData(ofTypes: everything, modifiedSince: .distantPast) {}
             }
+        } else {
+            SessionCookies.shared.forget(named: id.uuidString)
         }
         let pending = Set(Store.settings.stringArray(forKey: "spaces.erasing") ?? []).union([id.uuidString])
         Store.settings.set(pending.sorted(), forKey: "spaces.erasing")

@@ -57,6 +57,11 @@ extension Store {
         unsafeBitCast(jar.method(for: policy), to: Policy.self)(jar, policy, accept.rawValue) {}
     }
 
+    /// Whether the sites' sessions come back with the tabs: their session
+    /// cookies, kept across a quit (SessionCookies). Not with a fresh start
+    /// (Settings › General), whose tabs don't either.
+    static var restoresSessions: Bool { !settings.bool(forKey: Preferences.freshKey) }
+
     /// A test copy of the app under a bundle id of its own has a WebKit
     /// container of its own too, so it can use WebKit's default store and
     /// extension configuration — the ones the real browser uses, which

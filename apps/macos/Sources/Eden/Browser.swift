@@ -1706,8 +1706,10 @@ final class Browser: NSObject, ObservableObject {
     /// the point.
     func clearSites() {
         let types = WKWebsiteDataStore.allWebsiteDataTypes()
-        // This profile's: another profile is another browser.
+        // This profile's: another profile is another browser. Their
+        // sessions kept for the next launch too (SessionCookies).
         for store in Spaces.stores(of: profileID) {
+            SessionCookies.shared.cleared(store)
             store.removeData(ofTypes: types, modifiedSince: .distantPast) {}
         }
         announce("Signed out of everything")
@@ -7723,7 +7725,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // Address.reachable). Only the page itself; a frame goes nowhere.
         if action.targetFrame?.isMainFrame == true, let local = Address.reachable(url) {
             decisionHandler(.cancel)
-            webView.load(URLRequest(url: local))
+            webView.open(local)
             return
         }
 

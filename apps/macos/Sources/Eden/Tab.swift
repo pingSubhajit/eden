@@ -1769,7 +1769,11 @@ final class Tab: ObservableObject, Identifiable {
         // from the address. A file does too: its history comes back without
         // the folder it may read, and showed nothing.
         if let state, !url.isFileURL {
-            view.interactionState = state
+            // Signed in as it was: its site's session back first (open does
+            // the same).
+            SessionCookies.shared.whenRestored(view.configuration.websiteDataStore) { [weak view] in
+                view?.interactionState = state
+            }
         } else {
             view.open(url)
         }
@@ -3344,8 +3348,16 @@ extension WKWebView {
     /// An address, or a file on this Mac. WebKit reads a file only when told
     /// which folder the page may read from, and loads nothing at all
     /// otherwise: an .html double-clicked in the Finder, once Eden is the
-    /// Mac's browser, opened a tab that stayed empty.
+    /// Mac's browser, opened a tab that stayed empty. Not before the
+    /// sites' sessions kept from the last run are back in its store
+    /// (SessionCookies), so the first page of a launch is signed in as it was.
     func open(_ url: URL) {
+        SessionCookies.shared.whenRestored(configuration.websiteDataStore) { [weak self] in
+            self?.openNow(url)
+        }
+    }
+
+    private func openNow(_ url: URL) {
         if url.isFileURL {
             // Its folder, for the pictures and styles beside it — unless the
             // folder is the home folder, the disk or a volume, where the

@@ -345,7 +345,8 @@ final class SidePanelPages: NSObject {
         web.allowsBackForwardNavigationGestures = true
         // The Web Inspector as for a tab, by the same rule (Web.inspectable).
         Web.inspectable(web)
-        web.load(URLRequest(url: url))
+        // As a tab opens a page: signed in as the last run left it (open).
+        web.open(url)
         pages[ObjectIdentifier(browser)] = Page(web: web, delegate: delegate)
     }
 

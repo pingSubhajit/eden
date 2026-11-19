@@ -5566,7 +5566,8 @@ enum ExtensionAuth {
             timer = Timer.scheduledTimer(withTimeInterval: limit, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.end(.failure(Quiet.failure("User interaction required."))) }
             }
-            view.load(URLRequest(url: url))
+            // With the session the last run left, as a tab opens a page (open).
+            view.open(url)
         }
 
         /// The extension's own redirect address, and nobody else's.

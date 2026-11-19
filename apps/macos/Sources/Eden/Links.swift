@@ -61,7 +61,27 @@ final class Links: NSObject, NSApplicationDelegate {
             // Only once the quit goes ahead: while it waits on an import,
             // a window closed is closed for good.
             MainActor.assumeIsolated { Browsers.quitting = true }
-            return .terminateNow
+            // The sites' sessions written down before going (SessionCookies):
+            // one changed a moment ago is still on its way. Two seconds at
+            // most, so a stuck write doesn't keep Eden from quitting.
+            guard MainActor.assumeIsolated({ SessionCookies.shared.unwritten }) else { return .terminateNow }
+            // Whichever comes first, the write or the two seconds, answers;
+            // the other, finding it answered, says nothing.
+            var answered = false
+            let quit = { @MainActor in
+                guard !answered else { return }
+                answered = true
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+            Task { @MainActor in
+                await SessionCookies.shared.flush()
+                quit()
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                quit()
+            }
+            return .terminateLater
         }
         if !terminationPending {
             terminationPending = true
