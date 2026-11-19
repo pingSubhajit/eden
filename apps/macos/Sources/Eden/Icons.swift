@@ -77,6 +77,11 @@ final class Favicons {
     private static let most = 4000
     /// Declared icons tried for one page, best first; favicon.ico makes six.
     private static let tried = 5
+    /// The largest icon read, in bytes. Most are a few kilobytes, but a site
+    /// may name its whole 4096-pixel artwork as its icon, a few megabytes
+    /// that Safari and Chrome show; it is drawn small from its own file
+    /// (square), never decoded whole. Past this, a failed icon.
+    static let largest = 8_000_000
 
     private static var folder: URL { Store.folder.appendingPathComponent("icons", isDirectory: true) }
     private static var index: URL { folder.appendingPathComponent("pages.json") }
@@ -471,7 +476,7 @@ final class Favicons {
                 continue
             }
             guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
-                  data.count > 60, data.count < 2_000_000
+                  data.count > 60, data.count < Favicons.largest
             else {
                 failed.insert(candidate)
                 continue
@@ -520,10 +525,12 @@ final class Favicons {
     }
 
     /// An oversized answer is a failed icon, not an unanswered request.
-    nonisolated static func readIcon(_ url: URL, session: URLSession) async throws -> (Data, URLResponse) {
+    /// `limit`: `largest`, but for a test, which needn't read megabytes to
+    /// see the reading stop.
+    nonisolated static func readIcon(_ url: URL, session: URLSession,
+                                     limit: Int = largest) async throws -> (Data, URLResponse) {
         let (bytes, response) = try await session.bytes(from: url)
         defer { bytes.task.cancel() }
-        let limit = 2_000_000
         guard response.expectedContentLength < limit else { return (Data(), response) }
         var data = Data()
         for try await byte in bytes {

@@ -37,7 +37,8 @@ final class FaviconMemoryTests: XCTestCase {
     }
 
     func testLargeAnswersAreStoppedWithAndWithoutALength() async throws {
-        let large = String(repeating: "x", count: 10_000_000)
+        let limit = 2_000_000
+        let large = String(repeating: "x", count: limit * 5)
         let server = try LocalPageServer([
             "/known": .init(type: "image/png", body: large, slowly: true),
             "/unknown": .init(type: "image/png", body: large, withoutLength: true, slowly: true),
@@ -51,15 +52,15 @@ final class FaviconMemoryTests: XCTestCase {
         let inline = try XCTUnwrap(URL(string: "data:image/png;base64," + Data(repeating: 42, count: 100).base64EncodedString()))
         let (inlineData, _) = try await Favicons.readIcon(inline, session: session)
         XCTAssertEqual(inlineData, Data(repeating: 42, count: 100))
-        let (known, _) = try await Favicons.readIcon(server.url("/known"), session: session)
+        let (known, _) = try await Favicons.readIcon(server.url("/known"), session: session, limit: limit)
         XCTAssertTrue(known.isEmpty)
-        let (unknown, _) = try await Favicons.readIcon(server.url("/unknown"), session: session)
+        let (unknown, _) = try await Favicons.readIcon(server.url("/unknown"), session: session, limit: limit)
         XCTAssertTrue(unknown.isEmpty)
         try await Task.sleep(for: .milliseconds(200))
         print("Icon bytes sent: known \(server.bytesSent("/known")), unknown \(server.bytesSent("/unknown"))")
         XCTAssertLessThan(server.bytesSent("/known"), 500_000)
-        XCTAssertGreaterThanOrEqual(server.bytesSent("/unknown"), 2_000_000)
-        XCTAssertLessThan(server.bytesSent("/unknown"), 4_000_000)
+        XCTAssertGreaterThanOrEqual(server.bytesSent("/unknown"), limit)
+        XCTAssertLessThan(server.bytesSent("/unknown"), limit * 2)
     }
 
     func testPrivateIconsStayPrivateAndCanBeRedrawnAfterEviction() async throws {
