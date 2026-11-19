@@ -178,6 +178,35 @@ final class Syncing {
         if tabs != otherTabs { otherTabs = tabs }
     }
 
+    /// Asks to close pages here already acted on, by key: each is deleted
+    /// at the next pass, and not acted on twice meanwhile.
+    @ObservationIgnored private var heard: Set<String> = []
+
+    /// What another device asked of this one, from its list of this
+    /// device's tabs: pages closed, as the cross on a card closes them
+    /// (the Mac's Sync.askToClose), and pages opened, behind the one in
+    /// front (Sync.askToOpen). After the pass, as each tells sync of the
+    /// change it makes.
+    func answerAsks(in live: [String: String]) {
+        let now = Date().timeIntervalSince1970
+        let closing = SyncItems.closeAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
+        let opening = SyncItems.openAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
+        guard !closing.isEmpty || !opening.isEmpty else { return }
+        heard.formUnion(closing.keys)
+        heard.formUnion(opening.keys)
+        let pages = Set(closing.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
+        let sent = opening.values.sorted { $0.at < $1.at }.map(\.page)
+        DispatchQueue.main.async { [browser] in
+            let asked = browser.ordinaryTabs.filter { tab in
+                guard let url = Continuity.page(tab.url), pages.contains(History.identity(for: url)) else { return false }
+                // A pin at its home isn't in the list the other device had.
+                return !PinDef.atHome(browser.pinDef(of: tab)?.homeURL, showing: url)
+            }
+            for tab in asked { browser.close(tab) }
+            for page in sent { browser.openSent(page) }
+        }
+    }
+
     // MARK: - for Settings
 
     /// Whether sync stopped, or can't run, with something to say.
@@ -241,6 +270,9 @@ final class AppScope: SyncScope {
 
     func owns(_ key: String, _ text: String) -> Bool {
         guard key != own else { return true }
+        // Asks of this device, to close a page or open one: never written
+        // here, deleted everywhere once acted on.
+        if SyncItems.asks(key, of: syncing.device) { return true }
         guard Settings.synced.contains(key) else { return false }
         return owned || !Settings.spaceSettings.contains(key)
     }
@@ -257,6 +289,7 @@ final class AppScope: SyncScope {
     }
 
     func settled(_ live: [String: String]) {
+        syncing.answerAsks(in: live)
         syncing.showOtherTabs(SyncItems.otherTabs(live, except: syncing.device, now: Date().timeIntervalSince1970))
     }
 

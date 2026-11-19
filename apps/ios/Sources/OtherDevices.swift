@@ -106,7 +106,7 @@ extension Browser {
     /// yet, to open it in rather than beside.
     func open(_ offer: Elsewhere.Offer, in empty: Tab? = nil) {
         guard let url = offer.page.address else { return }
-        let space = offer.page.space.flatMap { settings.usesSpaces && library.space($0) != nil ? $0 : nil } ?? spaceID
+        let space = space(of: offer.page)
         let identity = History.identity(for: url)
         let arrival = Tab.Arrival(page: url, scroll: offer.page.scroll, reading: offer.page.reading == true,
                                   from: offer.deviceName)
@@ -125,5 +125,27 @@ extension Browser {
         }
         if space != spaceID { enter(space) }
         newTab(url: url).arrival = arrival
+    }
+
+    /// The space a page from another device goes in here: the one it was
+    /// in there, when this device has it, else the one in front.
+    private func space(of page: DeviceTabs.Page) -> UUID {
+        page.space.flatMap { settings.usesSpaces && library.space($0) != nil ? $0 : nil } ?? spaceID
+    }
+
+    /// A page another device sent here (the Mac's Sync.askToOpen), opened
+    /// behind the page in front: in its space, after that space's last tab,
+    /// loading once it is gone to, as a tab brought back from the last
+    /// session does. Nothing when it is open here already.
+    func openSent(_ page: DeviceTabs.Page) {
+        guard let url = page.address else { return }
+        let identity = History.identity(for: url)
+        guard !ordinaryTabs.contains(where: { $0.url.map(History.identity(for:)) == identity }) else { return }
+        let space = space(of: page)
+        let last = ordinaryTabs.last { $0.owner == .space(space) }
+        guard last != nil || space == spaceID else { return }
+        // Not yet made, its page only waits (Tab.load); its title shown
+        // until it is gone to.
+        newTab(url: url, select: false, after: last).restore(url: url, title: page.title)
     }
 }
