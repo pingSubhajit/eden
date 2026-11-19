@@ -145,7 +145,10 @@ final class Tab: NSObject, Identifiable {
         watch(view)
         if let pending {
             self.pending = nil
-            view.load(URLRequest(url: pending))
+            // Signed in as it was: its store's sessions back first (SessionCookies).
+            SessionCookies.shared.whenRestored(configuration.websiteDataStore) { [weak view] in
+                view?.load(URLRequest(url: pending))
+            }
         }
         return view
     }
@@ -161,7 +164,9 @@ final class Tab: NSObject, Identifiable {
         self.url = url
         if let built {
             Shield.shared.tune(configuration.userContentController, for: url.host())
-            built.load(URLRequest(url: url))
+            SessionCookies.shared.whenRestored(configuration.websiteDataStore) { [weak built] in
+                built?.load(URLRequest(url: url))
+            }
         } else {
             pending = url
         }

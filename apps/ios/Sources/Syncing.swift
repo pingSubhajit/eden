@@ -440,6 +440,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     static var syncing: Syncing?
 
     func application(_ application: UIApplication,
+                     willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        EdenApp.keepSessions(application)
+        return true
+    }
+
+    func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         AppDelegate.syncing?.start()
         return true

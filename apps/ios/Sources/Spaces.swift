@@ -160,6 +160,7 @@ final class WebsiteStores {
         guard case .space(let id) = key else { return Tab.ordinaryStore }
         if let store = made[id] { return store }
         let store = WKWebsiteDataStore(forIdentifier: identifier(for: id))
+        SessionCookies.shared.keep(store, restoring: true)
         made[id] = store
         return store
     }
@@ -188,6 +189,7 @@ final class WebsiteStores {
     /// later launch, if not in this one.
     func erase(_ space: UUID) {
         let identifier = identifier(for: space)
+        SessionCookies.shared.forget(named: identifier.uuidString)
         var pending = Set(settings.stringArray(forKey: WebsiteStores.erasingKey) ?? [])
         pending.insert(identifier.uuidString)
         settings.set(pending.sorted(), forKey: WebsiteStores.erasingKey)
