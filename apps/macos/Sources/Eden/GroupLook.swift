@@ -133,21 +133,34 @@ struct GroupSurface: ViewModifier {
     /// Something carried over it would join it.
     var lit = false
 
-    /// A folded Stone group, as Dia's plain ones, has no surface at all: a
-    /// heading among the tabs until it is opened, or something carried
-    /// over it would join it. Where it sits doesn't change, only the tint.
-    private var bare: Bool { colour == .stone && folded && !lit }
+    @State private var hovering = false
+
+    /// Folded, a group has no surface at all, as Dia's don't: a heading
+    /// among the tabs, its name in its colour, until it is opened, the
+    /// pointer comes onto it, or something carried over it would join it.
+    /// Where it sits doesn't change, only the tint.
+    private var bare: Bool { folded && !hovering && !lit }
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: GroupLook.radius, style: .continuous)
         content
             .padding(GroupLook.inset)
             .environment(\.greys, colour.greys)
-            .background(shape.fill(lit ? colour.lit : colour.fill).opacity(bare ? 0 : 1))
-            .overlay(shape.strokeBorder(colour.edge, lineWidth: 0.5).opacity(bare ? 0 : 1))
-            .animation(Motion.quick, value: lit)
+            // The tint fades on its own; what it holds folds on the fold's spring.
+            .background {
+                shape.fill(lit ? colour.lit : colour.fill)
+                    .opacity(bare ? 0 : 1)
+                    .animation(Motion.quick, value: lit)
+                    .animation(Motion.quick, value: bare)
+            }
+            .overlay {
+                shape.strokeBorder(colour.edge, lineWidth: 0.5)
+                    .opacity(bare ? 0 : 1)
+                    .animation(Motion.quick, value: bare)
+            }
+            .contentShape(shape)
+            .onHover { hovering = $0 }
             .animation(Motion.quick, value: colour)
-            .animation(GroupLook.fold, value: bare)
     }
 }
 

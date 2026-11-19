@@ -130,11 +130,11 @@ struct GroupHeading: View {
         if compact { short } else { long }
     }
 
-    /// Its tint: a folded Stone group's none, as its surface has none
-    /// (GroupSurface), until the pointer or something carried is on it.
+    /// Its tint: none while folded, as its surface has none (GroupSurface),
+    /// until the pointer or something carried is on it.
     private var shortFill: Color {
         if dropping || hovering { return group.colour.lit }
-        let bare = group.colour == .stone && group.collapsed && browser.visibleTabs(in: group).isEmpty
+        let bare = group.collapsed && browser.visibleTabs(in: group).isEmpty
         return bare ? .clear : group.colour.fill
     }
 
