@@ -208,15 +208,7 @@ extension Browser {
     func pinDef(of tab: Tab) -> PinDef? { tab.pin.flatMap(pins.def) }
 
     /// The same page, give or take a trailing slash.
-    static func samePage(_ one: URL?, _ other: URL?) -> Bool {
-        guard let one, let other else { return false }
-        func bare(_ url: URL) -> String {
-            var text = url.absoluteString
-            while text.hasSuffix("/") { text.removeLast() }
-            return text
-        }
-        return bare(one) == bare(other)
-    }
+    static func samePage(_ one: URL?, _ other: URL?) -> Bool { PinDef.samePage(one, other) }
 
     /// Whether a tab's page can be pinned: an ordinary tab, on a web page.
     func canPin(_ tab: Tab) -> Bool {

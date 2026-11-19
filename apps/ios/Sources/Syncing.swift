@@ -275,6 +275,9 @@ final class AppScope: SyncScope {
         var pages: [DeviceTabs.Page] = []
         for tab in browser.ordinaryTabs {
             guard let url = Continuity.page(tab.url), case .space(let space) = tab.owner else { continue }
+            // A pin at its home is the pin, which every device has already;
+            // gone on to another page, it is that page.
+            if PinDef.atHome(browser.pinDef(of: tab)?.homeURL, showing: url) { continue }
             let page = DeviceTabs.Page(url: url.absoluteString, title: tab.title, space: space,
                                        scroll: DeviceTabs.Page.scroll(tab.readFraction), reading: tab.isReading ? true : nil)
             let inFront = tab.id == browser.activeID
@@ -363,12 +366,20 @@ final class PersonalScope: SyncScope {
         let catalog = pins.catalog
         let fromAgreed = SyncItems.applyPins(agreed, spaces: ids, local: catalog.bySpace, localShared: pins.shared)
         let agreedPins = Set((fromAgreed.bySpace.values.flatMap { $0 } + fromAgreed.shared).map(\.id))
+        // This device's own pins after the agreed ones, but not a second of
+        // a page they pin already: that one's tab carries on as theirs.
+        let before = (bySpace: catalog.bySpace, shared: pins.shared)
+        let shared = fromAgreed.shared + SyncItems.onePerPage(pins.shared.filter { !agreedPins.contains($0.id) },
+                                                               besides: fromAgreed.shared)
         var bySpace = fromAgreed.bySpace
         for space in ids {
-            let mine = catalog.pins(of: space).filter { !agreedPins.contains($0.id) }
+            let mine = SyncItems.onePerPage(catalog.pins(of: space).filter { !agreedPins.contains($0.id) },
+                                            besides: (fromAgreed.bySpace[space] ?? []) + shared)
             if !mine.isEmpty { bySpace[space, default: []] += mine }
         }
-        pins.adopt(bySpace, in: ids, shared: fromAgreed.shared + pins.shared.filter { !agreedPins.contains($0.id) })
+        pins.adopt(bySpace, in: ids, shared: shared)
+        browser.pinsMerged(SyncItems.handedOver(before: before.bySpace, beforeShared: before.shared,
+                                                after: bySpace, afterShared: shared))
         browser.pinsChanged()
         // Both written now, changed or not: a write that failed last time,
         // with nothing changed since, must still be known to have landed.
@@ -421,8 +432,13 @@ final class PersonalScope: SyncScope {
         }
         library.adopt(spaces)
         let ids = library.spaces.map(\.id)
-        let pins = SyncItems.applyPins(live, spaces: ids, local: browser.pins.catalog.bySpace, localShared: browser.pins.shared)
+        let before = (bySpace: browser.pins.catalog.bySpace, shared: browser.pins.shared)
+        let pins = SyncItems.applyPins(live, spaces: ids, local: before.bySpace, localShared: before.shared)
         browser.pins.adopt(pins.bySpace, in: ids, shared: pins.shared)
+        // Whichever device merged two pins of a page first, this one's tab
+        // of the one given up carries on as the one kept.
+        browser.pinsMerged(SyncItems.handedOver(before: before.bySpace, beforeShared: before.shared,
+                                                after: pins.bySpace, afterShared: pins.shared))
         browser.pinsChanged()
     }
 

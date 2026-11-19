@@ -325,6 +325,32 @@ struct SpacesTests {
         #expect(again.looseTabs.contains { $0 === restored && $0.url == b }, "the page it was on, kept")
     }
 
+    @Test func theTabOfAPinThatGaveWayInAMergeIsTheOthersNow() throws {
+        let (browser, tab) = try opened(a)
+        browser.pin(tab)
+        let id = try #require(tab.pin)
+        let mine = try #require(browser.pins.def(id))
+        // Gone on from its home, to a message say.
+        tab.restore(url: b, title: "A message")
+        let count = browser.tabs.count
+        // Pinned apart on the Mac at the same page, its id the lower
+        // (SyncItems.applyPins): one pin, the Mac's.
+        let theirs = PinDef(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, letter: "M",
+                            home: a.absoluteString, title: "Mac's")
+        let merged = SyncItems.applyPins(SyncItems.pins(bySpace: [Space.firstID: [theirs, mine]], shared: [], base: [:]),
+                                         spaces: [Space.firstID], local: [:], localShared: [])
+        let handed = SyncItems.handedOver(before: browser.pins.catalog.bySpace, beforeShared: browser.pins.shared,
+                                          after: merged.bySpace, afterShared: merged.shared)
+        #expect(handed == [mine.id: theirs.id])
+        browser.pins.adopt(merged.bySpace, in: [Space.firstID], shared: merged.shared)
+        browser.pinsMerged(handed)
+        browser.pinsChanged()
+        #expect(tab.pin == theirs.id, "the same tab, the pin that stayed, where it had gone")
+        #expect(tab.url == b)
+        #expect(browser.tabs.count == count, "no new tab beside it, none closed")
+        #expect(browser.shownPins.map(\.def.id) == [theirs.id])
+    }
+
     @Test func aPinRestingAtHomeGoesWithItsPin() throws {
         let (browser, tab) = try opened(a)
         browser.pin(tab)

@@ -381,6 +381,19 @@ final class Browser {
 
     /// The pins changed — here or on another device: every space's tabs
     /// made to match them.
+    /// Pins given up for others of the same page (SyncItems.handedOver):
+    /// each one's tab carries on as the pin it became, page, history and
+    /// all, wherever it had gone, unless that one has a tab of its own in
+    /// the space already. Before the pins are matched to their tabs.
+    func pinsMerged(_ merged: [UUID: UUID]) {
+        guard !merged.isEmpty else { return }
+        for tab in tabs {
+            guard let id = tab.pin, let became = merged[id],
+                  !tabs.contains(where: { $0.owner == tab.owner && $0.pin == became }) else { continue }
+            tab.pin = became
+        }
+    }
+
     func pinsChanged() {
         for space in spaces { reconcilePins(in: .space(space.id)) }
         save()
