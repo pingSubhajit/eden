@@ -723,6 +723,7 @@ struct Mark: View {
     let letter: String
     var size: CGFloat = 16
     var dim = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Group {
@@ -740,6 +741,10 @@ struct Mark: View {
                 Image(nsImage: icon)
                     .resizable()
                     .interpolation(.high)
+                    // One grey on nothing, in the column's own tone, turned
+                    // over to stand out from it: GitHub's black cat, white on
+                    // a dark column.
+                    .turnedOver(IconInk.needsTurning(icon, dark: scheme == .dark))
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
             } else {
@@ -756,6 +761,13 @@ struct Mark: View {
         .opacity(dim ? 0.45 : 1)
         .transition(.opacity)
         .animation(Motion.quick, value: icon == nil)
+    }
+}
+
+private extension View {
+    /// Its colours turned over, light for dark, when `on`.
+    @ViewBuilder func turnedOver(_ on: Bool) -> some View {
+        if on { colorInvert() } else { self }
     }
 }
 

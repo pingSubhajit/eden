@@ -1,4 +1,5 @@
 import AppKit
+import EdenCore
 
 /// A site icon's own colour, for the glow round a pinned tab while it is
 /// the one in front, as Dia's has: the hue most of its coloured pixels
@@ -60,5 +61,24 @@ enum IconAccent {
         guard let top = bins.max(by: { $0.weight < $1.weight }), opaque > 0, top.weight > opaque * 0.08
         else { return nil }
         return NSColor(srgbRed: top.r / top.weight, green: top.g / top.weight, blue: top.b / top.weight, alpha: 1)
+    }
+}
+
+/// Whether a site icon is one grey drawn on nothing (IconPick.ink) that a
+/// ground of the same tone would all but hide, and is to be turned over to
+/// the other: GitHub's black cat in a dark column, a white letter in a light
+/// one.
+enum IconInk {
+    private static let cache = NSCache<NSImage, AnyObject>()
+
+    @MainActor static func needsTurning(_ image: NSImage, dark: Bool) -> Bool {
+        let ink: IconPick.Ink?
+        if let known = cache.object(forKey: image) {
+            ink = (known as? NSNumber).map { $0.boolValue ? .dark : .light }
+        } else {
+            ink = image.cgImage(forProposedRect: nil, context: nil, hints: nil).flatMap(IconPick.ink(of:))
+            cache.setObject(ink.map { NSNumber(value: $0 == .dark) } ?? NSNull(), forKey: image)
+        }
+        return ink == (dark ? .dark : .light)
     }
 }
