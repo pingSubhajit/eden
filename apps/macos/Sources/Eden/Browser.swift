@@ -2425,7 +2425,7 @@ final class Browser: NSObject, ObservableObject {
 
     /// A toast at the top of the window (Toasts): `look` what it tells, done
     /// or gone wrong; `symbol` before a note; `action` the one thing it
-    /// offers, Undo or Reopen; a file just saved, shown in the Finder from
+    /// offers, Undo; a file just saved, shown in the Finder from
     /// it; `key` for one that changes where it stands, as the zoom does.
     func announce(_ text: String, look: Toast.Look = .note, symbol: String? = nil, action: Toast.Action? = nil,
                   file: URL? = nil, key: String? = nil) {
@@ -4495,23 +4495,11 @@ final class Browser: NSObject, ObservableObject {
     /// remembered for ⇧⌘T, as Arc's cross on a folder tab that isn't open
     /// deletes it. Everything that closes many at once (Close Other Tabs,
     /// Close Tabs Below, Clear, Close Group) and every close the browser
-    /// makes on its own still closes with close(_:).
-    /// Closed for good by your hand, it offers itself back for a moment, as
-    /// the iPhone's tab overview does: Reopen on the toast, ⇧⌘T as ever.
-    func closeTab(_ tab: Tab, offeringReopen: Bool = true) {
+    /// makes on its own still closes with close(_:). Closed quietly: ⇧⌘T
+    /// brings it back, and a toast for every tab closed would be noise.
+    func closeTab(_ tab: Tab) {
         if putsAway(tab) { return putAway(tab) }
-        let before = ghosts.last?.id
         close(tab)
-        guard offeringReopen, let ghost = ghosts.last, ghost.id != before else { return }
-        offerReopen("Closed “\(ghost.label)”", ghost: ghost.id)
-    }
-
-    /// A toast offering back what was just closed, if it is still to be had.
-    private func offerReopen(_ text: String, ghost id: Ghost.ID) {
-        announce(text, symbol: "xmark", action: Toast.Action("Reopen") { [weak self] in
-            guard let self, let ghost = ghosts.first(where: { $0.id == id }) else { return }
-            reopen(ghost)
-        })
     }
 
     /// Whether Close Tab puts this tab away rather than closing it: a page
@@ -4735,15 +4723,10 @@ final class Browser: NSObject, ObservableObject {
         let going = pickedTabs, onScreen = visibleTabIDs
         guard !going.isEmpty else { return }
         clearTabSelection()
-        let before = ghosts.last?.id
         closingTogether(.tabs) { _ in
-            for tab in going where !onScreen.contains(tab.id) { closeTab(tab, offeringReopen: false) }
-            for tab in going where onScreen.contains(tab.id) { closeTab(tab, offeringReopen: false) }
+            for tab in going where !onScreen.contains(tab.id) { closeTab(tab) }
+            for tab in going where onScreen.contains(tab.id) { closeTab(tab) }
         }
-        // One offer for them all, as one ⇧⌘T brings them all back.
-        guard let ghost = ghosts.last, ghost.id != before else { return }
-        let closed = ghosts.filter { $0.batch != nil && $0.batch == ghost.batch }.count
-        offerReopen(closed > 1 ? "Closed \(closed) tabs" : "Closed “\(ghost.label)”", ghost: ghost.id)
     }
 
     /// Arc's Clear, on the line above the tabs that come and go: each of
