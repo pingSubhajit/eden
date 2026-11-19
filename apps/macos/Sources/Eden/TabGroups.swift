@@ -237,7 +237,8 @@ struct GroupHeading: View {
         .onTapGesture { if !editing { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } } }
         .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
                                        iconEdge: besideColumn, targeted: targeted))
-        .onHover { over in withAnimation(Motion.quick) { hovering = over } }
+        // At once, as a tab's cross is.
+        .onHover { hovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(group.name)
         .accessibilityValue(group.collapsed ? "Folded" : "Open")

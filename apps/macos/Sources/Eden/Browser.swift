@@ -5313,8 +5313,12 @@ final class Browser: NSObject, ObservableObject {
     /// front if that is one of its own, as one folded by hand does.
     func foldAllGroups(_ fold: Bool) {
         guard tabGroups.contains(where: { $0.collapsed != fold }) else { return }
-        for index in tabGroups.indices where tabGroups[index].collapsed != fold {
-            tabGroups[index].collapsed = fold
+        // On the fold's spring, as a heading's click folds one, from the
+        // menus and the shortcuts alike.
+        withAnimation(GroupLook.fold) {
+            for index in tabGroups.indices where tabGroups[index].collapsed != fold {
+                tabGroups[index].collapsed = fold
+            }
         }
         writeSession(now: true)
     }

@@ -146,17 +146,17 @@ struct GroupSurface: ViewModifier {
         content
             .padding(GroupLook.inset)
             .environment(\.greys, colour.greys)
-            // The tint fades on its own; what it holds folds on the fold's spring.
+            // Under the pointer the tint is there at once, as a tab's is;
+            // folding or unfolding, it goes with the fold. Lit, it fades.
             .background {
                 shape.fill(lit ? colour.lit : colour.fill)
                     .opacity(bare ? 0 : 1)
                     .animation(Motion.quick, value: lit)
-                    .animation(Motion.quick, value: bare)
             }
             .overlay {
                 shape.strokeBorder(colour.edge, lineWidth: 0.5)
                     .opacity(bare ? 0 : 1)
-                    .animation(Motion.quick, value: bare)
+                    .animation(Motion.quick, value: lit)
             }
             .contentShape(shape)
             .onHover { hovering = $0 }
