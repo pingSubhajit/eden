@@ -263,7 +263,9 @@ enum GroupMenu {
         let menu = NSMenu()
         let swatches = NSMenuItem()
         let row = NSHostingView(rootView: SwatchRow(browser: browser, group: group.id))
-        row.frame = NSRect(x: 0, y: 0, width: 252, height: 32)
+        row.frame = NSRect(x: 0, y: 0, width: SwatchRow.width, height: SwatchRow.height)
+        // As wide as the menu, the swatches from its left as its titles are.
+        row.autoresizingMask = .width
         swatches.view = row
         menu.addItem(swatches)
         menu.addItem(item("Rename…") { browser.editingGroupID = group.id })
@@ -309,18 +311,33 @@ private struct SwatchRow: View {
 
     private var current: GroupColour? { browser.tabGroups.first { $0.id == group }?.colour }
 
+    /// A swatch, the ring round the chosen one and the air between them,
+    /// as close set as Dia's.
+    private static let dot: CGFloat = 16
+    private static let ring: CGFloat = 2.5
+    private static let gap: CGFloat = 5
+    /// Where the menu's titles start, measured from its edge: the first
+    /// swatch starts there too, its ring just outside.
+    private static let titles: CGFloat = 15.5
+    static let height: CGFloat = 30
+    static var width: CGFloat {
+        let count = CGFloat(GroupColour.allCases.count)
+        return titles * 2 + count * dot + (count - 1) * (gap + ring * 2)
+    }
+
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: Self.gap) {
             ForEach(GroupColour.allCases) { colour in
                 Button {
                     browser.setColour(colour, ofGroup: group)
                 } label: {
                     Circle()
                         .fill(colour.swatch)
-                        .frame(width: 18, height: 18)
+                        .frame(width: Self.dot, height: Self.dot)
                         .overlay(Circle().strokeBorder(.black.opacity(0.08), lineWidth: 0.5))
-                        .padding(2.5)
+                        .padding(Self.ring)
                         .overlay(Circle().strokeBorder(Palette.muted, lineWidth: current == colour ? 1.5 : 0))
+                        .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .help(colour.name)
@@ -328,8 +345,8 @@ private struct SwatchRow: View {
                 .accessibilityAddTraits(current == colour ? .isSelected : [])
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 32)
+        .padding(.leading, Self.titles - Self.ring)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 
