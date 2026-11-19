@@ -77,8 +77,8 @@ struct TitleAtRest: View {
             Text(label)
                 .font(.system(size: size))
                 .lineLimit(1)
-                .truncationMode(.tail)
                 .foregroundStyle(colour)
+                .fadesOut(label)
                 .opacity(on && !hovering ? 0 : 1)
             if let rest, on {
                 AtRestLine(rest: rest, size: size, compact: !roomy)

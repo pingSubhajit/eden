@@ -443,6 +443,52 @@ extension View {
     func popoverGround(card: Bool = false) -> some View {
         modifier(PopoverGround(card: card))
     }
+
+    /// A line too long for its room fades out at its end, as Dia's titles
+    /// do, rather than being cut short with an ellipsis. One that fits is
+    /// left as it is. `text` is what it says, for which way it reads: an
+    /// Arabic or Hebrew title keeps its beginning, on the right, and fades
+    /// on the left, as an ellipsis would have been put there.
+    func fadesOut(_ text: String) -> some View {
+        modifier(FadeOut(backwards: text.readsRightToLeft))
+    }
+}
+
+private struct FadeOut: ViewModifier {
+    let backwards: Bool
+
+    func body(content: Content) -> some View {
+        ViewThatFits(in: .horizontal) {
+            content.fixedSize(horizontal: true, vertical: false)
+            content
+                .fixedSize(horizontal: true, vertical: false)
+                // The room it is given, not the line's own length.
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: backwards ? .trailing : .leading)
+                .mask {
+                    HStack(spacing: 0) {
+                        if backwards { fade(from: .trailing, to: .leading) }
+                        Rectangle()
+                        if !backwards { fade(from: .leading, to: .trailing) }
+                    }
+                }
+        }
+    }
+
+    private func fade(from start: UnitPoint, to end: UnitPoint) -> some View {
+        LinearGradient(colors: [.black, .clear], startPoint: start, endPoint: end).frame(width: 24)
+    }
+}
+
+extension String {
+    /// Its first letter is Hebrew or Arabic (or Syriac, Thaana, N'Ko and
+    /// the rest of that block), so it reads from the right.
+    var readsRightToLeft: Bool {
+        guard let first = unicodeScalars.first(where: { $0.properties.isAlphabetic }) else { return false }
+        switch first.value {
+        case 0x0590...0x08FF, 0xFB1D...0xFDFF, 0xFE70...0xFEFF, 0x10800...0x10FFF, 0x1E800...0x1EFFF: return true
+        default: return false
+        }
+    }
 }
 
 private struct PopoverGround: ViewModifier {

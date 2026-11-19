@@ -201,7 +201,7 @@ struct GroupHeading: View {
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(group.colour.ink)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fadesOut(group.name)
                     .layoutPriority(1)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8.5, weight: .bold))
