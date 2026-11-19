@@ -33,6 +33,12 @@ final class SiteIcons {
 
     /// Drawn no larger than this, in pixels: a pin's icon at 28 points, 3x.
     private nonisolated static let largest = 96
+    /// The most an icon's file may hold. Some sites declare a photograph the
+    /// size of a poster as their icon (subhajit.lol's is a 3 MB JPEG, 4096
+    /// pixels square), which Safari shows; it is drawn here small, straight
+    /// from the file, never opened at full size, so it costs no more than a
+    /// small one to draw. The Mac's Favicons.largest, the same.
+    private nonisolated static let heaviest = 8_000_000
     /// An icon kept longer than this is asked for again when its site is.
     private static let keeps: TimeInterval = 7 * 24 * 3600
 
@@ -124,14 +130,14 @@ final class SiteIcons {
 
     /// The icon at `url`, drawn as a PNG no larger than `largest`: the
     /// biggest of the sizes a .ico holds, and nothing that isn't an image,
-    /// is too small to be one, or runs past two megabytes.
+    /// is too small to be one, or runs past `heaviest`.
     private nonisolated static func download(_ url: URL) async -> Data? {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
         let session = URLSession(configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200, data.count < 2_000_000,
+              (response as? HTTPURLResponse)?.statusCode == 200, data.count <= heaviest,
               let source = CGImageSourceCreateWithData(data as CFData, nil)
         else { return nil }
         let frames = 0..<CGImageSourceGetCount(source)
