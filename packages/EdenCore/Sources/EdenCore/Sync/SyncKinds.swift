@@ -215,3 +215,151 @@ extension SyncItems {
         .sorted { $0.at > $1.at }
     }
 }
+
+/// Another device asked one of its pages closed here: sent from the list of
+/// this device's tabs there, as Chrome's Tabs from Other Devices can close
+/// one. Its own item, "close:<this device>:<id>", which only this device
+/// speaks for: it closes the page and, never writing the item itself,
+/// deletes it everywhere at its next pass. The device that asked writes it
+/// once and then only carries it.
+public struct CloseAsk: Codable, Equatable, Sendable {
+    /// The page, as the asking device had it from this one's tabs.
+    public var url: String
+    /// When it was asked, seconds since 1970.
+    public var at: Double
+
+    public init(url: String, at: Double) {
+        self.url = url
+        self.at = at
+    }
+
+    /// How long an ask stands: a device away longer than this doesn't come
+    /// back to find its tabs closing on their own.
+    public static let life: Double = 3 * 24 * 60 * 60
+}
+
+/// Another device asked a page opened here: one of its tabs carried onto
+/// this device's group in its list of your devices' tabs. The same life as
+/// a CloseAsk: its own item, "open:<this device>:<id>", which only this
+/// device speaks for — it opens the page, behind the one in front, and the
+/// item goes everywhere at its next pass — written once by the device that
+/// asked and then only carried.
+public struct OpenAsk: Codable, Equatable, Sendable {
+    /// The page, as it stood on the device that sent it: its address and
+    /// title, and the space it was in, opened in that space here when this
+    /// device has it.
+    public var page: DeviceTabs.Page
+    /// When it was asked, seconds since 1970.
+    public var at: Double
+
+    public init(page: DeviceTabs.Page, at: Double) {
+        self.page = page
+        self.at = at
+    }
+}
+
+extension SyncItems {
+    /// The key of an ask to open a page on `device`.
+    public static func openKey(_ device: String, id: String) -> String { "open:" + device + ":" + id }
+
+    /// Whether `key` asks a page opened on `device`: that device's own, to
+    /// act on and delete.
+    public static func asksToOpen(_ key: String, on device: String) -> Bool { key.hasPrefix("open:" + device + ":") }
+
+    /// An ask to open `page` on `device`, as its one item.
+    public static func ask(open page: DeviceTabs.Page, on device: String, now: Double,
+                           id: String = UUID().uuidString) -> [String: String] {
+        SyncMerge.text(OpenAsk(page: page, at: now)).map { [openKey(device, id: id): $0] } ?? [:]
+    }
+
+    /// The asks to open pages on `device` that still stand, by key.
+    public static func openAsks(_ live: [String: String], on device: String, now: Double) -> [String: OpenAsk] {
+        var out: [String: OpenAsk] = [:]
+        for (key, text) in live where asksToOpen(key, on: device) {
+            guard let ask = SyncMerge.value(OpenAsk.self, text), now - ask.at <= CloseAsk.life else { continue }
+            out[key] = ask
+        }
+        return out
+    }
+
+    /// Whether `key` asks something of `device`, to close a page or to open
+    /// one: its own, never written by it, deleted everywhere once acted on.
+    public static func asks(_ key: String, of device: String) -> Bool {
+        asksToClose(key, on: device) || asksToOpen(key, on: device)
+    }
+}
+
+extension SyncItems {
+    /// The key of an ask to close a page on `device`.
+    public static func closeKey(_ device: String, id: String) -> String { "close:" + device + ":" + id }
+
+    /// Whether `key` asks a page closed on `device`: those are that device's
+    /// own, to act on and delete.
+    public static func asksToClose(_ key: String, on device: String) -> Bool { key.hasPrefix("close:" + device + ":") }
+
+    /// An ask to close `url` on `device`, as its one item.
+    public static func ask(close url: String, on device: String, now: Double,
+                           id: String = UUID().uuidString) -> [String: String] {
+        SyncMerge.text(CloseAsk(url: url, at: now)).map { [closeKey(device, id: id): $0] } ?? [:]
+    }
+
+    /// The asks to close pages on `device` that still stand, by key.
+    public static func closeAsks(_ live: [String: String], on device: String, now: Double) -> [String: CloseAsk] {
+        var out: [String: CloseAsk] = [:]
+        for (key, text) in live where asksToClose(key, on: device) {
+            guard let ask = SyncMerge.value(CloseAsk.self, text), now - ask.at <= CloseAsk.life else { continue }
+            out[key] = ask
+        }
+        return out
+    }
+}
+
+extension Elsewhere {
+    /// A page asked closed on another device, or opened there, shown so in
+    /// its list here until that device has said what it has open since —
+    /// done or not.
+    public struct Asked: Equatable, Sendable {
+        public let device: String
+        /// The page, by History.identity.
+        public let page: String
+        public let at: Double
+        /// The page asked opened there; nil for one asked closed.
+        public let opening: DeviceTabs.Page?
+
+        public init(device: String, page: String, at: Double, opening: DeviceTabs.Page? = nil) {
+            self.device = device
+            self.page = page
+            self.at = at
+            self.opening = opening
+        }
+    }
+
+    /// `devices` as asked of them — without the pages asked closed there,
+    /// with those asked opened at the end of the list — until each device
+    /// answers; and the asks still waiting for an answer.
+    public static func asAsked(_ devices: [DeviceTabs], asked: [Asked],
+                               now: Double) -> (devices: [DeviceTabs], waiting: [Asked]) {
+        let waiting = asked.filter { ask in
+            now - ask.at <= CloseAsk.life && !devices.contains { $0.device == ask.device && $0.at > ask.at }
+        }
+        guard !waiting.isEmpty else { return (devices, []) }
+        let shown = devices.map { device -> DeviceTabs in
+            let mine = waiting.filter { $0.device == device.device }
+            guard !mine.isEmpty else { return device }
+            let gone = Set(mine.filter { $0.opening == nil }.map(\.page))
+            var kept = device
+            let front = device.frontPage
+            kept.tabs = device.tabs.filter { page in
+                URL(string: page.url).map { !gone.contains(History.identity(for: $0)) } ?? true
+            }
+            var there = Set(kept.tabs.compactMap { URL(string: $0.url).map(History.identity(for:)) })
+            for ask in mine {
+                guard let page = ask.opening, there.insert(ask.page).inserted else { continue }
+                kept.tabs.append(page)
+            }
+            kept.front = front.flatMap { kept.tabs.firstIndex(of: $0) }
+            return kept
+        }
+        return (shown, waiting)
+    }
+}

@@ -79,6 +79,27 @@ final class CloudSyncTests: XCTestCase {
         XCTAssertEqual(mac.items["pin:a"], "Mail")
     }
 
+    func testAnAskToCloseReachesItsDeviceAndIsGoneOnceActedOn() async {
+        let server = SimulatedServer()
+        let key = SyncItems.closeKey("phone", id: "1")
+        // Each speaks for every item but the asks to close the other's pages.
+        let mac = Device("mac", server: server, items: [key: "ask"], folder: folder) { !SyncItems.asksToClose($0, on: "phone") }
+        let phone = Device("phone", server: server, folder: folder) { !SyncItems.asksToClose($0, on: "mac") }
+        await mac.pass(at: 1000)
+        // Written once, then only carried by the device that asked.
+        mac.items[key] = nil
+        await mac.pass(at: 1001)
+        XCTAssertEqual(server.value("app/" + key), "ask", "the asker never deletes it")
+        await phone.pass(at: 1002)
+        XCTAssertEqual(phone.given[key], "ask", "the phone hears it")
+        // Acted on, and never kept: gone everywhere at its next pass.
+        phone.items[key] = nil
+        await phone.pass(at: 1003)
+        XCTAssertNil(server.value("app/" + key))
+        await mac.pass(at: 1004)
+        XCTAssertNil(mac.given[key])
+    }
+
     func testANewcomerJoinsAndTheServerWinsWhereBothHaveOne() async {
         let server = SimulatedServer()
         let mac = Device("mac", server: server, items: ["set:search.engine": "\"kagi\""], folder: folder)

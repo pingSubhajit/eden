@@ -108,4 +108,56 @@ final class ElsewhereTests: XCTestCase {
         XCTAssertEqual(bare.page.url, url.absoluteString)
         XCTAssertEqual(bare.deviceName, "another device")
     }
+
+    // MARK: - closing a page on another device
+
+    func testOnlyThisDevicesStandingAsksToCloseAreRead() {
+        var live = SyncItems.ask(close: "https://a.example/", on: "phone", now: now, id: "1")
+        live.merge(SyncItems.ask(close: "https://b.example/", on: "mac", now: now, id: "2")) { a, _ in a }
+        live.merge(SyncItems.ask(close: "https://c.example/", on: "phone", now: now - CloseAsk.life - 1, id: "3")) { a, _ in a }
+        live["tabs:phone"] = "{}"
+        let asks = SyncItems.closeAsks(live, on: "phone", now: now)
+        XCTAssertEqual(asks.keys.sorted(), [SyncItems.closeKey("phone", id: "1")], "the mac's, and a stale one, aren't")
+        XCTAssertEqual(asks.values.first?.url, "https://a.example/")
+    }
+
+    func testAPageAskedClosedIsHiddenUntilItsDeviceAnswers() {
+        let phone = device("phone", front: 1, tabs: [page("a"), page("b"), page("c")])
+        let asked = [Elsewhere.Asked(device: "phone", page: identity("a"), at: now - 30)]
+        let (shown, waiting) = Elsewhere.asAsked([phone], asked: asked, now: now)
+        XCTAssertEqual(shown.first?.tabs.map(\.url), [page("b").url, page("c").url])
+        XCTAssertEqual(shown.first?.frontPage, page("b"), "the page in front stays in front")
+        XCTAssertEqual(waiting, asked)
+
+        // The phone has said what it has open since: what it says stands.
+        var answered = phone
+        answered.at = now
+        let after = Elsewhere.asAsked([answered], asked: asked, now: now)
+        XCTAssertEqual(after.devices, [answered])
+        XCTAssertEqual(after.waiting, [])
+    }
+
+    func testOnlyThisDevicesStandingAsksToOpenAreRead() {
+        var live = SyncItems.ask(open: page("a", space: work), on: "phone", now: now, id: "1")
+        live.merge(SyncItems.ask(open: page("b"), on: "mac", now: now, id: "2")) { a, _ in a }
+        live.merge(SyncItems.ask(close: page("c").url, on: "phone", now: now, id: "3")) { a, _ in a }
+        let asks = SyncItems.openAsks(live, on: "phone", now: now)
+        XCTAssertEqual(asks.keys.sorted(), [SyncItems.openKey("phone", id: "1")], "not the mac's, nor an ask to close")
+        XCTAssertEqual(asks.values.first?.page, page("a", space: work), "the page whole, its space with it")
+        XCTAssertTrue(SyncItems.asks(SyncItems.openKey("phone", id: "1"), of: "phone"))
+        XCTAssertTrue(SyncItems.asks(SyncItems.closeKey("phone", id: "3"), of: "phone"))
+        XCTAssertFalse(SyncItems.asks(SyncItems.openKey("mac", id: "2"), of: "phone"))
+    }
+
+    func testAPageAskedOpenedShowsInItsDevicesListUntilItAnswers() {
+        let phone = device("phone", tabs: [page("a")])
+        let asked = [Elsewhere.Asked(device: "phone", page: identity("b"), at: now - 30, opening: page("b")),
+                     Elsewhere.Asked(device: "phone", page: identity("a"), at: now - 30, opening: page("a"))]
+        let (shown, waiting) = Elsewhere.asAsked([phone], asked: asked, now: now)
+        XCTAssertEqual(shown.first?.tabs.map(\.url), [page("a").url, page("b").url], "once each, at the end")
+        XCTAssertEqual(waiting, asked)
+        var answered = phone
+        answered.at = now
+        XCTAssertEqual(Elsewhere.asAsked([answered], asked: asked, now: now).devices, [answered])
+    }
 }
