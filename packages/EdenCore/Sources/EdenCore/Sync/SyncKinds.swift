@@ -122,9 +122,15 @@ public enum Elsewhere {
         public let page: DeviceTabs.Page
 
         public init(device: DeviceTabs, page: DeviceTabs.Page) {
-            self.device = device.device
-            deviceName = device.name
-            kind = device.kind
+            self.init(device: device.device, deviceName: device.name, kind: device.kind, page: page)
+        }
+
+        /// `device`: its id as it syncs, empty when not known (a page handed
+        /// over, Continuity.offer).
+        public init(device: String, deviceName: String, kind: DeviceTabs.Kind, page: DeviceTabs.Page) {
+            self.device = device
+            self.deviceName = deviceName
+            self.kind = kind
             self.page = page
         }
     }

@@ -7161,16 +7161,18 @@ final class Browser: NSObject, ObservableObject {
     /// this profile's windows and spaces — the one in its own space, then
     /// this window's, first — never a second; otherwise opened in the space
     /// it was open in, when this window has it, read as far down and as an
-    /// article if it was.
-    func open(_ offer: Elsewhere.Offer) {
-        guard let url = URL(string: offer.page.url) else { return }
+    /// article if it was. The window it went to, which may be another one of
+    /// the profile's.
+    @discardableResult
+    func open(_ offer: Elsewhere.Offer) -> Browser {
+        guard let url = URL(string: offer.page.url) else { return self }
         let identity = History.identity(for: url)
         // Showing it, and going nowhere else: a tab on its way to another
         // page would carry on there.
         let found = profileTabs.filter { $0.tab.settledIdentity == identity }
         let space = offer.page.space
         let arrival = Tab.Arrival(page: url, scroll: offer.page.scroll, reading: offer.page.reading == true,
-                                  from: "your \(offer.deviceName)")
+                                  from: offer.deviceName)
         if let hit = found.first(where: { $0.browser === self && $0.space == space })
             ?? found.first(where: { $0.space == space }) ?? found.first(where: { $0.browser === self }) ?? found.first {
             if hit.space != hit.browser.spaceID { hit.browser.switchSpace(to: hit.space) }
@@ -7183,13 +7185,14 @@ final class Browser: NSObject, ObservableObject {
                     && hit.tab.restAddress.map(History.identity(for:)) == identity
                 if showing { hit.browser.arrive(hit.tab, arrival) } else { hit.tab.arrival = arrival }
             }
-            return
+            return hit.browser
         }
         if let space, prefs.usesSpaces, space != spaceID, spaces.contains(where: { $0.id == space }) {
             switchSpace(to: space)
         }
         let tab = open(url, foreground: true, from: active, loose: true)
         tab.arrival = arrival
+        return self
     }
 
     /// That very tab in front — not the page of its pair focused last, as a

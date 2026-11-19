@@ -98,12 +98,49 @@ enum Activity {
 struct Offered: Hashable {
     let address: URL
     let title: String?
+    /// How it is left here, for the device that takes it (Continuity.info).
+    let info: [String: String]
 
-    init?(showing: Bool, address: URL?, title: String) {
+    init?(showing: Bool, address: URL?, title: String, info: (URL) -> [String: String] = { _ in [:] }) {
         guard showing, let address = Activity.web(address) else { return nil }
         self.address = address
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         self.title = trimmed.isEmpty ? nil : trimmed
+        self.info = info(address)
+    }
+}
+
+/// The page in front, offered to your other devices as Eden's own activity
+/// once Settings › Hand Off Pages is on — never a private tab — with how it
+/// is left here: how far down it is read, whether as an article, its space.
+/// Drawn nowhere; apart from the browser's views so that reading down a page
+/// redraws nothing but this.
+private struct HandoffOffer: View {
+    let browser: Browser
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .userActivity(Activity.browsing, element: offered) { offered, activity in
+                activity.webpageURL = offered.address
+                activity.title = offered.title
+                activity.userInfo = offered.info
+                activity.isEligibleForHandoff = true
+                activity.isEligibleForSearch = false
+                activity.isEligibleForPublicIndexing = false
+            }
+    }
+
+    private var offered: Offered? {
+        guard let tab = browser.active, case .space(let space) = tab.owner else { return nil }
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
+        let device = UIDevice.current.name
+        return Offered(showing: browser.settings.handsOff, address: tab.url, title: tab.title) { _ in
+            // A page on its way says only where it is going: how the one
+            // before it was left isn't how this one is.
+            tab.isLoading ? [:] : Continuity.info(scroll: tab.readStep, reading: tab.isReading, space: space,
+                                                  device: device, kind: pad ? .ipad : .iphone)
+        }
     }
 }
 
@@ -124,32 +161,17 @@ struct RootView: View {
         .overlay(alignment: .top) { NoticeView(line: browser.notice) }
         .onContinueUserActivity(Activity.web, perform: take)
         .onContinueUserActivity(Activity.browsing, perform: take)
-        // The page in front, offered to your other devices as Eden's own
-        // activity once Settings › Hand Off Pages is on; never a private tab.
-        // Read here in body, so a new address or title updates the offer.
-        .userActivity(Activity.browsing, element: offered) { offered, activity in
-            activity.webpageURL = offered.address
-            activity.title = offered.title
-            activity.isEligibleForHandoff = true
-            activity.isEligibleForSearch = false
-            activity.isEligibleForPublicIndexing = false
-        }
+        .background { HandoffOffer(browser: browser) }
     }
 
-    private var offered: Offered? {
-        guard let tab = browser.active else { return nil }
-        return Offered(showing: browser.settings.handsOff && !tab.isPrivate, address: tab.url, title: tab.title)
-    }
-
-    /// A page handed over: into the tab in front if it has nowhere to be yet,
-    /// else a new tab, in front.
+    /// A page handed over, as a page from any of your devices is opened
+    /// (Browser.open(_ offer:)): to its tab if it is open here already, else
+    /// in its own space — into the tab in front if it has nowhere to be yet —
+    /// as far down as it was read, as an article if it was, and said.
     private func take(_ activity: NSUserActivity) {
         guard let url = Activity.web(activity.webpageURL) else { return }
-        if let tab = browser.active, !tab.isPrivate, tab.url == nil {
-            tab.load(url)
-        } else {
-            browser.newTab(url: url)
-        }
+        let empty = browser.active.flatMap { $0.isPrivate || $0.url != nil ? nil : $0 }
+        browser.open(Continuity.offer(url, title: activity.title, info: activity.userInfo), in: empty)
     }
 }
 

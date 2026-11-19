@@ -21,6 +21,9 @@ final class Tab: NSObject, Identifiable {
     /// How far down the page is read, nought to one, as your other devices
     /// are told (Syncing).
     @ObservationIgnored private(set) var readFraction: Double = 0
+    /// The same in twentieths, watched: what a page handed off says, which
+    /// changes only a few times down a page (EdenApp's HandoffOffer).
+    private(set) var readStep: Double = 0
     /// A page carried on from another device: how it is to be shown once it
     /// has come in (Elsewhere).
     @ObservationIgnored var arrival: Arrival?
@@ -339,6 +342,8 @@ final class Tab: NSObject, Identifiable {
         let range = scroll.contentSize.height + scroll.contentInset.bottom - scroll.bounds.height
         let fraction = range > 0 ? (min(1, max(0, scroll.contentOffset.y / range)) * 100).rounded() / 100 : 0
         if fraction != readFraction { readFraction = fraction }
+        let step = DeviceTabs.Page.scroll(fraction)
+        if step != readStep { readStep = step }
     }
 
     /// A page from another device, shown as it was left there: now, when
@@ -425,6 +430,9 @@ extension Tab: WKNavigationDelegate {
         isReading = false
         commits += 1
         shown = Curtain.host(of: webView.url).map { ShownPage(number: commits, host: $0) }
+        // A new page is read from its top, whatever the last had come to.
+        readFraction = 0
+        readStep = 0
         browser?.pageChanged(in: self)
     }
 

@@ -142,7 +142,7 @@ extension Browser {
         let space = offer.page.space.flatMap { settings.usesSpaces && library.space($0) != nil ? $0 : nil } ?? spaceID
         let identity = History.identity(for: url)
         let arrival = Tab.Arrival(page: url, scroll: offer.page.scroll, reading: offer.page.reading == true,
-                                  from: "your \(offer.deviceName)")
+                                  from: offer.deviceName)
         let open = ordinaryTabs.filter { $0.url.map(History.identity(for:)) == identity }
         if let here = open.first(where: { $0.owner == .space(space) }) ?? open.first {
             select(here)

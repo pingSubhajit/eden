@@ -86,4 +86,26 @@ final class ElsewhereTests: XCTestCase {
         XCTAssertEqual(groups.map(\.space), [Space.firstID, work, nil])
         XCTAssertEqual(groups.last?.pages.map(\.title), ["B", "D"], "no space said, or one unknown here, last")
     }
+
+    func testAHandedOffPageCarriesHowItWasLeftInAFewShortStrings() throws {
+        let url = URL(string: "https://a.example/story")!
+        let info = Continuity.info(scroll: 0.43, reading: true, space: work, device: "MacBook", kind: .mac)
+        let offer = Continuity.offer(url, title: "Story", info: info)
+        XCTAssertEqual(offer.page, DeviceTabs.Page(url: url.absoluteString, title: "Story", space: work, scroll: 0.45, reading: true))
+        XCTAssertEqual(offer.deviceName, "MacBook")
+        XCTAssertEqual(offer.kind, .mac)
+        // Whatever the page or the device's name, the payload stays small.
+        let long = Continuity.info(scroll: 1, reading: false, space: work, device: String(repeating: "名", count: 500), kind: .iphone)
+        XCTAssertLessThan(long.reduce(0) { $0 + $1.key.utf8.count + $1.value.utf8.count }, 300)
+        XCTAssertEqual(Continuity.offer(url, title: nil, info: long).deviceName, String(repeating: "名", count: 42),
+                       "128 bytes, whole characters")
+        // One character of a letter and ten thousand marks: none of it goes.
+        let marked = "A" + String(repeating: "\u{301}", count: 10_000)
+        XCTAssertEqual(Continuity.info(scroll: nil, reading: false, space: nil, device: marked, kind: .mac)["eden.device"], "")
+        XCTAssertEqual(Continuity.offer(url, title: nil, info: ["eden.device": marked]).deviceName, "another device")
+        // From an Eden from before, or Safari: nothing but the address.
+        let bare = Continuity.offer(url, title: nil, info: nil)
+        XCTAssertEqual(bare.page.url, url.absoluteString)
+        XCTAssertEqual(bare.deviceName, "another device")
+    }
 }

@@ -101,7 +101,7 @@ struct StartPage: View {
             HStack(spacing: 14) {
                 Image(systemName: offer.kind.symbol).font(.title2).foregroundStyle(.tint).frame(width: 34)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Continue from your \(offer.deviceName)").font(.footnote).foregroundStyle(.secondary)
+                    Text("Continue from \(offer.deviceName)").font(.footnote).foregroundStyle(.secondary)
                     Text(offer.page.shownTitle).font(.headline).lineLimit(2).multilineTextAlignment(.leading)
                     if let scroll = offer.page.scroll, scroll > 0 {
                         Text("\(Int((scroll * 100).rounded()))% read").font(.footnote).foregroundStyle(.secondary)

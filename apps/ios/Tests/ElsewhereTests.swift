@@ -50,7 +50,7 @@ struct ElsewhereTests {
         browser.open(Elsewhere.Offer(device: mac([page]), page: page))
         #expect(browser.spaceID == work.id, "in the space it was open in")
         #expect(browser.active?.url == a)
-        #expect(browser.active?.arrival == Tab.Arrival(page: a, scroll: 0.6, reading: true, from: "your Mac"))
+        #expect(browser.active?.arrival == Tab.Arrival(page: a, scroll: 0.6, reading: true, from: "Mac"))
         #expect(browser.isOpenHere(page))
         withExtendedLifetime(syncing) {}
     }
@@ -64,7 +64,7 @@ struct ElsewhereTests {
         browser.open(Elsewhere.Offer(device: mac([page]), page: page))
         #expect(browser.active === mine)
         #expect(browser.ordinaryTabs.count == 2)
-        #expect(mine.arrival == Tab.Arrival(page: a, scroll: 0.7, reading: true, from: "your Mac"),
+        #expect(mine.arrival == Tab.Arrival(page: a, scroll: 0.7, reading: true, from: "Mac"),
                 "read as it was left there, once its page is in")
         withExtendedLifetime(syncing) {}
     }

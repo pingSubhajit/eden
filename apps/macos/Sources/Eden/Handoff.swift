@@ -18,12 +18,18 @@ import SwiftUI
 // that isn't an http or https page of the web (Eden's own pages, files,
 // about:blank, an address with a name or password in it).
 //
+// Beside the page's address goes how it is left here — how far down it is
+// read, whether as an article, its space, and this Mac's name
+// (Continuity.info) — so the device taking it carries on from there.
+//
 // Taking. A page offered by Eden on another device, or by Safari or any
 // browser there once Eden is this Mac's browser, arrives at
-// Links.application(_:continue:restorationHandler:) and opens in a tab of
-// the window in front, as a link from another app does but never in the
-// small window: it is a page you were reading, coming back to the browser.
-// Whatever the switch says, as nothing leaves the Mac for it.
+// Links.application(_:continue:restorationHandler:) and comes here as a page
+// from any of your devices does (Browser.open(_ offer:)): to its tab if it is
+// open here already, else in its own space, as far down as it was read, and
+// said — never in the small window: it is a page you were reading, coming
+// back to the browser. Whatever the switch says, as nothing leaves the Mac
+// for it.
 //
 // The activity types are listed in the app's Info.plist (build.sh) and the
 // iOS app's (apps/ios/Configuration/Info.plist); Eden's own is Continuity's
@@ -85,7 +91,7 @@ enum Handoff {
 
     /// The window offers `address` for `tab`, or nothing when it is nil.
     @MainActor
-    static func offer(_ address: URL?, title: String?, for tab: Tab.ID, in window: NSWindow) {
+    static func offer(_ address: URL?, title: String?, info: [String: String] = [:], for tab: Tab.ID, in window: NSWindow) {
         for (key, held) in offers where held.window == nil {
             held.activity.invalidate()
             offers[key] = nil
@@ -109,6 +115,7 @@ enum Handoff {
         }
         if held.activity.webpageURL != address { held.activity.webpageURL = address }
         if held.activity.title != title { held.activity.title = title }
+        if held.activity.userInfo as? [String: String] != info { held.activity.userInfo = info }
         if window.userActivity !== held.activity { window.userActivity = held.activity }
     }
 
@@ -143,10 +150,15 @@ enum Handoff {
     /// switch. Also called as the window is first set (ContentView.setUp),
     /// so a window doesn't wait for the next change to offer its page.
     @MainActor
-    static func apply(_ tab: Tab, in browser: Browser, window: NSWindow) {
+    /// `scroll`: how far down, when it has just changed (the meter says so
+    /// before it keeps the new value).
+    static func apply(_ tab: Tab, in browser: Browser, window: NSWindow, scroll: Double? = nil) {
         let address = offered(tab.restAddress, on: browser.prefs.handsOff, private: tab.shy,
                               bench: tab.bench, popup: browser.isPopup)
-        offer(address, title: title(name: tab.name, page: tab.title), for: tab.id, in: window)
+        let title = title(name: tab.name, page: tab.title)
+        let info = address == nil ? [:] : Continuity.info(scroll: scroll ?? tab.reading, reading: tab.reader,
+                                                          space: browser.spaceID, device: Sync.macName, kind: .mac)
+        offer(address, title: title, info: info, for: tab.id, in: window)
     }
 
     /// Keeps a window's offer in step with its tab in front: drawn nowhere,
@@ -163,17 +175,21 @@ enum Handoff {
         var body: some View {
             Color.clear
                 .frame(width: 0, height: 0)
-                .onAppear(perform: apply)
+                .onAppear { apply() }
                 .onChange(of: tab.committed) { _, _ in apply() }
                 .onChange(of: tab.address) { _, _ in apply() }
                 .onChange(of: tab.title) { _, _ in apply() }
                 .onChange(of: tab.name) { _, _ in apply() }
+                .onChange(of: tab.reader) { _, _ in apply() }
+                // How far down, in the twentieths it is sent in: a few times
+                // down a page, not at every frame.
+                .onReceive(tab.meter.$value.map(DeviceTabs.Page.scroll).removeDuplicates()) { apply(scroll: $0) }
                 .onChange(of: prefs.handsOff) { _, _ in apply() }
                 .onDisappear { if let window = window ?? browser.window { Handoff.withdraw(tab.id, from: window) } }
         }
 
-        private func apply() {
-            if let window = window ?? browser.window { Handoff.apply(tab, in: browser, window: window) }
+        private func apply(scroll: Double? = nil) {
+            if let window = window ?? browser.window { Handoff.apply(tab, in: browser, window: window, scroll: scroll) }
         }
     }
 }

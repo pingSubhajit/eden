@@ -13,6 +13,9 @@ final class Links: NSObject, NSApplicationDelegate {
     private static var deliver: ((URL) -> Void)?
     /// Addresses that arrived first.
     private static var waiting: [URL] = []
+    /// Pages handed over before there was a window, whole — how they were
+    /// left, where from — to come in as any page from your devices does.
+    private static var handed: [Elsewhere.Offer] = []
     /// The window in front's, or the first one's, once there is one.
     @MainActor static var window: NSWindow? { Browsers.front?.window ?? Browsers.primary?.window }
     /// Whether the window has been asked for on a link's behalf (summon).
@@ -272,6 +275,18 @@ final class Links: NSObject, NSApplicationDelegate {
         }
         let early = waiting
         waiting = []
+        let offers = handed
+        handed = []
+        // Pages handed over meanwhile, as any page from your devices comes
+        // in (Browser.open(_ offer:)): to a tab already open — one restored,
+        // say — or in their own space, as they were left.
+        if !offers.isEmpty {
+            onceShown { [weak browser] in
+                guard let browser else { return }
+                for offer in offers { browser.open(offer) }
+                comeForward()
+            }
+        }
         guard let first = early.first else { return }
         onceShown { [weak browser] in
             guard let browser else { return }
@@ -360,21 +375,28 @@ final class Links: NSObject, NSApplicationDelegate {
     @discardableResult
     static func continuing(_ activity: NSUserActivity) -> Bool {
         guard let url = Handoff.received(activity) else { return false }
-        continued(url)
-        return true
-    }
-
-    /// A page another device handed over (Handoff): into the window in
-    /// front, as a link from another app goes, but never into the small
-    /// window — it is a page being read, coming back to the browser. Before
-    /// the window is up it waits with the links that came early.
-    static func continued(_ url: URL) {
-        if let deliver {
-            deliver(url)
-        } else {
-            waiting.append(url)
+        // As a page from any of your devices: to its tab if it is open here,
+        // else in its own space, as it was left there (Browser.open(_ offer:)),
+        // in a browser's window on screen — one brought back if the last was
+        // closed, never a pop-up's. Before the app has a window at all, it
+        // waits for one, whole (hand(to:)).
+        let offer = Continuity.offer(url, title: activity.title, info: activity.userInfo)
+        guard deliver != nil else {
+            handed.append(offer)
             DispatchQueue.main.async { summon() }
+            return true
         }
+        MainActor.assumeIsolated {
+            // The window the page went to — its tab may be open in another —
+            // brought forward.
+            let browser = Browsers.ensureWindow().open(offer)
+            if !Store.testing, let window = browser.window {
+                if window.isMiniaturized { window.deminiaturize(nil) }
+                window.makeKeyAndOrderFront(nil)
+            }
+            comeForward()
+        }
+        return true
     }
 
     private static func take(_ url: URL) {

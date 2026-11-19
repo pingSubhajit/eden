@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 import Testing
 @testable import Eden
@@ -42,5 +43,18 @@ struct HandoffTests {
     @Test func theActivityTypeFollowsTheBundle() {
         #expect(Activity.browsing.hasSuffix(".browsing"))
         #expect(Activity.web == NSUserActivityTypeBrowsingWeb)
+    }
+
+    @Test func aPageHandedOffSaysHowItWasLeftAndIsTakenSo() throws {
+        let page = try #require(URL(string: "https://example.com/article"))
+        let work = UUID()
+        let offered = try #require(Offered(showing: true, address: page, title: "Article") { _ in
+            Continuity.info(scroll: 0.35, reading: true, space: work, device: "iPhone", kind: .iphone)
+        })
+        let taken = Continuity.offer(page, title: offered.title, info: offered.info)
+        #expect(taken.page.scroll == 0.35)
+        #expect(taken.page.reading == true)
+        #expect(taken.page.space == work)
+        #expect(taken.deviceName == "iPhone")
     }
 }
