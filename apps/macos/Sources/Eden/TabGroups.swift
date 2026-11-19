@@ -82,7 +82,9 @@ extension GroupDropFrames {
     }
 }
 
-/// A quiet name above the tabs it contains, in either layout.
+/// A group's heading. In the column, after Dia's: its icon, its name in its
+/// colour and the chevron after it, on the group's surface (GroupLook.swift);
+/// across the top, a quiet name, as before.
 struct GroupHeading: View {
     @Environment(\.greys) private var greys
     @Environment(\.tabShortcutNumbers) private var shortcutNumbers
@@ -93,6 +95,9 @@ struct GroupHeading: View {
     /// In the column of icons (SideIcons.swift): the name's first letter in
     /// a short heading, the name itself in its tooltip.
     var compact = false
+    /// Told while something dragged in from elsewhere is over it, for the
+    /// group's surface to light (GroupSurface).
+    var targeted: (Bool) -> Void = { _ in }
 
     @State private var draft = ""
     @State private var hovering = false
@@ -134,17 +139,19 @@ struct GroupHeading: View {
                 .font(.system(size: 6.5, weight: .bold))
                 .rotationEffect(.degrees(group.collapsed ? -90 : 0))
         }
-        .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.muted)
+        .foregroundStyle(group.colour.ink)
         .frame(maxWidth: .infinity)
         .frame(height: Self.compactHeight)
         .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(dropping ? greys.wash : (hovering ? greys.hover : greys.tile)))
+            .fill(dropping ? group.colour.lit : (hovering ? group.colour.lit : group.colour.fill)))
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .onTapGesture { browser.toggleTabGroup(group.id) }
-        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping))
+        .onTapGesture { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } }
+        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
+                                       iconEdge: besideColumn, targeted: targeted))
         .onHover { hovering = $0 }
         .help(group.collapsed ? "\(group.name) — folded" : group.name)
         .accessibilityLabel(group.name)
+        .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
         // Rename Group: no room for the name here, so it is typed beside.
         .popover(isPresented: Binding(get: { editing }, set: { if !$0 { browser.editingGroupID = nil } }),
                  arrowEdge: browser.prefs.sidePosition == .right ? .leading : .trailing) {
@@ -163,13 +170,95 @@ struct GroupHeading: View {
         }
     }
 
+    /// Pickers beside the column open away from the window's edge.
+    private var besideColumn: Edge { browser.prefs.sidePosition == .right ? .leading : .trailing }
+
     private var long: some View {
+        horizontal ? AnyView(strip) : AnyView(column)
+    }
+
+    /// The column's heading: on the group's surface, in its colour.
+    private var column: some View {
+        HStack(spacing: 7) {
+            GroupIconView(group: group, first: browser.tabs(in: group.id).first)
+            if editing {
+                TextField("Group name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(group.colour.ink)
+                    .focused($focused)
+                    .onSubmit(commit)
+                    .onExitCommand { browser.editingGroupID = nil }
+            } else {
+                Text(group.name)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(group.colour.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8.5, weight: .bold))
+                    .foregroundStyle(group.colour.ink.opacity(0.7))
+                    .rotationEffect(.degrees(group.collapsed ? 0 : 90))
+                    .accessibilityHidden(true)
+            }
+            Spacer(minLength: 0)
+            if !editing, group.collapsed, let number = shortcutNumbers[group.id] {
+                TabShortcutNumber(number: number)
+            }
+            // Closes the group and its tabs, as its menu's Close Group does;
+            // there while the pointer is on the heading.
+            if !editing, hovering {
+                Button { browser.closeTabGroup(group.id) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(group.colour.ink)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close Group")
+                .accessibilityLabel("Close \(group.name)")
+                .transition(.opacity)
+            }
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 6)
+        .frame(height: GroupLook.heading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { if !editing { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } } }
+        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
+                                       iconEdge: besideColumn, targeted: targeted))
+        .onHover { over in withAnimation(Motion.quick) { hovering = over } }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(group.name)
+        .accessibilityValue(group.collapsed ? "Folded" : "Open")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: group.collapsed ? "Expand" : "Collapse") { browser.toggleTabGroup(group.id) }
+        .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
+        .onChange(of: editing) { _, now in
+            if now {
+                draft = group.name
+                DispatchQueue.main.async { focused = true }
+            }
+        }
+        .onAppear {
+            if editing {
+                draft = group.name
+                DispatchQueue.main.async { focused = true }
+            }
+        }
+    }
+
+    /// Across the top: a quiet name, as before, until the strip goes.
+    private var strip: some View {
         HStack(spacing: 8) {
             if editing {
                 TextField("Group name", text: $draft)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12.5, weight: .medium))
-                    .frame(width: horizontal ? max(60, Self.width(for: group.name) - 20) : nil)
+                    .frame(width: max(60, Self.width(for: group.name) - 20))
                     .focused($focused)
                     .onSubmit(commit)
                     .onExitCommand { browser.editingGroupID = nil }
@@ -179,31 +268,25 @@ struct GroupHeading: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            if !horizontal { Spacer(minLength: 0) }
             if !editing, group.collapsed {
                 if let number = shortcutNumbers[group.id] {
                     TabShortcutNumber(number: number)
-                } else if horizontal, browser.prefs.showsTabShortcuts {
+                } else if browser.prefs.showsTabShortcuts {
                     Color.clear.frame(width: 15, height: 15)
                 }
-            }
-            if !editing && !horizontal {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .medium))
-                    .rotationEffect(.degrees(group.collapsed ? -90 : 0))
-                    .opacity(hovering ? 1 : 0)
             }
         }
         .foregroundStyle(Palette.muted)
         .padding(.horizontal, 10)
-        .frame(height: horizontal ? 28 : Self.height)
-        .frame(maxWidth: horizontal ? nil : .infinity, alignment: .leading)
-        .fixedSize(horizontal: horizontal, vertical: false)
+        .frame(height: 28)
+        .fixedSize(horizontal: true, vertical: false)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
             .fill(dropping ? greys.wash : (hovering ? greys.hover : .clear)))
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .onTapGesture { if !editing { browser.toggleTabGroup(group.id) } }
-        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping))
+        .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
+        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
+                                       iconEdge: .bottom, targeted: targeted))
         .onHover { hovering = $0 }
         .onChange(of: editing) { _, now in
             if now {
@@ -232,6 +315,9 @@ private struct GroupHeadingShared: ViewModifier {
     let group: TabGroup
     let dragSpace: String?
     @Binding var dropping: Bool
+    /// Where Add Icon's picker points from.
+    let iconEdge: Edge
+    let targeted: (Bool) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -258,25 +344,13 @@ private struct GroupHeadingShared: ViewModifier {
                 return true
             }
             .onDrag { NSItemProvider(object: "eden-group:\(group.id.uuidString)" as NSString) }
-            .contextMenu {
-                Button("Rename Group") { browser.editingGroupID = group.id }
-                Button(group.collapsed ? "Expand Group" : "Collapse Group") { browser.toggleTabGroup(group.id) }
-                // The whole group into another space, still a group there: Arc's
-                // folders came in wherever Arc had them.
-                if browser.prefs.usesSpaces, browser.spaces.count > 1 {
-                    Menu("Move Group to Space") {
-                        ForEach(browser.spaces.filter { $0.id != browser.spaceID }) { space in
-                            Button {
-                                browser.move(group: group.id, toSpace: space.id)
-                            } label: {
-                                Label(space.name, systemImage: space.symbol)
-                            }
-                        }
-                    }
-                }
-                Divider()
-                Button("Ungroup Tabs") { browser.removeTabGroup(group.id) }
-                Button("Close Group") { browser.closeTabGroup(group.id) }
+            // The group's menu: its colours in a row at the top, then what
+            // can be done to it (GroupMenu).
+            .overlay { GroupMenuArea { GroupMenu.make(for: group, in: browser) } }
+            .onChange(of: dropping) { _, now in targeted(now) }
+            .popover(isPresented: Binding(get: { browser.iconGroupID == group.id }, set: { if !$0 { browser.iconGroupID = nil } }),
+                     arrowEdge: iconEdge) {
+                GroupIconPicker(browser: browser, group: group.id)
             }
     }
 }

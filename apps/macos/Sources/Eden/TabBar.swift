@@ -1151,12 +1151,16 @@ struct Carried: ViewModifier {
                         // After the update, which works out the half of a
                         // pair that was picked up.
                         lift(at: value.location)
+                        // Asked on every move, a group's tab too, and off
+                        // into the pins or the page: it is how the group
+                        // under the pointer knows to light, and to stop.
+                        let over = tab.flatMap { groupDestination?($0, value.location) }
                         if splitting || crossed { return }
                         // A tab of a group, or one over a group, lands where
                         // it is let go (see GroupDropFrames.resolve) rather
                         // than moving along the row as it goes.
                         if let browser, let tab, browser.prefs.usesTabGroups, tab.pin == nil,
-                           browser.group(of: tab) != nil || groupDestination?(tab, value.location) != nil { return }
+                           browser.group(of: tab) != nil || over != nil { return }
                         let target = Carried.slot(at: start + travel, carrying: index, in: steps)
                         if target != index {
                             reordered = true
@@ -1200,6 +1204,9 @@ struct Carried: ViewModifier {
                             if let onDropTab, let tab { onDropTab(tab, value.location) }
                             else { onDrop?(value.location) }
                         }
+                        // Told now, not only when `held` changes: the drop
+                        // may have taken this row away, and that change with it.
+                        holding?(false)
                         withAnimation(Motion.settle) {
                             held = false
                             travel = 0

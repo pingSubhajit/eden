@@ -61,6 +61,8 @@ final class Browser: NSObject, ObservableObject {
     /// Named tab sections in the current space, in display order.
     @Published var tabGroups: [TabGroup] = []
     @Published var editingGroupID: UUID?
+    /// The group whose icon is being picked (GroupIconPicker).
+    @Published var iconGroupID: UUID?
     /// The tab on screen before the last change, and when it changed: a tab
     /// in the column opens as the button goes down (#625), so a tab carried
     /// from there onto the page finds its own page under the hand, and
@@ -5223,6 +5225,80 @@ final class Browser: NSObject, ObservableObject {
         guard !trimmed.isEmpty else { return }
         tabGroups[index].name = trimmed
         writeSession(now: true)
+    }
+
+    /// A group's colour, from its menu: at once, and kept.
+    func setColour(_ colour: GroupColour, ofGroup id: UUID) {
+        guard let index = tabGroups.firstIndex(where: { $0.id == id }), tabGroups[index].colour != colour else { return }
+        tabGroups[index].colour = colour
+        writeSession(now: true)
+    }
+
+    /// A group's own icon, or none to show its first tab's site icon.
+    func setIcon(_ icon: GroupIcon?, ofGroup id: UUID) {
+        guard let index = tabGroups.firstIndex(where: { $0.id == id }), tabGroups[index].icon != icon else { return }
+        tabGroups[index].icon = icon
+        writeSession(now: true)
+    }
+
+    /// The group of the tab in front, for what ⌥⌘T opens a tab in.
+    var activeGroupID: UUID? { active.flatMap(group(of:)) }
+
+    /// New Tab in Group (⌥⌘T): an empty tab at the end of the group, in front.
+    /// With no group given, the group of the tab in front, else a plain new tab.
+    func newTab(inGroup id: UUID? = nil) {
+        guard prefs.usesTabGroups, let id = id ?? activeGroupID, tabGroups.contains(where: { $0.id == id }),
+              active?.shy != true else { return newTab() }
+        newTab()
+        guard let tab = active, tab.groupID != id else { return }
+        move(tab, toGroup: id)
+    }
+
+    /// New Group (⌃⌘N): an empty tab in a group of its own, its name being
+    /// typed, as Dia makes one.
+    func newGroup() {
+        guard prefs.usesTabGroups, active?.shy != true else { return newTab() }
+        newTab()
+        guard let tab = active, tab.pin == nil, !tab.shy else { return }
+        addTabGroup(containing: tab)
+    }
+
+    /// Duplicate, in a group's menu: a group of the same name, colour and
+    /// icon after it, folded as it is, with a fresh tab at each of its tabs'
+    /// pages, made as each is shown. Always ordinary tabs in this space:
+    /// a private member stays where it is, and Eden's own pages, of which
+    /// there is one each, aren't copied.
+    func duplicateTabGroup(_ id: UUID) {
+        guard let at = tabGroups.firstIndex(where: { $0.id == id }) else { return }
+        let original = tabGroups[at]
+        let members = tabs(in: id)
+        let pages = members.filter { !$0.shy }
+            .compactMap { tab in (tab.restAddress ?? tab.address).map { (url: $0, title: tab.title) } }
+            .filter { InternalPage(url: $0.url) == nil }
+        guard !pages.isEmpty else { return }
+        let copy = TabGroup(id: UUID(), name: original.name, collapsed: original.collapsed,
+                            colour: original.colour, icon: original.icon)
+        tabGroups.insert(copy, at: at + 1)
+        var place = members.last.flatMap { last in tabs.firstIndex { $0.id == last.id } }.map { $0 + 1 } ?? tabs.count
+        for page in pages {
+            let tab = Tab(configuration: Browser.extensionConfiguration(for: page.url) ?? Web.configuration(space: spaceID))
+            prepare(tab)
+            tab.restore(url: page.url, title: page.title)
+            tab.groupID = copy.id
+            tabs.insert(tab, at: safeInsertionIndex(place))
+            place = (tabs.firstIndex { $0.id == tab.id } ?? place) + 1
+        }
+        arrangeGroupedTabs()
+        writeSession(now: true)
+    }
+
+    /// Copy All Links: every tab's address in the group, a line each.
+    func copyLinks(of id: UUID) {
+        let links = tabs(in: id).compactMap { ($0.restAddress ?? $0.address)?.absoluteString }
+        guard !links.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
+        announce(links.count == 1 ? "Link copied" : "\(links.count) links copied")
     }
 
     func toggleTabGroup(_ id: UUID) {
