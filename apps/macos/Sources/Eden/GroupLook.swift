@@ -165,6 +165,44 @@ struct GroupSurface: ViewModifier {
     }
 }
 
+/// A group heading's name, in the group's ink: a tab group's and a
+/// device's alike (Elsewhere.swift).
+extension Text {
+    func groupName(_ ink: Color, size: CGFloat) -> Text {
+        font(.system(size: size, weight: .semibold)).foregroundColor(ink)
+    }
+}
+
+/// The chevron straight after a group's name: pointing on while folded,
+/// down while open.
+struct GroupChevron: View {
+    let collapsed: Bool
+    let ink: Color
+
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 8.5, weight: .bold))
+            .foregroundStyle(ink.opacity(0.7))
+            .rotationEffect(.degrees(collapsed ? 0 : 90))
+            .accessibilityHidden(true)
+    }
+}
+
+/// Where a group's heading sits on its surface: one tab's line in all, its
+/// icon and cross where a tab's are, the surface's edge being that much in.
+struct GroupHeadingFrame: ViewModifier {
+    let row: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.leading, Metrics.rowInset - GroupLook.inset)
+            .padding(.trailing, Metrics.rowCrossInset - GroupLook.inset)
+            .frame(height: GroupLook.heading(row: row))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+    }
+}
+
 /// A group's icon in its heading: its own, else its first tab's site icon,
 /// else a stack of cards.
 struct GroupIconView: View {

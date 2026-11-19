@@ -1,10 +1,12 @@
 import EdenCore
 import SwiftUI
 
-// Your other devices' open tabs, in the column: a line for each device at the
-// foot, over the row of doors, folded until it is opened; opened, its tabs
-// under the spaces they are open in. With icons only, a door in the foot
-// opens the same list beside the column. A tab picked comes here as it does
+// Your other devices' open tabs, in the column: a group for each device
+// under the pins, above the line over your own tabs, as Dia's Pull Requests
+// is — a group of the browser's, not yours to rename, colour or close —
+// folded until it is opened; opened, the tabs open on that device in this
+// space. With icons only, a door in the foot opens every device's list
+// beside the column, under the spaces they are open in. A tab picked comes here as it does
 // from History › Tabs on Other Devices: to its tab if it is open here
 // already, else in its own space, as far down as it was read
 // (Browser.open(_ offer:)).
@@ -29,14 +31,30 @@ final class OpenPages: ObservableObject {
     }
 }
 
-/// Whether another device has a tab open, said only when that changes: all
-/// the column needs to know to keep room for the door to them.
+/// How many tabs each of your other devices has open in each space, said
+/// only when that changes: what the column needs to know to draw their
+/// groups, the line under them and room for their rows, and the door to
+/// them with icons only, without being drawn again for every title another
+/// device changes. By device as well as space: one group growing as
+/// another shrinks still changes the room they take.
 @MainActor
 final class ElsewherePresence: ObservableObject {
-    @Published private(set) var hasTabs = false
+    struct Place: Hashable {
+        let device: String
+        /// Nil for tabs in no space, from a device without spaces.
+        let space: UUID?
+    }
 
-    func set(_ now: Bool) {
-        if now != hasTabs { hasTabs = now }
+    @Published private(set) var counts: [Place: Int] = [:]
+
+    var hasTabs: Bool { !counts.isEmpty }
+
+    func set(_ devices: [DeviceTabs]) {
+        var now: [Place: Int] = [:]
+        for device in devices {
+            for page in device.tabs { now[Place(device: device.device, space: page.space), default: 0] += 1 }
+        }
+        if now != counts { counts = now }
     }
 }
 
@@ -51,8 +69,10 @@ extension Tab {
     }
 }
 
-/// The devices with tabs open, as sync last heard: none while it is off.
-@MainActor private func devices(_ sync: Sync) -> [DeviceTabs] { sync.elsewhere.filter(\.hasTabs) }
+extension Sync {
+    /// The devices with tabs open, as sync last heard: none while it is off.
+    var devicesWithTabs: [DeviceTabs] { elsewhere.filter(\.hasTabs) }
+}
 
 extension DeviceTabs.Kind {
     /// The device's symbol.
@@ -74,88 +94,97 @@ extension Browser {
             (group.space.flatMap { id in spaces.first { $0.id == id }?.name }, group.pages)
         }
     }
-}
 
-/// The lines at the column's foot, and the lists opened under them, in one
-/// place that scrolls once taller than `maxHeight`: the rows and what plays
-/// keep the rest of the column.
-struct ElsewhereSection: View {
-    @ObservedObject var browser: Browser
-    let maxHeight: CGFloat
-    /// The devices opened, by id: folded until opened, and as left while the
-    /// window is open — kept by the column, through icons only and back.
-    @Binding var opened: Set<String>
-    @ObservedObject private var sync = Sync.shared
-    @ObservedObject private var pages = OpenPages.shared
-    /// How tall the lines and lists are, to stop at.
-    @State private var content: CGFloat = 0
-
-    var body: some View {
-        let devices = devices(sync)
-        // Once for every list, whichever window changed (OpenPages).
-        let open = browser.openHere
-        if !devices.isEmpty {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(devices, id: \.device) { device in
-                        DeviceLine(device: device, open: opened.contains(device.device)) {
-                            withAnimation(Motion.quick) {
-                                if !opened.insert(device.device).inserted { opened.remove(device.device) }
-                            }
-                        }
-                        if opened.contains(device.device) {
-                            ElsewhereTabs(browser: browser, device: device, open: open)
-                        }
-                    }
-                }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { content = $0 }
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(height: min(content, maxHeight))
+    /// Another device's pages in one of this window's spaces, for its group
+    /// in the column: those open there in that space, and in the first
+    /// space those from a device without spaces, or in one this Mac hasn't.
+    func pages(_ pages: [DeviceTabs.Page], in space: UUID) -> [DeviceTabs.Page] {
+        guard prefs.usesSpaces else { return pages }
+        let known = Set(spaces.map(\.id))
+        let first = space == spaces.first?.id
+        return pages.filter { page in
+            page.space == space || (first && page.space.map { !known.contains($0) } ?? true)
         }
     }
 }
 
-/// A device's line: its name and how many tabs it has open, and whether its
-/// list is open.
-private struct DeviceLine: View {
-    @Environment(\.greys) private var greys
-    let device: DeviceTabs
-    let open: Bool
-    let toggle: () -> Void
-    @State private var hovering = false
+/// Your other devices' groups in one space's column, under its pins: a group
+/// for each device with tabs open in that space, in the order sync heard
+/// from them, newest first.
+struct DeviceGroups: View {
+    @ObservedObject var browser: Browser
+    @ObservedObject var prefs: Preferences
+    let space: UUID
+    @Binding var opened: Set<String>
+    @ObservedObject private var sync = Sync.shared
+    @ObservedObject private var pages = OpenPages.shared
 
     var body: some View {
-        Button(action: toggle) {
-            HStack(spacing: 8) {
-                Image(systemName: device.kind.symbol)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Palette.muted)
-                    .frame(width: 16)
-                Text(device.name)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
-                Text("\(device.tabs.count)")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Palette.muted)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Palette.muted)
-                    .rotationEffect(.degrees(open ? 90 : 0))
+        // Once for every group, whichever window changed (OpenPages).
+        let open = browser.openHere
+        ForEach(sync.devicesWithTabs, id: \.device) { device in
+            let here = browser.pages(device.tabs, in: space)
+            if !here.isEmpty {
+                DeviceGroup(browser: browser, prefs: prefs, device: device, pages: here, open: open,
+                            opened: opened.contains(device.device)) {
+                    if !opened.insert(device.device).inserted { opened.remove(device.device) }
+                }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? greys.hover : .clear))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(open ? "Hide the tabs open on \(device.name)" : "Show the tabs open on \(device.name)")
-        .accessibilityLabel("\(device.name), \(device.tabs.count) \(device.tabs.count == 1 ? "tab" : "tabs")")
-        .accessibilityValue(open ? "Shown" : "Hidden")
-        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Another device's tabs in the column: a group of its own, on Stone's
+/// surface, the device's symbol and name in its heading. Folded, it keeps
+/// its surface, as Dia's Pull Requests does, where a folded group of yours
+/// has none: the browser's, not yours. It can't be renamed, coloured or
+/// closed, only opened.
+struct DeviceGroup: View {
+    @ObservedObject var browser: Browser
+    @ObservedObject var prefs: Preferences
+    let device: DeviceTabs
+    /// Its tabs in this space (Browser.pages(_:in:)).
+    let pages: [DeviceTabs.Page]
+    /// The pages open in this profile's windows, by History.identity.
+    let open: Set<String>
+    let opened: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        VStack(spacing: SideBar.gap) {
+            Button { withAnimation(GroupLook.fold) { toggle() } } label: {
+                HStack(spacing: Metrics.rowSpacing) {
+                    Image(systemName: device.kind.symbol)
+                        .font(.system(size: prefs.sideMark * 0.8, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: prefs.sideMark, height: prefs.sideMark)
+                    Text(device.name)
+                        .groupName(Palette.ink, size: prefs.sideTitle)
+                        .lineLimit(1)
+                        .fadesOut(device.name)
+                        .layoutPriority(1)
+                    GroupChevron(collapsed: !opened, ink: Palette.ink)
+                    Spacer(minLength: 0)
+                }
+                .modifier(GroupHeadingFrame(row: prefs.sideRow))
+            }
+            .buttonStyle(.plain)
+            .help(opened ? "Hide the tabs open on \(device.name)" : "Show the tabs open on \(device.name)")
+            .accessibilityLabel("\(device.name), \(pages.count) \(pages.count == 1 ? "tab" : "tabs")")
+            .accessibilityValue(opened ? "Open" : "Folded")
+            if opened {
+                VStack(spacing: SideBar.gap) {
+                    ForEach(Array(pages.enumerated()), id: \.offset) { _, page in
+                        ElsewhereRow(prefs: prefs, page: page,
+                                     openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
+                            browser.open(Elsewhere.Offer(device: device, page: page))
+                        }
+                        .padding(.leading, GroupLook.indent)
+                    }
+                }
+            }
+        }
+        .modifier(GroupSurface(colour: .stone))
     }
 }
 
@@ -180,7 +209,7 @@ struct ElsewhereTabs: View {
                     .padding(.bottom, 2)
             }
             ForEach(Array(group.pages.enumerated()), id: \.offset) { _, page in
-                ElsewhereRow(page: page, openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
+                ElsewhereRow(prefs: browser.prefs, page: page, openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
                     browser.open(Elsewhere.Offer(device: device, page: page))
                     picked()
                 }
@@ -189,10 +218,12 @@ struct ElsewhereTabs: View {
     }
 }
 
-/// One of another device's tabs: its site's mark and its title, and whether
-/// it is open here already, which a click switches to.
+/// One of another device's tabs, drawn as a tab's line in the column is:
+/// its site's mark and its title, and whether it is open here already,
+/// which a click switches to.
 private struct ElsewhereRow: View {
     @Environment(\.greys) private var greys
+    @ObservedObject var prefs: Preferences
     let page: DeviceTabs.Page
     let openHere: Bool
     let open: () -> Void
@@ -204,24 +235,23 @@ private struct ElsewhereRow: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 8) {
-                Mark(icon: Favicons.shared.cached(for: url), letter: letter, size: 14)
-                    .frame(width: 16)
+            HStack(spacing: Metrics.rowSpacing) {
+                Mark(icon: Favicons.shared.cached(for: url), letter: letter, size: prefs.sideMark)
                 Text(title)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Palette.ink)
+                    .font(.system(size: prefs.sideTitle))
+                    .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.muted)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fadesOut(title)
                 Spacer(minLength: 0)
                 if openHere {
                     Text("Open")
-                        .font(.system(size: 10.5))
+                        .font(.system(size: prefs.sideTitle - 2))
                         .foregroundStyle(Palette.muted)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 26)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? greys.hover : .clear))
+            .padding(.horizontal, Metrics.rowInset)
+            .frame(height: prefs.sideRow)
+            .background(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous).fill(hovering ? greys.hover : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -241,7 +271,7 @@ struct ElsewhereDoor: View {
     @State private var showing = false
 
     var body: some View {
-        let devices = devices(sync)
+        let devices = sync.devicesWithTabs
         if !devices.isEmpty {
             Door(icon: "laptopcomputer.and.iphone", on: showing, help: "Tabs on Other Devices") { showing.toggle() }
                 .popover(isPresented: $showing, arrowEdge: arrowEdge) {

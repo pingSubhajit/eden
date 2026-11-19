@@ -112,7 +112,7 @@ final class Sync: ObservableObject {
     /// Whether another device has a tab open, for the column (Elsewhere.swift).
     let presence = ElsewherePresence()
 
-    private func tellPresence() { presence.set(on && otherTabs.contains(where: \.hasTabs)) }
+    private func tellPresence() { presence.set(on ? otherTabs.filter(\.hasTabs) : []) }
 
     /// Your other devices' open tabs, as offered here (Elsewhere): none while
     /// sync is off.

@@ -59,12 +59,8 @@ struct SideBar: View {
     /// the rows add up to, which are kept where changing them draws nothing.
     @State private var fits = true
     @State private var room = Room()
-    /// How tall your other devices' lines are over the foot, for the rows
-    /// to stop above them (Elsewhere.swift).
-    @State private var elsewhere: CGFloat = 0
-    /// The column's height: a third of it, at most, for those lines.
-    @State private var height: CGFloat = 600
-    /// Which of those devices' lists are open (ElsewhereSection).
+    /// Which of your other devices' groups are open (DeviceGroups): folded
+    /// until opened, and as left while the window is open.
     @State private var elsewhereOpened: Set<String> = []
     /// The group a tab carried over it, or something dragged in, would join:
     /// its surface lights (GroupSurface).
@@ -86,7 +82,7 @@ struct SideBar: View {
     private var rowHeight: CGFloat { prefs.sideRow }
     /// The column's width: the setting, or where the edge is while it is held.
     private var width: CGFloat { live ?? prefs.columnWidth }
-    private static let gap: CGFloat = 2
+    static let gap: CGFloat = 2
     private static let pinGap: CGFloat = 4
 
     private var onRight: Bool { prefs.sidePosition == .right }
@@ -163,17 +159,10 @@ struct SideBar: View {
             .padding(.horizontal, 10)
             // Clear of the foot, which sits over the sidebar's bottom edge,
             // and of what plays in another tab, over the foot.
-            .padding(.bottom, footHeight + (browser.player == nil ? 0 : rowHeight + SideBar.playerGap) + (icons ? 0 : elsewhere))
+            .padding(.bottom, footHeight + (browser.player == nil ? 0 : rowHeight + SideBar.playerGap))
 
             VStack(spacing: 0) {
                 Spacer()
-                // Your other devices' tabs, a line for each, over the foot.
-                if !icons {
-                    ElsewhereSection(browser: browser, maxHeight: max(84, height / 3), opened: $elsewhereOpened)
-                        .padding(.horizontal, 10)
-                        .padding(.bottom, 4)
-                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { elsewhere = $0 }
-                }
                 if let tab = browser.player {
                     PlayerRow(browser: browser, prefs: prefs, tab: tab)
                         .padding(.horizontal, 10)
@@ -186,7 +175,6 @@ struct SideBar: View {
         .environment(\.greys, greys)
         .frame(width: width)
         .frame(maxHeight: .infinity)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         // ⌘S to icons only while the edge is held takes the edge away, and
         // its gesture ends without onEnded: let go of the held width too.
         .onChange(of: icons) { _, now in
@@ -447,6 +435,7 @@ struct SideBar: View {
         let lines = folders.isEmpty ? listed.map { PinRowLine.pin($0, depth: 0) }
             : Browser.pinRowLines(listed, folders: folders, showing: row.active)
         let (groups, rest) = row.drawn(groupsOn: prefs.usesTabGroups, splitView: prefs.splitView)
+        let devices = devices(in: space)
         let cells = pinCells(pins.count)
         return VStack(alignment: .leading, spacing: 0) {
             if !pins.isEmpty {
@@ -473,6 +462,10 @@ struct SideBar: View {
                         }
                     }
                 }
+                // Your other devices' groups, as on screen.
+                if !devices.isEmpty {
+                    DeviceGroups(browser: browser, prefs: prefs, space: space, opened: $elsewhereOpened)
+                }
                 // Its groups, folded as they were left (see Parked.drawn).
                 ForEach(groups) { drawn in
                     VStack(spacing: SideBar.gap) {
@@ -486,7 +479,7 @@ struct SideBar: View {
                     .modifier(GroupSurface(colour: drawn.group.colour, folded: drawn.tabs.isEmpty))
                 }
                 // Under the groups, as on screen.
-                if showsLine(kept: pins.count + listed.count + groups.count, listed: listed.count, loose: rest.count) {
+                if showsLine(kept: pins.count + listed.count + devices.count + groups.count, listed: listed.count, loose: rest.count) {
                     KeepLine(clears: false) {}
                 }
                 ForEach(rest) { tab in
@@ -528,7 +521,12 @@ struct SideBar: View {
         // and below (in the column a tab's line, GroupLook.heading), and the
         // gap under it.
         let heading = icons ? GroupHeading.compactHeight + GroupLook.surround : rowHeight
-        let headings = CGFloat(grouped.count) * (heading + SideBar.gap)
+        // Your other devices' groups too, and the rows of those opened.
+        let devices = devicesHere
+        let deviceRows = devices.filter { elsewhereOpened.contains($0.device) }
+            .reduce(0) { $0 + browser.pages($1.tabs, in: browser.spaceID).count }
+        let headings = CGFloat(grouped.count + devices.count) * (heading + SideBar.gap)
+            + CGFloat(deviceRows) * (rowHeight + SideBar.gap)
         let loose = CGFloat(rows.count) * (rowHeight + SideBar.gap) + CGFloat(pairs) * rowHeight + headings
         return listBlock + loose + rowHeight + 8
     }
@@ -607,9 +605,23 @@ struct SideBar: View {
         prefs.showsPinRows && kept > 0 && listed + loose > 0
     }
 
-    /// What stands above the line in this space: its pins and its groups.
+    /// What stands above the line in this space: its pins, your other
+    /// devices' groups and its own groups.
     private var keptCount: Int {
-        browser.squarePins.count + browser.listedPins.count + (prefs.usesTabGroups ? browser.tabGroups.count : 0)
+        browser.squarePins.count + browser.listedPins.count + devicesHere.count
+            + (prefs.usesTabGroups ? browser.tabGroups.count : 0)
+    }
+
+    private var devicesHere: [DeviceTabs] { devices(in: browser.spaceID) }
+
+    /// Your other devices with tabs open in a space, a group each under its
+    /// pins (DeviceGroups); none with icons only, whose foot has a door to
+    /// them instead. The column is drawn again whenever how many tabs they
+    /// have in each space changes (ElsewherePresence); the groups watch the
+    /// rest, their titles, themselves.
+    private func devices(in space: UUID) -> [DeviceTabs] {
+        guard !icons, elsewherePresence.hasTabs else { return [] }
+        return Sync.shared.devicesWithTabs.filter { !browser.pages($0.tabs, in: space).isEmpty }
     }
 
     /// How many squares go in each row: at most four — fewer only when the
@@ -837,6 +849,11 @@ struct SideBar: View {
 
     private var loose: some View {
         VStack(spacing: SideBar.gap) {
+            // Your other devices' tabs first, groups of the browser's own,
+            // above yours (Elsewhere.swift).
+            if !devicesHere.isEmpty {
+                DeviceGroups(browser: browser, prefs: prefs, space: browser.spaceID, opened: $elsewhereOpened)
+            }
             if prefs.usesTabGroups {
                 ForEach(browser.tabGroups) { group in
                     VStack(spacing: SideBar.gap) {

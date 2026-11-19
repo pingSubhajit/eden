@@ -200,16 +200,11 @@ struct GroupHeading: View {
                     .onExitCommand { browser.editingGroupID = nil }
             } else {
                 Text(group.name)
-                    .font(.system(size: prefs.sideTitle, weight: .semibold))
-                    .foregroundStyle(group.colour.ink)
+                    .groupName(group.colour.ink, size: prefs.sideTitle)
                     .lineLimit(1)
                     .fadesOut(group.name)
                     .layoutPriority(1)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8.5, weight: .bold))
-                    .foregroundStyle(group.colour.ink.opacity(0.7))
-                    .rotationEffect(.degrees(group.collapsed ? 0 : 90))
-                    .accessibilityHidden(true)
+                GroupChevron(collapsed: group.collapsed, ink: group.colour.ink)
             }
             Spacer(minLength: 0)
             if !editing, group.collapsed, let number = shortcutNumbers[group.id] {
@@ -227,13 +222,7 @@ struct GroupHeading: View {
                 .transition(.opacity)
             }
         }
-        // Its icon and cross where a tab's are: the surface's edge is
-        // already that much in.
-        .padding(.leading, Metrics.rowInset - GroupLook.inset)
-        .padding(.trailing, Metrics.rowCrossInset - GroupLook.inset)
-        .frame(height: GroupLook.heading(row: prefs.sideRow))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
+        .modifier(GroupHeadingFrame(row: prefs.sideRow))
         .onTapGesture { if !editing { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } } }
         .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
                                        iconEdge: besideColumn, targeted: targeted))
