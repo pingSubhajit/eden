@@ -216,11 +216,35 @@ final class EdenUITests: XCTestCase {
         try open("page-two.html", showing: "PAGE-TWO")
         // WebKit says it can go back a moment after the page arrives.
         expectEnabled(app.buttons["back"])
+        // On iPhone, forward shows only once there is somewhere to go.
+        if overview { XCTAssertFalse(app.buttons["forward"].exists, "nowhere to go forward yet") }
         app.buttons["back"].tap()
         expectPage("PAGE-ONE")
+        XCTAssertTrue(app.buttons["forward"].waitForExistence(timeout: 10))
         expectEnabled(app.buttons["forward"])
+        shot("back and forward")
         app.buttons["forward"].tap()
         expectPage("PAGE-TWO")
+    }
+
+    /// iPhone's controls shrink to the site's name while a page is read on
+    /// down, and come back in full for a tap on it, or a look back up.
+    func testTheBarShrinksWhileReading() throws {
+        try XCTSkipIf(UIDevice.current.userInterfaceIdiom == .pad, "iPad's bar stays at the top")
+        try open("tall.html", showing: "TOP-TEXT")
+        shot("bar in full")
+        let page = app.webViews.firstMatch
+        let tucked = app.buttons["address-tucked"]
+        page.swipeUp()
+        XCTAssertTrue(tucked.waitForExistence(timeout: 5), "shrunk while reading on")
+        XCTAssertFalse(app.buttons["tabs"].exists)
+        shot("bar shrunk")
+        tucked.tap()
+        XCTAssertTrue(app.buttons["tabs"].waitForExistence(timeout: 5), "back in full for a tap")
+        page.swipeUp()
+        XCTAssertTrue(tucked.waitForExistence(timeout: 5))
+        page.swipeDown()
+        XCTAssertTrue(app.buttons["address"].waitForExistence(timeout: 5), "back in full looking back up")
     }
 
     /// iPhone's tabs: the overview of cards. iPad has its sidebar instead.

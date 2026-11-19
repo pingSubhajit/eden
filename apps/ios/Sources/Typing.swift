@@ -77,6 +77,9 @@ struct TabContent: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let tab, tab.url != nil {
             PageView(tab: tab)
+                // Up under the status bar, as in Safari, the page told how
+                // much of it lies there (pageTop).
+                .ignoresSafeArea(edges: .top)
                 .overlay {
                     if let failure = tab.failure {
                         ContentUnavailableView {

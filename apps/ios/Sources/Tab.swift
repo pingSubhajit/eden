@@ -48,6 +48,10 @@ final class Tab: NSObject, Identifiable {
     /// The page stripped back to its article (EdenCore's ReadingMode), until
     /// the next page or a reload.
     private(set) var isReading = false
+    /// Whether the page is light, by the colour it shows behind itself, so
+    /// the status bar over its top reads dark on it, as in Safari; nil until
+    /// it has said.
+    private(set) var isLight: Bool?
 
     /// Who the tab tells about pages it loads and windows it opens.
     @ObservationIgnored weak var browser: Browser?
@@ -176,8 +180,48 @@ final class Tab: NSObject, Identifiable {
         self.url = url
     }
 
-    func goBack() { built?.goBack() }
-    func goForward() { built?.goForward() }
+    /// Back and forward say at once where they lead: WebKit says so only
+    /// once the page gone to commits, after it has loaded, so the buttons
+    /// would lag behind the tap. What WebKit says later stands (`settled`).
+    func goBack() {
+        guard let built, built.goBack() != nil else { return }
+        canGoForward = true
+        canGoBack = built.backForwardList.backList.count > 1
+    }
+
+    func goForward() {
+        guard let built, built.goForward() != nil else { return }
+        canGoBack = true
+        canGoForward = built.backForwardList.forwardList.count > 1
+    }
+
+    /// The pages behind, nearest first, and those ahead: what holding the
+    /// back or forward button offers, as in Safari.
+    var backList: [WKBackForwardListItem] { built.map { Array($0.backForwardList.backList.reversed()) } ?? [] }
+    var forwardList: [WKBackForwardListItem] { built?.backForwardList.forwardList ?? [] }
+
+    /// Straight to one of those pages, the buttons saying so at once as above.
+    func go(to item: WKBackForwardListItem) {
+        guard let built else { return }
+        let list = built.backForwardList
+        let behind = list.backList.firstIndex(of: item)
+        let ahead = list.forwardList.firstIndex(of: item)
+        guard built.go(to: item) != nil else { return }
+        if let behind {
+            canGoForward = true
+            canGoBack = behind > 0
+        } else if let ahead {
+            canGoBack = true
+            canGoForward = ahead < list.forwardList.count - 1
+        }
+    }
+
+    /// Back and forward as WebKit has them, once a step has landed or come
+    /// to nothing.
+    private func settled(_ webView: WKWebView) {
+        if canGoBack != webView.canGoBack { canGoBack = webView.canGoBack }
+        if canGoForward != webView.canGoForward { canGoForward = webView.canGoForward }
+    }
 
     func reload() {
         failure = nil
@@ -271,7 +315,22 @@ final class Tab: NSObject, Identifiable {
             view.observe(\.canGoForward, options: [.new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { self?.canGoForward = view.canGoForward }
             },
+            view.observe(\.underPageBackgroundColor, options: [.initial, .new]) { [weak self] view, _ in
+                MainActor.assumeIsolated {
+                    let light = Tab.isLight(view.underPageBackgroundColor, as: view.traitCollection)
+                    if self?.isLight != light { self?.isLight = light }
+                }
+            },
         ]
+    }
+
+    /// Whether `color` is light enough that dark writing reads on it; nil
+    /// for one too clear to tell.
+    private static func isLight(_ color: UIColor?, as traits: UITraitCollection) -> Bool? {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard let color, color.resolvedColor(with: traits).getRed(&red, green: &green, blue: &blue, alpha: &alpha),
+              alpha > 0.5 else { return nil }
+        return 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.55
     }
 
     /// Where the page is scrolled to, as a fraction of how far it goes: in
@@ -359,6 +418,7 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        settled(webView)
         // Another page: whatever was being read, or picked from, was the
         // last one's.
         generation += 1
@@ -369,6 +429,7 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        settled(webView)
         guard let url = webView.url else { return }
         self.url = url
         if !isPrivate, ["http", "https"].contains(url.scheme?.lowercased()) {
@@ -387,10 +448,12 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        settled(webView)
         failed(error)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        settled(webView)
         failed(error)
     }
 

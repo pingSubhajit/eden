@@ -3,12 +3,24 @@ import SwiftUI
 
 /// The address field at rest: the site you're on, or what to type. A tap
 /// starts typing (`edit`); the arrow beside it reloads, or stops a load.
-struct AddressPill: View {
+/// `leading`: what sits at its start (the iPhone's page menu). The field
+/// draws no surface of its own: each layout puts it on its own.
+struct AddressPill<Leading: View>: View {
     let tab: Tab?
+    var height: CGFloat = 44
     let edit: () -> Void
+    let leading: Leading
+
+    init(tab: Tab?, height: CGFloat = 44, edit: @escaping () -> Void, @ViewBuilder leading: () -> Leading) {
+        self.tab = tab
+        self.height = height
+        self.edit = edit
+        self.leading = leading()
+    }
 
     var body: some View {
         HStack(spacing: 8) {
+            leading
             Button(action: edit) {
                 HStack(spacing: 6) {
                     if let tab, tab.isPrivate {
@@ -23,7 +35,7 @@ struct AddressPill: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -37,40 +49,59 @@ struct AddressPill: View {
                 .labelStyle(.iconOnly)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
                 .accessibilityIdentifier("reload")
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(alignment: .bottom) {
-            if let tab, tab.isLoading, tab.progress < 1 {
-                GeometryReader { size in
-                    Capsule().fill(Color.accentColor)
-                        .frame(width: max(8, size.size.width * tab.progress), height: 2)
-                }
-                .frame(height: 2)
-                .padding(.horizontal, 18)
-                .accessibilityHidden(true)
-            }
-        }
+        .frame(height: height)
+        .overlay(alignment: .bottom) { LoadProgress(tab: tab) }
     }
 
+    private var label: String { Address.label(for: tab) }
+}
+
+extension AddressPill where Leading == EmptyView {
+    init(tab: Tab?, height: CGFloat = 44, edit: @escaping () -> Void) {
+        self.init(tab: tab, height: height, edit: edit) { EmptyView() }
+    }
+}
+
+extension Address {
     /// The site's name without its www, as the Mac's field shows a page at
     /// rest; the page's own address when it has no host.
-    private var label: String {
+    static func label(for tab: Tab?) -> String {
         guard let url = tab?.url else { return "Search or enter address" }
         if let host = url.host(), !host.isEmpty { return Address.withoutWWW(host) }
         return Address.pretty(url)
     }
 }
 
+/// How far the page in front has loaded: a line along the foot of the field.
+struct LoadProgress: View {
+    let tab: Tab?
+
+    var body: some View {
+        if let tab, tab.isLoading, tab.progress < 1 {
+            GeometryReader { size in
+                Capsule().fill(Color.accentColor)
+                    .frame(width: max(8, size.size.width * tab.progress), height: 2)
+            }
+            .frame(height: 2)
+            .padding(.horizontal, 18)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 /// The address field while typing: the words, a way to clear them, and the
-/// keyboard's Go.
+/// keyboard's Go. Like the field at rest, it draws no surface of its own.
 struct AddressEditor: View {
     @Binding var text: String
     @Binding var selection: TextSelection?
     var focus: FocusState<Bool>.Binding
+    var height: CGFloat = 44
     let submit: () -> Void
 
     var body: some View {
@@ -91,8 +122,7 @@ struct AddressEditor: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(.regularMaterial, in: Capsule())
+        .frame(height: height)
     }
 }
 
@@ -159,12 +189,21 @@ struct SuggestionList: View {
     }
 }
 
-/// The browser's menu: what isn't a button of its own on the bar.
-struct BrowserMenu: View {
+/// The browser's menu: what isn't a button of its own on the bar. `face`:
+/// how it looks there, the iPad's "More" unless told otherwise.
+struct BrowserMenu<Face: View>: View {
     let browser: Browser
     let tab: Tab?
     @Binding var sheet: BrowserSheet?
+    let face: Face
     @State private var renaming: Tab?
+
+    init(browser: Browser, tab: Tab?, sheet: Binding<BrowserSheet?>, @ViewBuilder face: () -> Face) {
+        self.browser = browser
+        self.tab = tab
+        _sheet = sheet
+        self.face = face()
+    }
 
     var body: some View {
         Menu {
@@ -201,10 +240,16 @@ struct BrowserMenu: View {
             Button("History", systemImage: "clock") { sheet = .history }
             Button("Settings", systemImage: "gearshape") { sheet = .settings }
         } label: {
-            Label("More", systemImage: "ellipsis.circle")
+            face
         }
         .accessibilityIdentifier("menu")
         .pinRenaming($renaming, browser: browser)
+    }
+}
+
+extension BrowserMenu where Face == Label<Text, Image> {
+    init(browser: Browser, tab: Tab?, sheet: Binding<BrowserSheet?>) {
+        self.init(browser: browser, tab: tab, sheet: sheet) { Label("More", systemImage: "ellipsis.circle") }
     }
 }
 

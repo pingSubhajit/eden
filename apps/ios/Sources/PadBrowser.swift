@@ -91,6 +91,7 @@ struct PadBrowser: View {
                             AddressEditor(text: $typing.text, selection: $typing.selection, focus: $focused) {
                                 typing.submit(in: browser)
                             }
+                            .background(.regularMaterial, in: Capsule())
                             Button("Cancel") { typing.cancel() }
                                 .font(.body)
                                 .labelStyle(.titleOnly)
@@ -98,6 +99,7 @@ struct PadBrowser: View {
                         }
                     } else {
                         AddressPill(tab: tab) { typing.start(over: tab) }
+                            .background(.regularMaterial, in: Capsule())
                     }
                 }
                 .frame(maxWidth: 640)
