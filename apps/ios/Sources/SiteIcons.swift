@@ -30,6 +30,8 @@ final class SiteIcons {
     @ObservationIgnored private let accents = NSCache<UIImage, UIColor>()
     /// Kept for an icon found to have no colour, so it isn't measured again.
     @ObservationIgnored private let colourless = UIColor.clear
+    /// Each icon's ink (IconPick.ink), measured once; `NSNull` for none.
+    @ObservationIgnored private let inks = NSCache<UIImage, AnyObject>()
 
     /// Drawn no larger than this, in pixels: a pin's icon at 28 points, 3x.
     private nonisolated static let largest = 96
@@ -70,6 +72,20 @@ final class SiteIcons {
         }
         accents.setObject(measured ?? colourless, forKey: image)
         return measured.map(Color.init(uiColor:))
+    }
+
+    /// Whether `image` is one grey drawn on nothing (IconPick.ink) that a
+    /// tile of the same tone would all but hide, and is to be turned over
+    /// to the other: GitHub's black cat on a dark tile.
+    func needsTurning(_ image: UIImage, dark: Bool) -> Bool {
+        let ink: IconPick.Ink?
+        if let known = inks.object(forKey: image) {
+            ink = (known as? NSNumber).map { $0.boolValue ? .dark : .light }
+        } else {
+            ink = image.cgImage.flatMap(IconPick.ink(of:))
+            inks.setObject(ink.map { NSNumber(value: $0 == .dark) } ?? NSNull(), forKey: image)
+        }
+        return ink == (dark ? .dark : .light)
     }
 
     /// A page finished: what it declares asked for and fetched, once a

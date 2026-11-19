@@ -329,6 +329,7 @@ struct PinStrip: View {
 struct PinMark: View {
     let pin: ShownPin
     let size: CGFloat
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         if let icon = SiteIcons.shared.icon(for: PinMark.site(of: pin)) {
@@ -336,6 +337,9 @@ struct PinMark: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
+                // One grey on nothing, in the tile's own tone, turned over
+                // to stand out from it: GitHub's black cat, white at night.
+                .turnedOver(SiteIcons.shared.needsTurning(icon, dark: scheme == .dark))
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
         } else {
@@ -350,6 +354,13 @@ struct PinMark: View {
     /// The colour its icon wears, if it has an icon of some colour.
     @MainActor static func accent(of pin: ShownPin) -> Color? {
         SiteIcons.shared.icon(for: site(of: pin)).flatMap(SiteIcons.shared.accent(of:))
+    }
+}
+
+private extension View {
+    /// Its colours turned over, light for dark, when `on`.
+    @ViewBuilder func turnedOver(_ on: Bool) -> some View {
+        if on { colorInvert() } else { self }
     }
 }
 
