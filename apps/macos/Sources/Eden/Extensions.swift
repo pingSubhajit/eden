@@ -721,7 +721,7 @@ final class Extensions: NSObject, ObservableObject {
     /// way to reach it from the real browser.
     func install(from text: String, confirm: Bool = true) {
         guard let id = Crx.id(in: text) else {
-            browser?.announce(Crx.Refused.notAnID.localizedDescription)
+            browser?.announce(Crx.Refused.notAnID.localizedDescription, look: .problem)
             return
         }
         if installed.contains(where: { $0.id == id }) {
@@ -744,7 +744,7 @@ final class Extensions: NSObject, ObservableObject {
             try ExtensionShims.prepare(staged, fresh: true)
             try await admit(staged, as: id, fromStore: true, finalFolder: Extensions.folder(for: id), confirm: false)
         } catch {
-            browser?.announce(error.localizedDescription)
+            browser?.announce(error.localizedDescription, look: .problem)
         }
     }
 
@@ -768,7 +768,7 @@ final class Extensions: NSObject, ObservableObject {
             try ExtensionShims.prepare(staged, fresh: true)
             try await admit(staged, as: id, fromStore: true, finalFolder: target, confirm: confirm || !Store.testing)
         } catch {
-            browser?.announce(error.localizedDescription)
+            browser?.announce(error.localizedDescription, look: .problem)
         }
     }
 
@@ -786,7 +786,7 @@ final class Extensions: NSObject, ObservableObject {
 
     func installFolder(at source: URL, confirm: Bool = true) {
         guard FileManager.default.fileExists(atPath: source.appendingPathComponent("manifest.json").path) else {
-            browser?.announce("That folder has no manifest.json")
+            browser?.announce("That folder has no manifest.json", look: .problem)
             return
         }
         let source = URL(fileURLWithPath: Crx.realPath(of: source), isDirectory: true)
@@ -806,7 +806,7 @@ final class Extensions: NSObject, ObservableObject {
                 try ExtensionShims.prepare(staged, fresh: true)
                 try await admit(staged, as: id, fromStore: false, finalFolder: Extensions.folder(for: id), confirm: confirm || !Store.testing, source: source)
             } catch {
-                browser?.announce("Couldn't install the extension: \(error.localizedDescription)")
+                browser?.announce("Couldn't install the extension: \(error.localizedDescription)", look: .problem)
             }
         }
     }
@@ -828,11 +828,11 @@ final class Extensions: NSObject, ObservableObject {
             if let path = original.source, let staged {
                 let source = URL(fileURLWithPath: path, isDirectory: true)
                 guard FileManager.default.fileExists(atPath: source.appendingPathComponent("manifest.json").path) else {
-                    browser?.announce("The folder \(original.name) was loaded from is gone")
+                    browser?.announce("The folder \(original.name) was loaded from is gone", look: .problem)
                     return
                 }
                 guard original.sourceKeepsID else {
-                    browser?.announce("\(original.name) wasn't reloaded — its folder now leads somewhere else")
+                    browser?.announce("\(original.name) wasn't reloaded — its folder now leads somewhere else", look: .problem)
                     return
                 }
                 do {
@@ -840,14 +840,14 @@ final class Extensions: NSObject, ObservableObject {
                     try Extensions.unlinkOutside(staged)
                     try ExtensionShims.prepare(staged, fresh: true)
                 } catch {
-                    browser?.announce("Couldn't copy \(original.name) again: \(error.localizedDescription)")
+                    browser?.announce("Couldn't copy \(original.name) again: \(error.localizedDescription)", look: .problem)
                     return
                 }
             }
             let resource = staged ?? target
             let found = try? await WKWebExtension(resourceBaseURL: resource)
             if found == nil, staged != nil {
-                browser?.announce("\(original.name) wasn't reloaded — its manifest couldn't be read")
+                browser?.announce("\(original.name) wasn't reloaded — its manifest couldn't be read", look: .problem)
                 return
             }
             var wants: [String]?
@@ -857,7 +857,7 @@ final class Extensions: NSObject, ObservableObject {
                 if !Set(permissions).isSubset(of: Set(original.permissions)) {
                     let name = [found.displayName ?? original.name, found.version].compactMap { $0 }.joined(separator: " ")
                     guard await ask(install: name, wants: Extensions.describe(found, in: resource), icon: found.icon(for: CGSize(width: 64, height: 64))) else {
-                        browser?.announce("\(original.name) wasn't reloaded — it asks for more than before")
+                        browser?.announce("\(original.name) wasn't reloaded — it asks for more than before", look: .problem)
                         return
                     }
                 }
@@ -869,7 +869,7 @@ final class Extensions: NSObject, ObservableObject {
                 do {
                     try ExtensionFiles.replace(staged, at: target)
                 } catch {
-                    browser?.announce("Couldn't replace \(original.name): \(error.localizedDescription)")
+                    browser?.announce("Couldn't replace \(original.name): \(error.localizedDescription)", look: .problem)
                     return
                 }
             }
@@ -883,7 +883,9 @@ final class Extensions: NSObject, ObservableObject {
                 save()
             }
             guard let item = installed.first(where: { $0.id == id }), item.enabled else { return }
-            browser?.announce(await load(item) ? "\(item.name) reloaded" : "\(item.name) couldn't start — see Settings › Extensions")
+            let loaded = await load(item)
+            browser?.announce(loaded ? "\(item.name) reloaded" : "\(item.name) couldn't start — see Settings › Extensions",
+                              look: loaded ? .done : .problem)
         }
     }
 
@@ -1024,9 +1026,9 @@ final class Extensions: NSObject, ObservableObject {
         installed.append(item)
         save()
         if await load(item) {
-            browser?.announce("\(name) is installed")
+            browser?.announce("\(name) is installed", look: .done)
         } else {
-            browser?.announce("\(name) is installed, but WebKit couldn't start it")
+            browser?.announce("\(name) is installed, but WebKit couldn't start it", look: .problem)
         }
     }
 

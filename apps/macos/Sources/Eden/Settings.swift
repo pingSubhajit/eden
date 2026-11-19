@@ -484,7 +484,7 @@ struct SettingsPanel: View {
                 Pill("Make default", filled: true) {
                     Links.becomeDefault { worked in
                         isDefault = Links.isDefault
-                        browser.announce(worked && isDefault ? "Links now open here" : "macOS didn't change it")
+                        browser.announce(worked && isDefault ? "Links now open here" : "macOS didn't change it", look: worked && isDefault ? .done : .problem)
                     }
                 }
             }
@@ -671,7 +671,7 @@ struct SettingsPanel: View {
                     withAnimation(Motion.glide) { prefs.restore(before) }
                     arcBefore = nil
                     SettingsPanel.arcBefore = nil
-                    browser.announce("Put back as it was")
+                    browser.announce("Put back as it was", look: .done)
                 }
             } else if prefs.looksLikeArc {
                 Always(text: "Set up")
@@ -714,11 +714,11 @@ struct SettingsPanel: View {
                 guard on else { prefs.fillsContacts = false; return }
                 Task { @MainActor in
                     guard await MeCard.shared.ask() else {
-                        browser.announce("Eden may not read Contacts: System Settings › Privacy & Security › Contacts")
+                        browser.announce("Eden may not read Contacts: System Settings › Privacy & Security › Contacts", look: .problem)
                         return
                     }
                     guard await MeCard.shared.reload() else {
-                        browser.announce("No card of yours in Contacts: pick yours there, then Card › Make This My Card")
+                        browser.announce("No card of yours in Contacts: pick yours there, then Card › Make This My Card", look: .problem)
                         return
                     }
                     prefs.fillsContacts = true
@@ -804,7 +804,7 @@ struct SettingsPanel: View {
                            detail: "\(Vault.never.count) sites told to stop offering") {
                     Pill("Forget") {
                         Vault.never = []
-                        browser.announce("Every site can ask again")
+                        browser.announce("Every site can ask again", look: .done)
                     }
                 }
             }

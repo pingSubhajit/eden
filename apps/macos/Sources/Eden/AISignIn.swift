@@ -93,7 +93,7 @@ enum AISignIn {
     @discardableResult
     private static func finish(_ kept: Bool, _ why: String?, _ tab: Tab, _ browser: Browser) -> Bool {
         if kept { browser.close(tab) }
-        browser.announce(kept ? "Signed in with OpenRouter" : (why ?? "The sign-in didn't work"))
+        browser.announce(kept ? "Signed in with OpenRouter" : (why ?? "The sign-in didn't work"), look: kept ? .done : .problem)
         ended?(kept, why)
         return true
     }

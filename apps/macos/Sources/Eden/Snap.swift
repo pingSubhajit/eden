@@ -470,14 +470,14 @@ extension Browser {
         let web = tab.web
         let backing = web.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         guard let plan = SnapGeometry.plan(choice, zoom: web.pageZoom, backing: backing) else {
-            announce("Nothing there to capture")
+            announce("Nothing there to capture", look: .problem)
             finished?(["error": "nothing there"])
             return
         }
         let passing = tab.shy
         let file = file ?? Browser.free(SnapGeometry.fileName(Date()), in: downloadsFolder)
         let failed: (String?) -> Void = { [weak self] reason in
-            self?.announce("Couldn't capture this page")
+            self?.announce("Couldn't capture this page", look: .problem)
             finished?(["error": reason ?? "no picture"])
         }
         let done: (NSImage, Bool) -> Void = { [weak self] image, cropped in
@@ -524,9 +524,9 @@ extension Browser {
                 guard let self else { return }
                 let copied = cropped ? "The top of the page copied" : "Copied"
                 if wrote {
-                    self.announce("\(copied) and saved to \(file.deletingLastPathComponent().lastPathComponent)", file: file)
+                    self.announce("\(copied) and saved to \(file.deletingLastPathComponent().lastPathComponent)", look: .done, file: file)
                 } else {
-                    self.announce("\(copied), but couldn't save it")
+                    self.announce("\(copied), but couldn't save it", look: .problem)
                 }
                 let rep = NSBitmapImageRep(data: data.png)
                 finished?(["path": wrote ? file.path : "", "width": rep?.pixelsWide ?? 0,

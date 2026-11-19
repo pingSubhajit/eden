@@ -717,7 +717,6 @@ struct ContentView: View {
     /// Everything that rises from the bottom edge to say one thing.
     private var bars: some View {
         VStack(spacing: 8) {
-            announcement
             if let ask = browser.asking {
                 Group {
                     if ask.screen { ScreenQuestion(browser: browser, ask: ask) }
@@ -829,6 +828,8 @@ struct ContentView: View {
                 }
             }
             .overlay(alignment: .bottom) { bars }
+            // The window's passing messages, dropping in at the top (Toasts).
+            .overlay(alignment: .top) { ToastHost(browser.toasts) }
             .overlay {
                 // Over the page only: the column, the strip and the bookmarks
                 // bar stay as they are, uncovered and in reach.
@@ -961,34 +962,6 @@ struct ContentView: View {
     }
 
     // MARK: - the window
-
-    /// A line that rises from the bottom, says one thing, and leaves.
-    @ViewBuilder
-    private var announcement: some View {
-        if let text = browser.announcement {
-            HStack(spacing: 8) {
-                Text(text)
-                    .foregroundStyle(Palette.ink)
-                // A file just saved: the line shows it in the Finder.
-                if browser.announcedFile != nil {
-                    Text("Show in Finder")
-                        .foregroundStyle(Palette.muted)
-                }
-            }
-                .font(.system(size: 12))
-                .contentShape(Capsule())
-                .onTapGesture {
-                    if let file = browser.announcedFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-                }
-                .padding(.horizontal, 15)
-                .padding(.vertical, 9)
-                .background(Palette.ground, in: Capsule())
-                .overlay(Capsule().strokeBorder(Palette.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(0.10), radius: 18, y: 6)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(Motion.settle, value: browser.announcement)
-        }
-    }
 
     /// A dark pill, for the one mode this browser has. It stays up for as long
     /// as the mode does, which is how you know you are still in it.

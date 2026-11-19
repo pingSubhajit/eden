@@ -33,7 +33,8 @@ final class LittleWindow: NSObject, NSWindowDelegate {
     /// any order, a stack of them walked the kept place across the screen.
     private var cascaded = false
     /// What it says for a moment at its foot: "Address copied".
-    private let note = LittleNote()
+    /// Its passing messages, as the browser's window has them (Toasts).
+    private let toasts = Toasts()
     /// No smaller than this, by hand or from a kept place.
     private static let smallest = NSSize(width: 420, height: 320)
 
@@ -78,7 +79,7 @@ final class LittleWindow: NSObject, NSWindowDelegate {
 
     /// Its window, for the bench to press keys on, and what its foot says.
     var windowNumber: Int { window.windowNumber }
-    var said: String? { note.text }
+    var said: String? { toasts.current?.text }
 
     /// The small window a key was pressed in, if it was one.
     static func owning(_ window: NSWindow?) -> LittleWindow? {
@@ -182,7 +183,7 @@ final class LittleWindow: NSObject, NSWindowDelegate {
         }
         window.delegate = self
         let id = tab.id
-        window.contentView = NSHostingView(rootView: LittleView(tab: tab, note: note, keep: { [weak self] in self?.keep() })
+        window.contentView = NSHostingView(rootView: LittleView(tab: tab, toasts: toasts, keep: { [weak self] in self?.keep() })
             .overlay {
                 TabSwitcherOverlay(
                     switcher: LittleWindow.switcher,
@@ -197,7 +198,9 @@ final class LittleWindow: NSObject, NSWindowDelegate {
         // A zoom said at this window's foot, not the browser's behind it,
         // where Browser.prepare pointed it; kept, the tab is prepared again
         // and says it there.
-        tab.onZoom = { [weak note] _, value in note?.say("\(Int((value * 100).rounded()))%") }
+        tab.onZoom = { [weak toasts] _, value in
+            toasts?.show(Toast("\(Int((value * 100).rounded()))%", symbol: "plus.magnifyingglass", key: "zoom"))
+        }
     }
 
     /// Its own key monitor. A browser window's (see ContentView.watchKeys)
@@ -316,7 +319,7 @@ final class LittleWindow: NSObject, NSWindowDelegate {
         guard let url = tab.address else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(markdown ? Browser.markdownLink(tab.label, url) : url.absoluteString, forType: .string)
-        note.say(markdown ? "Link copied" : "Address copied")
+        toasts.show(Toast(markdown ? "Link copied" : "Address copied", look: .done))
     }
 
     /// Into the browser's row, after the tab on screen (never among the
@@ -393,7 +396,7 @@ final class LittleWindow: NSObject, NSWindowDelegate {
 struct LittleView: View {
     @ObservedObject var tab: Tab
     /// Its window's line at the foot; an extension's popup has none.
-    var note: LittleNote? = nil
+    var toasts: Toasts? = nil
     let keep: (() -> Void)?
 
     var body: some View {
@@ -431,7 +434,7 @@ struct LittleView: View {
             .animation(Motion.quick, value: tab.failure)
         }
         .background(Palette.ground)
-        .overlay(alignment: .bottom) { if let note { LittleToast(note: note) } }
+        .overlay(alignment: .top) { if let toasts { ToastHost(toasts, top: 12) } }
         .ignoresSafeArea()
     }
 
@@ -461,45 +464,6 @@ struct LittleView: View {
     }
 }
 
-/// A line said for a moment, as the browser's window says it (see
-/// ContentView.announcement): an address copied.
-@MainActor
-final class LittleNote: ObservableObject {
-    @Published private(set) var text: String?
-    private var hush: DispatchWorkItem?
-
-    func say(_ text: String) {
-        self.text = text
-        hush?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.text = nil }
-        hush = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7, execute: work)
-    }
-}
-
-private struct LittleToast: View {
-    @ObservedObject var note: LittleNote
-
-    var body: some View {
-        ZStack {
-            if let text = note.text {
-                Text(text)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.ink)
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 9)
-                    .background(Palette.ground, in: Capsule())
-                    .overlay(Capsule().strokeBorder(Palette.hairline, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.10), radius: 18, y: 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .padding(.bottom, 24)
-        .animation(Motion.settle, value: note.text)
-        .allowsHitTesting(false)
-    }
-}
-
 /// A website's sized pop-up or an extension's popup window: the
 /// browser's tab on screen as the small window shows a page, the site over
 /// it. Its tabs, checks and passwords are the browser's, as in any window.
@@ -508,7 +472,7 @@ struct PopupWindowView: View {
 
     var body: some View {
         if let tab = browser.active {
-            LittleView(tab: tab, keep: nil).id(tab.id)
+            LittleView(tab: tab, toasts: browser.toasts, keep: nil).id(tab.id)
                 .overlay(alignment: .topLeading) {
                     if let asked = browser.suggesting, asked.tab == tab.id {
                         AccountList(browser: browser, asked: asked).offset(y: 34)

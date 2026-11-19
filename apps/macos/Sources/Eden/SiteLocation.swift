@@ -105,7 +105,7 @@ final class SiteLocation {
     var makeLocator: @MainActor () -> Locating? = { Store.testing ? nil : CoreLocator() }
     /// Told when macOS refuses Eden the location, so the page you allowed
     /// isn't simply left with an error and no reason.
-    var refused: (@MainActor () -> Void)? = { Browsers.front?.announce("macOS isn't sharing your location with Eden") }
+    var refused: (@MainActor () -> Void)? = { Browsers.front?.announce("macOS isn't sharing your location with Eden", look: .problem) }
 
     private var locator: Locating?
     /// The geolocation managers waiting for a position (one per process pool).

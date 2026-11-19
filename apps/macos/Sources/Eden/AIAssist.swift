@@ -456,7 +456,7 @@ struct AISettings: View {
                         Pill("Forget") {
                             AIKeys.forgetAll()
                             refresh()
-                            browser.announce("Keys forgotten")
+                            browser.announce("Keys forgotten", look: .done)
                         }
                     }
                 }
@@ -594,9 +594,9 @@ struct AISettings: View {
         let key = pasted
         pasted = ""
         switch AIKeys.save(key, for: provider) {
-        case .kept: browser.announce("Key kept in the keychain")
-        case .unavailable: browser.announce("This copy of Eden can't keep keys")
-        case .failed: browser.announce("The key wasn't kept")
+        case .kept: browser.announce("Key kept in the keychain", look: .done)
+        case .unavailable: browser.announce("This copy of Eden can't keep keys", look: .problem)
+        case .failed: browser.announce("The key wasn't kept", look: .problem)
         }
         refresh()
     }
