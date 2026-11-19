@@ -998,6 +998,18 @@ private struct TabPill: View, Equatable {
 /// A field of its own rather than SwiftUI's, for one reason: the system paints
 /// selected text as a solid block of accent colour, which over a pale grey pill
 /// this size is the loudest thing in the window. Here it is a tenth of the ink.
+/// What a run of the column does for a tab carried over it (Carried.gap).
+enum CarryGap {
+    /// Nothing: it is along its own run, and moves as it goes.
+    case none
+    /// A gap is open for it in another run, and its own place closes: the
+    /// row holds still where it is.
+    case away
+    /// A gap is open for it elsewhere, and it is kept here as well — sent
+    /// to another device: the row goes back to where it was picked up.
+    case copy
+}
+
 /// A tab picked up and carried along its row, the others making way as it
 /// passes them — across the top or down the column alike.
 ///
@@ -1043,6 +1055,17 @@ struct Carried: ViewModifier {
     /// Told when the tab is picked up and when it is put down, called off
     /// or cancelled: the row it is carried along can show its tabs' shapes.
     var holding: ((Bool) -> Void)? = nil
+    /// Asked at every move (nil: no longer anywhere the rows could open
+    /// for it): whether a gap is open for it in another run — a group, the
+    /// tabs in none, another device (the column's RowGap) — and the row
+    /// then holds still, or goes back to its place, rather than moving
+    /// along its own. Given, it takes the place of the old rule that a tab
+    /// of a group, or one over a group, only landed when let go.
+    var gap: ((Tab, CGPoint?) -> CarryGap)? = nil
+    /// Let go: true when it went into the gap that was open for it. Told
+    /// where its leading edge is drawn in `space`, under the hand, for its
+    /// place there to start from (nil before that was read).
+    var placed: ((Tab, CGFloat?) -> Bool)? = nil
     let move: (Int) -> Void
 
     @State private var held = false
@@ -1143,12 +1166,31 @@ struct Carried: ViewModifier {
                         // into the pins or the page: it is how the group
                         // under the pointer knows to light, and to stop.
                         let over = tab.flatMap { groupDestination?($0, value.location) }
-                        if splitting || crossed { return }
-                        // A tab of a group, or one over a group, lands where
-                        // it is let go (see GroupDropFrames.resolve) rather
-                        // than moving along the row as it goes.
-                        if let browser, let tab, browser.prefs.usesTabGroups, tab.pin == nil,
-                           browser.group(of: tab) != nil || over != nil { return }
+                        if splitting || crossed {
+                            if let tab { _ = gap?(tab, nil) }
+                            return
+                        }
+                        if let tab, let gap {
+                            // Along its own run it moves as it goes; out of
+                            // it, the run it is over opens a gap for it.
+                            switch gap(tab, value.location) {
+                            case .none:
+                                break
+                            case .away:
+                                return
+                            case .copy:
+                                // Kept where it was: the places it took on
+                                // the way given back, so it stays put.
+                                if index != from { withAnimation(Motion.settle) { move(from) } }
+                                return
+                            }
+                        } else if let browser, let tab, browser.prefs.usesTabGroups, tab.pin == nil,
+                                  browser.group(of: tab) != nil || over != nil {
+                            // A tab of a group, or one over a group, lands
+                            // where it is let go (see GroupDropFrames.resolve)
+                            // rather than moving along the row as it goes.
+                            return
+                        }
                         let target = Carried.slot(at: start + travel, carrying: index, in: steps)
                         if target != index {
                             reordered = true
@@ -1173,13 +1215,20 @@ struct Carried: ViewModifier {
                                 case .stage(let target, let onLeft):
                                     browser.pair(source, with: target, onLeft: onLeft)
                                 case .strip(let target):
+                                    // Into the gap open for it: where it was
+                                    // shown it would go.
+                                    if placed?(tab, origin.map { $0 + travel }) == true { break }
                                     if let destination = groupDestination?(source, value.location) {
+                                        // Along its own group it has moved as
+                                        // it went (see `gap`): already there.
+                                        if gap != nil, source === tab, destination.group == browser.group(of: source) { break }
                                         // Resolve before detaching: the old pair still owns its frame.
                                         browser.move(source, toGroup: destination, detaching: true)
                                     } else {
                                         browser.dropTabIntoStrip(source, before: target)
                                     }
                                 case .outside:
+                                    if placed?(tab, origin.map { $0 + travel }) == true { break }
                                     if !browser.dragOut(source, at: finished.point) {
                                         if let onDropTab { onDropTab(source, value.location) }
                                         else if source.id == tab.id { onDrop?(value.location) }
@@ -1189,7 +1238,8 @@ struct Carried: ViewModifier {
                                 }
                             }
                         } else if land?(value.location) != true, outside?() != true {
-                            if let onDropTab, let tab { onDropTab(tab, value.location) }
+                            if let tab, placed?(tab, origin.map { $0 + travel }) == true {}
+                            else if let onDropTab, let tab { onDropTab(tab, value.location) }
                             else { onDrop?(value.location) }
                         }
                         // Told now, not only when `held` changes: the drop

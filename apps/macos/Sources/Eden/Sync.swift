@@ -185,6 +185,9 @@ final class Sync: ObservableObject {
         on = false
         status = forgotten ? .idle : .problem(.unwritable)
         otherTabs = []
+        heardTabs = []
+        asks = [:]
+        asked = []
     }
 
     private func begin() {
@@ -283,8 +286,82 @@ final class Sync: ObservableObject {
         cloud?.scopes = scopes
     }
 
-    fileprivate func showOtherTabs(_ tabs: [DeviceTabs]) {
-        if tabs != otherTabs { otherTabs = tabs }
+    /// The other devices' tabs as last heard, before any page asked closed
+    /// there is taken out.
+    private var heardTabs: [DeviceTabs] = []
+    /// Asks to close a page on another device, to be written at the next
+    /// pass: written once, then only carried (SyncItems.ask).
+    fileprivate private(set) var asks: [String: String] = [:]
+    /// The pages asked closed, hidden from their device's list until it
+    /// answers (Elsewhere.withoutAsked).
+    private var asked: [Elsewhere.Asked] = []
+    /// Asks to close pages here already acted on, by key: each is deleted
+    /// at the next pass, and not acted on twice meanwhile.
+    private var heard: Set<String> = []
+
+    /// One of another device's pages, closed there: asked of it through
+    /// iCloud, and gone from its list here at once. Done there when it
+    /// next syncs, if it is an Eden that knows how.
+    func askToClose(_ page: DeviceTabs.Page, on device: String) {
+        guard on, let url = URL(string: page.url) else { return }
+        let now = Date().timeIntervalSince1970
+        asks.merge(SyncItems.ask(close: page.url, on: device, now: now)) { _, new in new }
+        asked.append(Elsewhere.Asked(device: device, page: History.identity(for: url), at: now))
+        showOtherTabs(heardTabs)
+        cloud?.localChange()
+    }
+
+    /// One of this Mac's tabs, opened on another device too: carried onto
+    /// that device's group in the column. Asked of it through iCloud, as a
+    /// close is, and in its list here at once; opened there, behind the page
+    /// in front, when it next syncs. False for a tab the other devices
+    /// aren't shown (Sync.page(of:in:)).
+    @discardableResult
+    func askToOpen(_ tab: Tab, in space: UUID, on device: String) -> Bool {
+        guard on, let page = Sync.page(of: tab, in: space), let url = URL(string: page.url) else { return false }
+        let now = Date().timeIntervalSince1970
+        asks.merge(SyncItems.ask(open: page, on: device, now: now)) { _, new in new }
+        asked.append(Elsewhere.Asked(device: device, page: History.identity(for: url), at: now, opening: page))
+        showOtherTabs(heardTabs)
+        cloud?.localChange()
+        return true
+    }
+
+    /// After each pass: the asks written are only carried from now on; the
+    /// asks of this Mac acted on; and the other devices' tabs shown.
+    fileprivate func settled(_ live: [String: String]) {
+        asks = asks.filter { live[$0.key] == nil }
+        let now = Date().timeIntervalSince1970
+        let fresh = SyncItems.closeAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
+        if !fresh.isEmpty {
+            heard.formUnion(fresh.keys)
+            let pages = Set(fresh.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
+            // After the pass: closing writes the tabs down, which asks for
+            // another.
+            DispatchQueue.main.async {
+                for browser in Browsers.all where browser.profileID == Profile.personalID && !browser.isPopup {
+                    browser.closeAsked(pages)
+                }
+            }
+        }
+        let opening = SyncItems.openAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
+        if !opening.isEmpty {
+            heard.formUnion(opening.keys)
+            let pages = opening.values.sorted { $0.at < $1.at }.map(\.page)
+            DispatchQueue.main.async {
+                let windows = Browsers.all.filter { $0.profileID == Profile.personalID && !$0.isPopup }
+                guard let browser = windows.first(where: { $0 === Browsers.front }) ?? windows.first else { return }
+                for page in pages { browser.openSent(page) }
+            }
+        }
+        showOtherTabs(SyncItems.otherTabs(live, except: device, now: now))
+    }
+
+    private func showOtherTabs(_ tabs: [DeviceTabs]) {
+        heardTabs = tabs
+        let (shown, waiting) = Elsewhere.asAsked(tabs, asked: asked, now: Date().timeIntervalSince1970)
+        asked = waiting
+        if shown != otherTabs { otherTabs = shown }
     }
 
     /// The tabs last offered, and when they were first: asked twice in a
@@ -306,14 +383,8 @@ final class Sync: ObservableObject {
         for browser in windows {
             let rows = [(browser.spaceID, browser.tabs)] + browser.parked.map { ($0.key, $0.value.tabs) }
             for (space, row) in rows {
-                for tab in row where !tab.shy && !tab.bench {
-                    guard let url = Continuity.page(tab.restAddress) else { continue }
-                    // A pin at its home is the pin, which every device has
-                    // already; gone on to another page, it is that page.
-                    if tab.pin != nil, PinDef.atHome(tab.home, showing: url) { continue }
-                    let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
-                    let page = DeviceTabs.Page(url: url.absoluteString, title: title, space: space,
-                                               scroll: DeviceTabs.Page.scroll(tab.reading), reading: tab.reader ? true : nil)
+                for tab in row {
+                    guard let page = page(of: tab, in: space) else { continue }
                     let inFront = browser === Browsers.front && space == browser.spaceID && tab.id == browser.activeID
                     // Each page once: the tab in front, when it is one of two.
                     if let at = listed[page.url] {
@@ -345,6 +416,19 @@ final class Sync: ObservableObject {
         }
         offered = mine
         return mine
+    }
+
+    /// A tab as the other devices are shown it: its page, title, space,
+    /// how far down it is read and whether as an article. Nil for one they
+    /// aren't shown: private, a bench tab, a page that can't be carried, or
+    /// a pin at its home — the pin, which every device has already; gone on
+    /// to another page, it is that page.
+    static func page(of tab: Tab, in space: UUID) -> DeviceTabs.Page? {
+        guard !tab.shy, !tab.bench, let url = Continuity.page(tab.restAddress) else { return nil }
+        if tab.pin != nil, PinDef.atHome(tab.home, showing: url) { return nil }
+        let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
+        return DeviceTabs.Page(url: url.absoluteString, title: title, space: space,
+                               scroll: DeviceTabs.Page.scroll(tab.reading), reading: tab.reader ? true : nil)
     }
 
     nonisolated static var macName: String {
@@ -440,11 +524,14 @@ private final class AppScope: SyncScope {
     func snapshot(agreed: [String: String]) -> [String: String] {
         var items = SyncSettings.items(Shared.prefs)
         items.merge(SyncItems.tabs(Sync.openTabs(device: sync.device, agreed: agreed[own]))) { mine, _ in mine }
+        items.merge(sync.asks) { mine, _ in mine }
         return items
     }
 
+    /// Asks of this Mac, to close a page or open one, are this Mac's too:
+    /// never written by it, they are deleted everywhere once acted on.
     func owns(_ key: String, _ text: String) -> Bool {
-        SyncItems.understood(key, text) || key == own
+        SyncItems.understood(key, text) || key == own || SyncItems.asks(key, of: sync.device)
     }
 
     func apply(_ live: [String: String]) {
@@ -452,7 +539,7 @@ private final class AppScope: SyncScope {
     }
 
     func settled(_ live: [String: String]) {
-        sync.showOtherTabs(SyncItems.otherTabs(live, except: sync.device, now: Date().timeIntervalSince1970))
+        sync.settled(live)
     }
 
     /// The preferences are written as they are set.

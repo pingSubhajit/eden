@@ -88,6 +88,85 @@ final class RowCarryTests: XCTestCase {
         XCTAssertNotNil(browser.split(for: t[1]), "the pair stays a pair")
     }
 
+    // MARK: - with tab groups: the rows part where it would land
+
+    /// "one", "two" and "three" in a group at the top, "four" and "five"
+    /// in none below it. The group: its heading 3–25, its tabs 27–55,
+    /// 57–85 and 87–115, its foot at 118; the loose tabs from 120, 30 apart.
+    private func makeGrouped() -> (Browser, UUID, [Eden.Tab]) {
+        let browser = makeBrowser()
+        browser.prefs.usesTabGroups = true
+        let t = browser.tabs
+        let group = browser.addTabGroup(containing: t[0])
+        for tab in t[1...2] { browser.move(tab, toGroup: group) }
+        browser.select(t[4])
+        return (browser, group, t)
+    }
+
+    private func carry(from start: CGFloat, to end: CGFloat, in window: NSWindow,
+                       letGo: Bool = true) async throws {
+        try await send(.leftMouseDown, at: point(y: start, in: window), in: window)
+        let step: CGFloat = end < start ? -2 : 2
+        for y in stride(from: start + step, through: end, by: step) {
+            try await send(.leftMouseDragged, at: point(y: y, in: window), in: window)
+        }
+        if letGo { try await send(.leftMouseUp, at: point(y: end, in: window), in: window) }
+    }
+
+    func testATabCarriedAlongItsGroupMovesAsItGoes() async throws {
+        let (browser, group, t) = makeGrouped()
+        let window = makeWindow(browser)
+        try await settle()
+        try await carry(from: 41, to: 101, in: window, letGo: false)
+        XCTAssertEqual(browser.tabs(in: group).map(\.id), [t[1], t[2], t[0]].map(\.id),
+                       "the others made way before it was let go")
+        try await send(.leftMouseUp, at: point(y: 101, in: window), in: window)
+        try await settle()
+        XCTAssertEqual(browser.tabs(in: group).map(\.id), [t[1], t[2], t[0]].map(\.id), "and it stays where it was shown")
+    }
+
+    func testATabCarriedIntoAGroupLandsInTheGapItOpened() async throws {
+        let (browser, group, t) = makeGrouped()
+        let window = makeWindow(browser)
+        try await settle()
+        // "five" up over "four", into the group, between "one" and "two".
+        try await carry(from: 164, to: 60, in: window)
+        try await settle()
+        XCTAssertEqual(browser.tabs(in: group).map(\.id), [t[0], t[4], t[1], t[2]].map(\.id))
+        XCTAssertEqual(browser.tabs(in: nil).map(\.id), [t[3].id])
+    }
+
+    func testATabCarriedOutOfItsGroupLandsAmongTheLooseTabs() async throws {
+        let (browser, group, t) = makeGrouped()
+        let window = makeWindow(browser)
+        try await settle()
+        // "two" down past "three", out of the group, below everything.
+        try await carry(from: 71, to: 260, in: window)
+        try await settle()
+        XCTAssertEqual(browser.tabs(in: group).map(\.id), [t[0], t[2]].map(\.id))
+        XCTAssertEqual(browser.tabs(in: nil).map(\.id), [t[3], t[4], t[1]].map(\.id))
+    }
+
+    func testAFoldedGroupSpringsOpenUnderARestingTabAndFoldsAgainWhenLeft() async throws {
+        let (browser, group, _) = makeGrouped()
+        browser.toggleTabGroup(group)
+        let window = makeWindow(browser)
+        try await settle()
+        // Folded: its heading 3–25, its foot at 28; "four" 30–58, "five" 60–88.
+        try await carry(from: 74, to: 14, in: window, letGo: false)
+        XCTAssertEqual(browser.tabGroups.first?.collapsed, true, "not at once")
+        try await Task.sleep(for: .milliseconds(Int(RowGap.spring * 1000) + 300))
+        XCTAssertEqual(browser.tabGroups.first?.collapsed, false, "open after resting on it")
+        for y in stride(from: CGFloat(16), through: 300, by: 4) {
+            try await send(.leftMouseDragged, at: point(y: y, in: window), in: window)
+        }
+        try await settle()
+        XCTAssertEqual(browser.tabGroups.first?.collapsed, true, "folded again once the tab went elsewhere")
+        try await send(.leftMouseUp, at: point(y: 300, in: window), in: window)
+        try await settle()
+        XCTAssertEqual(browser.tabs(in: group).count, 3)
+    }
+
     /// The column mid-carry, with a red line where the hand is, for looking
     /// at by eye: only when ROW_CARRY_SHOTS names a folder. "five" is
     /// carried up past "four", the pair and "one", and back down.

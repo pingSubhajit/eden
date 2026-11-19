@@ -112,6 +112,118 @@ struct PinGhost: View {
     }
 }
 
+/// Where a tab carried out of its own run in the column would land if let
+/// go now — in a group, among the tabs in none, or on another device — and
+/// how tall a place it needs: the rows there part for it (RowGapSlot) while
+/// its own place closes (RowGapSource). Along its own run it needs none: it
+/// moves as it goes (Carried).
+struct RowGap: Equatable {
+    enum Place: Equatable {
+        /// In a group, before one of its tabs, or at its end.
+        case group(UUID, before: UUID?)
+        /// Among the tabs in no group, before one of them, or after them all.
+        case loose(before: UUID?)
+        /// At the end of another device's group (DeviceGroup), by its id as
+        /// it syncs: opened there too (Sync.askToOpen), and kept here.
+        case device(String)
+    }
+
+    let tab: UUID
+    let place: Place
+    let height: CGFloat
+
+    var group: UUID? {
+        if case .group(let id, _) = place { return id }
+        return nil
+    }
+
+    /// Another device it would be opened on.
+    var device: String? {
+        if case .device(let id) = place { return id }
+        return nil
+    }
+
+    /// Whether the tab leaves its own place for it: not for another device,
+    /// where it is opened as well as kept here.
+    var moves: Bool { device == nil }
+
+    /// The run it is in, to tell when it moves into another.
+    var run: String {
+        switch place {
+        case .group(let id, _): return id.uuidString
+        case .loose: return "loose"
+        case .device(let id): return "device:" + id
+        }
+    }
+
+    /// How long a carried tab rests on a folded group before it opens.
+    static let spring: TimeInterval = 0.5
+    /// Its frame among the groups' (GroupDropFrames): the hand over the gap
+    /// is over its group.
+    static let frameKey = UUID()
+}
+
+/// Where the gap is drawn in the rows' space, kept for the tab let go into
+/// it to start from the hand: a box, so the rows don't redraw as it moves.
+final class RowGapFrame {
+    var top: CGFloat?
+}
+
+/// Where each of your other devices' groups is drawn in the rows' space,
+/// by the device's id as it syncs, for a tab carried onto one: a box, as
+/// LooseFrames is, so a group that moves redraws nothing.
+final class DeviceFrames {
+    var rects: [String: CGRect] = [:]
+}
+
+/// A tab let go into a gap in another run: a new row there, not the one
+/// carried, which goes at once. It starts where the hand left it, by this
+/// much, and settles into its place.
+struct RowLanding: Equatable {
+    let tab: UUID
+    let offset: CGFloat
+}
+
+/// The place a gap opens for a carried tab: nothing drawn, only room the
+/// rows around it make, measured as part of its group's run.
+struct RowGapSlot: View {
+    let gap: RowGap
+    let frame: RowGapFrame
+
+    var body: some View {
+        Color.clear
+            .frame(height: gap.height)
+            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("rows")).minY }) { [frame] in frame.top = $0 }
+            .background {
+                if let group = gap.group {
+                    GeometryReader { geometry in
+                        Color.clear.preference(key: GroupDropFrames.self,
+                                               value: [RowGap.frameKey: GroupDropFrame(group: group,
+                                                                                       rect: geometry.frame(in: .named("rows")))])
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// A row whose tab is carried to a gap in another run: its own place
+/// closes, the tab still drawn under the hand from where the place began.
+/// Always applied, so the carried row's view never changes under the hand,
+/// which would call the carry off (see Carried).
+struct RowGapSource: ViewModifier {
+    let away: Bool
+    /// Just let go into a gap here: how far from its place it starts.
+    var landing: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: away ? 0 : nil, alignment: .top)
+            .padding(.bottom, away ? -SideBar.gap : 0)
+            .offset(y: landing)
+    }
+}
+
 /// The line opened among the rows for a tab carried there: its mark and
 /// name, faint, on the hover grey.
 struct RowGhost: View {

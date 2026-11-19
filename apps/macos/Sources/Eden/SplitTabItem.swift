@@ -140,7 +140,7 @@ struct SplitTabItem: View {
     private var cross: some View {
         if interactive, let id = hovered, let tab = pages.first(where: { $0.id == id }),
            browser.editingTab == nil {
-            RowCross()
+            RowCross(height: 28)
                 .overlay {
                     CloseClick(armed: true) { browser.closeTab(tab) }
                         .frame(width: RowCross.reachWidth, height: 28)

@@ -92,6 +92,36 @@ extension Browser {
         }
     }
 
+    /// The tabs showing these pages (by History.identity) closed, in this
+    /// space's row and the others': asked from another device's list of
+    /// this Mac's tabs (Sync.askToClose). Closed as ⌘W closes them — a pin
+    /// put down, ⇧⌘T bringing one back — never a private one, which no
+    /// other device was shown.
+    func closeAsked(_ pages: Set<String>) {
+        let asked = { (tab: Tab) -> Bool in
+            guard !tab.shy, !tab.bench, let url = Continuity.page(tab.restAddress) else { return false }
+            // A pin at its home isn't in the list the other device had.
+            if tab.pin != nil, PinDef.atHome(tab.home, showing: url) { return false }
+            return pages.contains(History.identity(for: url))
+        }
+        for tab in tabs.filter(asked) { close(tab) }
+        for tab in parkedTabs.filter(asked) { closeParked(tab) }
+    }
+
+    /// A page another device sent here (Sync.askToOpen there): opened
+    /// behind the page in front, loading once it is gone to, in the space
+    /// it was in there when this Mac has it — moved there as Move to Space
+    /// moves a tab. Nothing when it is open here already.
+    func openSent(_ page: DeviceTabs.Page) {
+        guard let url = URL(string: page.url) else { return }
+        let identity = History.identity(for: url)
+        guard !openHere.contains(identity) else { return }
+        let tab = open(url, foreground: false, mayWait: true, loose: true)
+        if let space = page.space, space != spaceID, spaces.contains(where: { $0.id == space }) {
+            move(tab, toSpace: space)
+        }
+    }
+
     /// A tab of a space not on screen: out of its row, and the row written.
     /// It isn't offered to ⇧⌘T, which would reopen it in the space on screen
     /// with that space's sign-ins; History still has it.

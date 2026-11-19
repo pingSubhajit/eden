@@ -105,4 +105,36 @@ final class TabGroupDropTests: XCTestCase {
                                                     excluding: source, vertical: vertical), GroupDropTarget(group: group.id))
         }
     }
+
+    /// A gap open in a group is part of it, and the group holding the tab
+    /// keeps it a little past its edge.
+    func testAGapIsPartOfItsGroupAndTheGroupHoldingATabKeepsIt() {
+        let first = TabGroup(id: UUID(), name: "First", collapsed: false)
+        let second = TabGroup(id: UUID(), name: "Second", collapsed: false)
+        let a = UUID(), b = UUID(), source = UUID()
+        let rect: (CGFloat, CGFloat) -> CGRect = { CGRect(x: 10, y: $0, width: 80, height: $1) }
+        var frames = [
+            first.id: GroupDropFrame(group: first.id, rect: rect(0, 22)),
+            a: GroupDropFrame(group: first.id, tab: a, rect: rect(24, 28)),
+            second.id: GroupDropFrame(group: second.id, rect: rect(56, 22)),
+            b: GroupDropFrame(group: second.id, tab: b, rect: rect(80, 28))
+        ]
+        let at: (CGFloat) -> CGPoint = { CGPoint(x: 30, y: $0) }
+        let groups = [first, second]
+        // Below "b": nothing, until a gap opens there.
+        XCTAssertNil(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true))
+        frames[RowGap.frameKey] = GroupDropFrame(group: second.id, rect: rect(110, 28))
+        XCTAssertEqual(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true),
+                       GroupDropTarget(group: second.id, member: b, after: true))
+        // Just past the first group's foot, on the second's heading: the
+        // first keeps a tab it holds, until the hand is clear of it.
+        XCTAssertEqual(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true),
+                       GroupDropTarget(group: second.id))
+        XCTAssertEqual(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true,
+                                               holding: first.id),
+                       GroupDropTarget(group: first.id, member: a, after: true))
+        XCTAssertEqual(GroupDropFrames.resolve(at(70), frames: frames, groups: groups, excluding: source, vertical: true,
+                                               holding: first.id),
+                       GroupDropTarget(group: second.id))
+    }
 }

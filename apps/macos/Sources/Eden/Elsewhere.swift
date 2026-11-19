@@ -116,6 +116,13 @@ struct DeviceGroups: View {
     @ObservedObject var prefs: Preferences
     let space: UUID
     @Binding var opened: Set<String>
+    /// Where a tab carried in the column would land: on one of these, it
+    /// opens there too (RowGap.Place.device).
+    var gap: RowGap? = nil
+    var gapFrame = RowGapFrame()
+    /// Where each group is drawn, for the column to tell which one a tab is
+    /// carried onto.
+    var frames: DeviceFrames? = nil
     @ObservedObject private var sync = Sync.shared
     @ObservedObject private var pages = OpenPages.shared
 
@@ -126,9 +133,17 @@ struct DeviceGroups: View {
             let here = browser.pages(device.tabs, in: space)
             if !here.isEmpty {
                 DeviceGroup(browser: browser, prefs: prefs, device: device, pages: here, open: open,
-                            opened: opened.contains(device.device)) {
+                            opened: opened.contains(device.device),
+                            gap: gap?.device == device.device ? gap : nil, gapFrame: gapFrame) {
                     if !opened.insert(device.device).inserted { opened.remove(device.device) }
                 }
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("rows")) }) { [frames] rect in
+                    frames?.rects[device.device] = rect
+                }
+                .onDisappear { [frames] in frames?.rects[device.device] = nil }
+                // A device's last page closed takes its group, as your
+                // tabs' rows go; the column settles round it (SideBar).
+                .transition(.sideRow)
             }
         }
     }
@@ -147,10 +162,14 @@ struct DeviceGroup: View {
     /// The pages open in this profile's windows, by History.identity.
     let open: Set<String>
     let opened: Bool
+    /// A tab carried onto it: the place its page will take, at the end, the
+    /// group lit and open to show it as a tab group shows one.
+    var gap: RowGap? = nil
+    var gapFrame = RowGapFrame()
     let toggle: () -> Void
 
     var body: some View {
-        SideGroup(colour: .stone, folded: !opened) {
+        SideGroup(colour: .stone, folded: !opened, lit: gap != nil, showsRows: opened || gap != nil) {
             GroupLabel(row: prefs.sideRow, toggle: toggle) {
                 Image(systemName: device.kind.symbol)
                     .font(.system(size: prefs.sideMark * 0.8, weight: .medium))
@@ -164,12 +183,17 @@ struct DeviceGroup: View {
             .help(opened ? "Hide the tabs open on \(device.name)" : "Show the tabs open on \(device.name)")
             .groupAccessibility(name: device.name, collapsed: !opened, toggle: toggle)
         } rows: {
-            ForEach(Array(pages.enumerated()), id: \.offset) { _, page in
-                ElsewhereRow(prefs: prefs, page: page,
-                             openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
+            // By page, each once on its device, as your tabs' rows are by
+            // tab: one closed goes as a tab's does (sideRow).
+            ForEach(pages, id: \.url) { page in
+                ElsewhereRow(prefs: prefs, page: page, deviceName: device.name,
+                             openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false,
+                             close: { Sync.shared.askToClose(page, on: device.device) }) {
                     browser.open(Elsewhere.Offer(device: device, page: page))
                 }
+                .transition(.sideRow)
             }
+            if let gap { RowGapSlot(gap: gap, frame: gapFrame) }
         }
     }
 }
@@ -194,24 +218,32 @@ struct ElsewhereTabs: View {
                     .padding(.top, 6)
                     .padding(.bottom, 2)
             }
-            ForEach(Array(group.pages.enumerated()), id: \.offset) { _, page in
-                ElsewhereRow(prefs: browser.prefs, page: page, openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false) {
+            ForEach(group.pages, id: \.url) { page in
+                ElsewhereRow(prefs: browser.prefs, page: page, deviceName: device.name,
+                             openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false,
+                             close: { Sync.shared.askToClose(page, on: device.device) }) {
                     browser.open(Elsewhere.Offer(device: device, page: page))
                     picked()
                 }
+                .transition(.sideRow)
             }
         }
+        .animation(Motion.settle, value: device.tabs.map(\.url))
     }
 }
 
 /// One of another device's tabs, drawn as a tab's line in the column is:
-/// its site's mark and its title, and whether it is open here already,
-/// which a click switches to.
+/// its site's mark, with a green dot carved into it when it is open here
+/// already, and its title; a click switches to it here, or opens it. Under
+/// the pointer, a cross closes it on its device, as a tab's closes it here.
 private struct ElsewhereRow: View {
     @Environment(\.greys) private var greys
     @ObservedObject var prefs: Preferences
     let page: DeviceTabs.Page
+    let deviceName: String
     let openHere: Bool
+    /// Closes it on its device (Sync.askToClose).
+    let close: () -> Void
     let open: () -> Void
     @State private var hovering = false
 
@@ -223,28 +255,85 @@ private struct ElsewhereRow: View {
         Button(action: open) {
             HStack(spacing: Metrics.rowSpacing) {
                 Mark(icon: Favicons.shared.cached(for: url), letter: letter, size: prefs.sideMark)
+                    .modifier(OpenHereDot(on: openHere, size: prefs.sideMark))
                 Text(title)
                     .font(.system(size: prefs.sideTitle))
                     .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.muted)
                     .lineLimit(1)
                     .fadesOut(title)
                 Spacer(minLength: 0)
-                if openHere {
-                    Text("Open")
-                        .font(.system(size: prefs.sideTitle - 2))
-                        .foregroundStyle(Palette.muted)
-                }
             }
             .padding(.horizontal, Metrics.rowInset)
             .frame(height: prefs.sideRow)
+            // The title fades out beneath the cross rather than being cut
+            // shorter, as a tab's does.
+            .mask {
+                HStack(spacing: 0) {
+                    Rectangle()
+                    if hovering {
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: 16)
+                        Color.clear.frame(width: RowCross.size + Metrics.rowCrossInset + 2)
+                    }
+                }
+            }
             .background(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous).fill(hovering ? greys.hover : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            if hovering {
+                RowCross(height: prefs.sideRow, action: close)
+                    .padding(.trailing, Metrics.rowCrossInset)
+                    .help("Close on \(deviceName)")
+                    .transition(.opacity)
+            }
+        }
         .onHover { hovering = $0 }
+        .animation(Motion.quick, value: hovering)
         .help(openHere ? "Open here already: switch to it" : (url.map(Address.pretty) ?? page.url))
-        .accessibilityLabel(title)
+        .accessibilityLabel(openHere ? "\(title), open here" : title)
         .accessibilityHint(openHere ? "Switches to it here" : "Opens it here")
+        .accessibilityAction(named: "Close on \(deviceName)", close)
+    }
+}
+
+/// A small green dot at a site mark's foot, carved into it with a ring of
+/// nothing round it so it reads on any icon and any ground: the page is
+/// open here already.
+private struct OpenHereDot: ViewModifier {
+    let on: Bool
+    let size: CGFloat
+
+    func body(content: Content) -> some View {
+        let dot = (size * 0.32).rounded()
+        let ring = max(1.25, size * 0.08)
+        // Its middle a little past the mark's corner.
+        let out = dot * 0.2
+        content
+            .mask {
+                if on {
+                    Rectangle()
+                        .overlay(alignment: .bottomTrailing) {
+                            Circle()
+                                .frame(width: dot + ring * 2, height: dot + ring * 2)
+                                .offset(x: out + ring, y: out + ring)
+                                .blendMode(.destinationOut)
+                        }
+                        .compositingGroup()
+                } else {
+                    Rectangle()
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if on {
+                    Circle()
+                        .fill(Color(nsColor: .systemGreen))
+                        .frame(width: dot, height: dot)
+                        .offset(x: out, y: out)
+                        .accessibilityHidden(true)
+                }
+            }
     }
 }
 

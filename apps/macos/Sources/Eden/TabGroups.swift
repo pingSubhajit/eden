@@ -21,14 +21,26 @@ struct GroupDropFrames: PreferenceKey {
         value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 
+    /// `holding`: the group the carried tab is in, or has a gap open in
+    /// (RowGap): it keeps the tab until the hand is `margin` past its edge,
+    /// so a hand on the line between two groups doesn't flick between them.
     static func resolve(_ point: CGPoint, frames: [UUID: GroupDropFrame],
-                        groups: [TabGroup], excluding source: UUID, vertical: Bool) -> GroupDropTarget? {
-        // Model group order gives overlapping regions a deterministic priority.
-        for group in groups {
+                        groups: [TabGroup], excluding source: UUID, vertical: Bool,
+                        holding: UUID? = nil, margin: CGFloat = 8) -> GroupDropTarget? {
+        // Model group order gives overlapping regions a deterministic priority,
+        // after the group holding the tab.
+        let ordered = groups.filter { $0.id == holding } + groups.filter { $0.id != holding }
+        for group in ordered {
             let heading = frames[group.id]?.rect
             let members = frames.values.filter { $0.group == group.id && $0.tab != nil && $0.tab != source }
                 .sorted { vertical ? $0.rect.minY < $1.rect.minY : $0.rect.minX < $1.rect.minX }
-            let extent = members.reduce(heading ?? .null) { $0.union($1.rect) }
+            // Everything drawn for it: its heading, its tabs, and a gap
+            // open in it, which is part of it while the hand is over it.
+            var extent = frames.values.filter { $0.group == group.id && $0.tab != source }
+                .reduce(CGRect.null) { $0.union($1.rect) }
+            if group.id == holding, !extent.isNull {
+                extent = vertical ? extent.insetBy(dx: 0, dy: -margin) : extent.insetBy(dx: -margin, dy: 0)
+            }
             guard extent.contains(point) else { continue }
             if heading?.contains(point) == true || group.collapsed || members.isEmpty {
                 return GroupDropTarget(group: group.id)
@@ -210,7 +222,7 @@ struct GroupHeading: View {
             // there while the pointer is on the heading.
             if !editing, hovering {
                 Button { browser.closeTabGroup(group.id) } label: {
-                    RowCross().overlay { RowCross.reach(height: prefs.sideRow) }
+                    RowCross(height: prefs.sideRow)
                 }
                 .buttonStyle(.plain)
                 .help("Close Group")
