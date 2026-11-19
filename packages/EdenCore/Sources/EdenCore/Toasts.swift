@@ -349,29 +349,36 @@ private struct ToastCheck: View {
                     .opacity(phase.rays)
             }
             // Solid, as Dia's: the glass would wash a tint of the text grey.
-            Circle()
+            // The check is cut out of its shape, so the glass shows through
+            // it. Carved out with a blend mode instead, it never showed in a
+            // window: the glass drew the disc whole.
+            CheckedDisc(check: phase.check)
                 .fill(scheme == .dark ? Color.white : Color.black)
                 .frame(width: 14, height: 14)
                 .scaleEffect(phase.disc)
-            // The check cut out of the disc, so the glass shows through it.
-            CheckShape()
-                .trim(from: 0, to: phase.check)
-                .stroke(style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
-                .frame(width: 7, height: 5.5)
-                .blendMode(.destinationOut)
         }
-        .compositingGroup()
         .frame(width: 18, height: 18)
         .accessibilityHidden(true)
     }
 }
 
-private struct CheckShape: Shape {
+/// The disc with as much of the check cut out of it as has been drawn
+/// (`check`, 0 to 1). Dia's proportions, on a 14-point disc: a check 7 by
+/// 5.5 in its middle, stroked 1.7 wide.
+private struct CheckedDisc: Shape {
+    var check: CGFloat
+
     func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
-        path.addLine(to: CGPoint(x: rect.width * 0.38, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        return path
+        let disc = Path(ellipseIn: rect)
+        guard check > 0 else { return disc }
+        let unit = rect.width / 14
+        let mark = CGRect(x: rect.midX - 3.5 * unit, y: rect.midY - 2.75 * unit, width: 7 * unit, height: 5.5 * unit)
+        var tick = Path()
+        tick.move(to: CGPoint(x: mark.minX, y: mark.midY))
+        tick.addLine(to: CGPoint(x: mark.minX + mark.width * 0.38, y: mark.maxY))
+        tick.addLine(to: CGPoint(x: mark.maxX, y: mark.minY))
+        let cut = tick.trimmedPath(from: 0, to: min(check, 1))
+            .strokedPath(StrokeStyle(lineWidth: 1.7 * unit, lineCap: .round, lineJoin: .round))
+        return disc.subtracting(cut)
     }
 }
