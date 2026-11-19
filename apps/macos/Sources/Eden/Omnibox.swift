@@ -223,7 +223,7 @@ struct Omnibox: View {
                         symbol("clock.arrow.circlepath")
                     case .elsewhere:
                         // Open on another of your devices: that device.
-                        symbol(offer.elsewhere?.kind == .mac ? "laptopcomputer" : (offer.elsewhere?.kind == .ipad ? "ipad" : "iphone"))
+                        symbol(offer.elsewhere?.kind.symbol ?? "laptopcomputer")
                     default:
                         // A place — open, kept or visited — wears its site's
                         // icon, as it does in History and the bookmarks bar:

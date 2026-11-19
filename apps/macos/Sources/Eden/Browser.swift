@@ -7153,8 +7153,8 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// Every page open in this profile's windows, by History.identity.
-    private var openHere: Set<String> {
-        Set(profileTabs.compactMap { $0.tab.restAddress.map(History.identity(for:)) })
+    var openHere: Set<String> {
+        Set(profileTabs.compactMap(\.tab.settledIdentity))
     }
 
     /// A page from another device, here: its tab if it is open in any of
@@ -7167,9 +7167,7 @@ final class Browser: NSObject, ObservableObject {
         let identity = History.identity(for: url)
         // Showing it, and going nowhere else: a tab on its way to another
         // page would carry on there.
-        let found = profileTabs.filter { entry in
-            [entry.tab.restAddress, entry.tab.address].allSatisfy { $0.map(History.identity(for:)) == identity }
-        }
+        let found = profileTabs.filter { $0.tab.settledIdentity == identity }
         let space = offer.page.space
         let arrival = Tab.Arrival(page: url, scroll: offer.page.scroll, reading: offer.page.reading == true,
                                   from: "your \(offer.deviceName)")
@@ -8513,6 +8511,8 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if websitePopup { cancelCapture() }
         popupTab(for: webView)?.popupGesture.clear()
+        // What is open here changed, for what says so (OpenPages).
+        NotificationCenter.default.post(name: OpenPages.changed, object: nil)
         guard let tab = tab(for: webView) else {
             // A small window's page came: what failed before it is over.
             littleTab(for: webView)?.failure = nil

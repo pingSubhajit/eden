@@ -414,6 +414,8 @@ enum Browsers {
             if closed.count > 10 { closed.removeFirst(closed.count - 10) }
         }
         all.removeAll { $0 === browser }
+        // Its pages are open here no more (OpenPages).
+        NotificationCenter.default.post(name: OpenPages.changed, object: nil)
         if #available(macOS 15.4, *) { Extensions.shared.detach(browser) }
         browser.closeAll()
         ContentView.forget(browser)

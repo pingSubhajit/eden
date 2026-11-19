@@ -63,6 +63,16 @@ struct SideBar: View {
     /// the rows add up to, which are kept where changing them draws nothing.
     @State private var fits = true
     @State private var room = Room()
+    /// How tall your other devices' lines are over the foot, for the rows
+    /// to stop above them (Elsewhere.swift).
+    @State private var elsewhere: CGFloat = 0
+    /// The column's height: a third of it, at most, for those lines.
+    @State private var height: CGFloat = 600
+    /// Which of those devices' lists are open (ElsewhereSection).
+    @State private var elsewhereOpened: Set<String> = []
+    /// Whether another device has tabs open: the foot has a door for them
+    /// with icons only (SideFoot.doors). Only that, not sync's every change.
+    @ObservedObject private var elsewherePresence = Sync.shared.presence
     private final class Room {
         var height: CGFloat = .infinity
         var needed: CGFloat = 0
@@ -152,10 +162,17 @@ struct SideBar: View {
             .padding(.horizontal, 10)
             // Clear of the foot, which sits over the sidebar's bottom edge,
             // and of what plays in another tab, over the foot.
-            .padding(.bottom, footHeight + (browser.player == nil ? 0 : rowHeight + SideBar.playerGap))
+            .padding(.bottom, footHeight + (browser.player == nil ? 0 : rowHeight + SideBar.playerGap) + (icons ? 0 : elsewhere))
 
             VStack(spacing: 0) {
                 Spacer()
+                // Your other devices' tabs, a line for each, over the foot.
+                if !icons {
+                    ElsewhereSection(browser: browser, maxHeight: max(84, height / 3), opened: $elsewhereOpened)
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 4)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { elsewhere = $0 }
+                }
                 if let tab = browser.player {
                     PlayerRow(browser: browser, prefs: prefs, tab: tab)
                         .padding(.horizontal, 10)
@@ -168,6 +185,7 @@ struct SideBar: View {
         .environment(\.greys, greys)
         .frame(width: width)
         .frame(maxHeight: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         // ⌘S to icons only while the edge is held takes the edge away, and
         // its gesture ends without onEnded: let go of the held width too.
         .onChange(of: icons) { _, now in
@@ -1115,6 +1133,7 @@ private struct SideFoot: View {
                 FetchDoor(browser: browser, fetches: fetches, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
                 ExtensionSlot(browser: browser, edge: prefs.sidePosition == .right ? .leading : .trailing, room: 0)
                 BookmarkDoor(browser: browser, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
+                ElsewhereDoor(browser: browser, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
                 if prefs.usesSpaces { SpaceDot(browser: browser) }
                 if Profiles.shared.several { ProfileBadge(browser: browser) }
             }
@@ -1141,6 +1160,7 @@ private struct SideFoot: View {
         if prefs.usesSpaces { kept += 1 }
         if Profiles.shared.several { kept += 1 }
         if FetchDoor.shows(fetches, prefs, hanging: hanging) { kept += 1 }
+        if Sync.shared.presence.hasTabs { kept += 1 }
         return kept
     }
 

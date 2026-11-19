@@ -104,11 +104,15 @@ final class Sync: ObservableObject {
     static let shared = Sync()
 
     /// Whether sync is on: the switch, on unless turned off.
-    @Published private(set) var on: Bool
+    @Published private(set) var on: Bool { didSet { tellPresence() } }
     /// Where sync is, for Settings.
     @Published private(set) var status: CloudSync.Status = .idle
     /// Your other devices' open tabs, newest first, for the History menu.
-    @Published private(set) var otherTabs: [DeviceTabs] = []
+    @Published private(set) var otherTabs: [DeviceTabs] = [] { didSet { tellPresence() } }
+    /// Whether another device has a tab open, for the column (Elsewhere.swift).
+    let presence = ElsewherePresence()
+
+    private func tellPresence() { presence.set(on && otherTabs.contains(where: \.hasTabs)) }
 
     /// Your other devices' open tabs, as offered here (Elsewhere): none while
     /// sync is off.
@@ -517,13 +521,9 @@ struct OtherTabsMenu: View {
         }
     }
 
-    /// A device's pages under this window's spaces, while spaces are on.
+    /// A device's first pages under this window's spaces (Browser.spaceGroups).
     private func groups(_ device: DeviceTabs) -> [(title: String?, pages: [DeviceTabs.Page])] {
-        let pages = Array(device.tabs.prefix(60))
-        guard browser.prefs.usesSpaces else { return [(nil, pages)] }
-        return Elsewhere.bySpace(pages, order: browser.spaces.map(\.id)).map { group in
-            (group.space.flatMap { id in browser.spaces.first { $0.id == id }?.name }, group.pages)
-        }
+        browser.spaceGroups(Array(device.tabs.prefix(60)))
     }
 
     @ViewBuilder private func pages(_ pages: [DeviceTabs.Page], of device: DeviceTabs) -> some View {
