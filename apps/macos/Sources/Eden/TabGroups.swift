@@ -186,19 +186,21 @@ struct GroupHeading: View {
 
     /// The column's heading: on the group's surface, in its colour.
     private var column: some View {
-        HStack(spacing: 7) {
-            GroupIconView(group: group, first: browser.tabs(in: group.id).first)
+        let prefs = browser.prefs
+        return HStack(spacing: Metrics.rowSpacing) {
+            GroupIconView(group: group, first: browser.tabs(in: group.id).first,
+                          size: prefs.sideMark, letters: prefs.glyph != .icons)
             if editing {
                 TextField("Group name", text: $draft)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: prefs.sideTitle, weight: .semibold))
                     .foregroundStyle(group.colour.ink)
                     .focused($focused)
                     .onSubmit(commit)
                     .onExitCommand { browser.editingGroupID = nil }
             } else {
                 Text(group.name)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: prefs.sideTitle, weight: .semibold))
                     .foregroundStyle(group.colour.ink)
                     .lineLimit(1)
                     .fadesOut(group.name)
@@ -217,11 +219,7 @@ struct GroupHeading: View {
             // there while the pointer is on the heading.
             if !editing, hovering {
                 Button { browser.closeTabGroup(group.id) } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9.5, weight: .semibold))
-                        .foregroundStyle(group.colour.ink)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
+                    RowCross().overlay { RowCross.reach(height: prefs.sideRow) }
                 }
                 .buttonStyle(.plain)
                 .help("Close Group")
@@ -229,9 +227,11 @@ struct GroupHeading: View {
                 .transition(.opacity)
             }
         }
-        .padding(.leading, 7)
-        .padding(.trailing, 6)
-        .frame(height: GroupLook.heading)
+        // Its icon and cross where a tab's are: the surface's edge is
+        // already that much in.
+        .padding(.leading, Metrics.rowInset - GroupLook.inset)
+        .padding(.trailing, Metrics.rowCrossInset - GroupLook.inset)
+        .frame(height: GroupLook.heading(row: prefs.sideRow))
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture { if !editing { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } } }

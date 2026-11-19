@@ -532,12 +532,11 @@ struct SideBar: View {
         // A split is a line for each page (see SplitTabItem): the lines
         // past the first.
         let pairs = rows.reduce(0) { $0 + max(0, (browser.split(for: $1)?.tabs.count ?? 1) - 1) }
-        let heading = icons ? GroupHeading.compactHeight : GroupLook.heading
-        // Each group's heading and the gap under it, on a surface that adds
-        // its edge above and below. A folded group showing none of its tabs
-        // still has its empty stack of them under its heading.
-        let headings = CGFloat(grouped.count) * (heading + SideBar.gap + GroupLook.surround)
-            + CGFloat(grouped.filter(\.isEmpty).count) * SideBar.gap
+        // Each group's heading on its surface, which adds its edge above
+        // and below (in the column a tab's line, GroupLook.heading), and the
+        // gap under it.
+        let heading = icons ? GroupHeading.compactHeight + GroupLook.surround : rowHeight
+        let headings = CGFloat(grouped.count) * (heading + SideBar.gap)
         let loose = CGFloat(rows.count) * (rowHeight + SideBar.gap) + CGFloat(pairs) * rowHeight + headings
         return listBlock + loose + rowHeight + 8
     }
@@ -855,7 +854,11 @@ struct SideBar: View {
                         GroupHeading(browser: browser, group: group, dragSpace: "rows", compact: icons) { over in
                             if over { litGroup = group.id } else if litGroup == group.id { litGroup = nil }
                         }
-                        groupRows(group)
+                        // Folded with none showing, nothing under the
+                        // heading: not even an empty stack, and its gap.
+                        if !browser.visibleTabs(in: group).isEmpty || crossing?.target == .group(group.id) {
+                            groupRows(group)
+                        }
                     }
                     // Lit for a tab over it, or a pin carried down onto it.
                     .modifier(GroupSurface(colour: group.colour,
@@ -1447,8 +1450,8 @@ private struct SideRow: View, Equatable {
 
     var body: some View {
         let _ = Bench.count("row")
-        HStack(spacing: 8) {
-            HStack(spacing: 8) {
+        HStack(spacing: Metrics.rowSpacing) {
+            HStack(spacing: Metrics.rowSpacing) {
                 if editing {
                     TabAddressField(browser: browser)
                         .frame(height: 16)
@@ -1456,7 +1459,7 @@ private struct SideRow: View, Equatable {
                     // The site's icon, or with Letters its letter: beside the
                     // title either way, as Settings says (#919).
                     if !tab.isBlank {
-                        Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: prefs.roomyTabs ? 17 : 15,
+                        Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: prefs.sideMark,
                              dim: putAway)
                     }
                     if tab.bench {
@@ -1486,8 +1489,8 @@ private struct SideRow: View, Equatable {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.leading, 10)
-            .padding(.trailing, status || peeking ? 0 : 10)
+            .padding(.leading, Metrics.rowInset)
+            .padding(.trailing, status || peeking ? 0 : Metrics.rowInset)
             .frame(height: prefs.sideRow)
             .contentShape(Rectangle())
             .modifier(TabPress(enabled: interactive && !editing && !pickedAmongOthers, active: live, selected: $selectedOnPress, pressing: $pressed) {
@@ -1546,22 +1549,16 @@ private struct SideRow: View, Equatable {
                         // A pinned row is put down, not closed (see
                         // Browser.close), and says so, as Arc's does; so is
                         // a grouped tab's page while it is open (closeTab).
-                        Image(systemName: tab.pin != nil || (putsAway && !tab.asleep) ? "minus" : "xmark")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(Palette.muted)
-                            .frame(width: 15, height: 15)
-                            .background(Palette.ink.opacity(0.07), in: Circle())
+                        RowCross(symbol: tab.pin != nil || (putsAway && !tab.asleep) ? "minus" : "xmark")
                             .transition(.opacity)
                     }
                 }
-                .frame(width: 15, height: 15)
+                .frame(width: RowCross.size, height: RowCross.size)
                 .overlay {
-                    Color.clear
-                        .frame(width: 30, height: prefs.sideRow)
-                        .contentShape(Rectangle())
+                    RowCross.reach(height: prefs.sideRow)
                         .onTapGesture { if hovering && closable { close() } }
                 }
-                .padding(.trailing, 7)
+                .padding(.trailing, Metrics.rowCrossInset)
             }
         }
         .animation(Motion.quick, value: tab.loading)
@@ -1572,14 +1569,14 @@ private struct SideRow: View, Equatable {
         .background { ground.animation(Motion.quick, value: live) }
         .overlay {
             if selected {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                     .strokeBorder(Palette.ink.opacity(0.35), lineWidth: 1)
                     .allowsHitTesting(false)
             }
         }
         .modifier(Shake(travel: shake))
         .modifier(Give(pressed: pressed && prefs.tabsGive))
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
         .modifier(OneClick(double: false) {
             guard interactive, !selectedOnPress, TabClick.flags.intersection([.command, .shift, .option]).isEmpty else { return }
             browser.clearTabSelection()
@@ -1620,13 +1617,13 @@ private struct SideRow: View, Equatable {
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
             .matchedGeometryEffect(id: "live", in: pill)
         } else if selected {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .fill(greys.wash)
         } else if hovering {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .fill(greys.hover)
         }
     }
@@ -1653,7 +1650,7 @@ struct Quiet: View {
 
     var body: some View {
         Button(action: act) {
-            HStack(spacing: 8) {
+            HStack(spacing: Metrics.rowSpacing) {
                 if centred { Spacer(minLength: 0) }
                 Image(systemName: icon)
                     .font(.system(size: 10, weight: .medium))
@@ -1665,14 +1662,14 @@ struct Quiet: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.faint)
-            .padding(.leading, centred ? 0 : 10)
+            .padding(.leading, centred ? 0 : Metrics.rowInset)
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                     .fill(hovering ? greys.hover : .clear)
             )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -1683,6 +1680,32 @@ struct Quiet: View {
 /// The line between what is kept and the tabs that come and go, as Arc
 /// draws it over its Today tabs, with Clear at its end under the pointer:
 /// the tabs below it closed, everything above it left as it was.
+/// The cross at the end of a line in the column, under the pointer: a
+/// tab's, or a group heading's; a pinned tab's minus.
+struct RowCross: View {
+    var symbol = "xmark"
+
+    static let size: CGFloat = 15
+    /// How wide a reach around it takes the click.
+    static let reachWidth: CGFloat = 30
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(Palette.muted)
+            .frame(width: Self.size, height: Self.size)
+            .background(Palette.ink.opacity(0.07), in: Circle())
+    }
+
+    /// What takes the click around the cross: wider than it, and the
+    /// line's whole height, laid over it.
+    static func reach(height: CGFloat) -> some View {
+        Color.clear
+            .frame(width: reachWidth, height: height)
+            .contentShape(Rectangle())
+    }
+}
+
 struct KeepLine: View {
     static let height: CGFloat = 18
     /// How many are drawn, for the bench (`columnscroll`). Test runs only.

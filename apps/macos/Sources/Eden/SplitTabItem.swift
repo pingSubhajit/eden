@@ -55,7 +55,7 @@ struct SplitTabItem: View {
                             Rectangle()
                                 .fill(Palette.hairline)
                                 .frame(height: 1)
-                                .padding(.horizontal, 10)
+                                .padding(.horizontal, Metrics.rowInset)
                                 .offset(y: CGFloat(index) * height - 0.5)
                                 .opacity(lit(pages[index - 1]) || lit(pages[index]) ? 0 : 1)
                         }
@@ -83,18 +83,18 @@ struct SplitTabItem: View {
             }
         }
         .background {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .fill(greys.tile)
                 .padding(.vertical, inset)
                 .allowsHitTesting(false)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .strokeBorder(Palette.hairline, lineWidth: 1)
                 .padding(.vertical, inset)
                 .allowsHitTesting(false)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Split tabs")
         .animation(Motion.quick, value: hovered)
@@ -142,16 +142,12 @@ struct SplitTabItem: View {
     private var cross: some View {
         if interactive, let id = hovered, let tab = pages.first(where: { $0.id == id }),
            browser.editingTab == nil {
-            Image(systemName: "xmark")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(Palette.muted)
-                .frame(width: 15, height: 15)
-                .background(Palette.ink.opacity(0.07), in: Circle())
+            RowCross()
                 .overlay {
                     CloseClick(armed: true) { browser.closeTab(tab) }
-                        .frame(width: 30, height: 28)
+                        .frame(width: RowCross.reachWidth, height: 28)
                 }
-                .padding(.trailing, 7)
+                .padding(.trailing, Metrics.rowCrossInset)
                 .transition(.opacity)
                 .help(tab.id == pages.first?.id ? "Close the left page"
                       : tab.id == pages.last?.id ? "Close the right page" : "Close this page")
@@ -201,7 +197,7 @@ private struct SplitTabHalf: View {
     private var laidOut: some View {
         row
             .padding(.leading, stacked ? 0 : 9)
-            .padding(.trailing, stacked ? 7 : 4)
+            .padding(.trailing, stacked ? Metrics.rowCrossInset : 4)
             .frame(height: stacked ? height : Self.pillHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background { ground.animation(Motion.quick, value: stacked && focused).animation(Motion.quick, value: joined) }
@@ -223,7 +219,7 @@ private struct SplitTabHalf: View {
             .modifier(OptionClick { if interactive && !editing { browser.optionClick(tab) } })
             .overlay {
                 if browser.selectedTabIDs.contains(tab.id) {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                         .strokeBorder(Palette.ink.opacity(0.35), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
@@ -261,7 +257,7 @@ private struct SplitTabHalf: View {
     /// The grey's shape: round, but square on the side it shares with the
     /// other half while that one is lit too.
     private var shape: UnevenRoundedRectangle {
-        let round: CGFloat = 9
+        let round = Metrics.rowRadius
         // Square where it meets a lit neighbour; round at the ends and
         // beside one that isn't.
         let before: CGFloat = !first && joinedBefore ? 0 : round
@@ -293,9 +289,9 @@ private struct SplitTabHalf: View {
     }
 
     private var row: some View {
-        HStack(spacing: stacked ? 8 : 5) {
+        HStack(spacing: stacked ? Metrics.rowSpacing : 5) {
             titleContent
-                .padding(.leading, stacked ? 10 : 0)
+                .padding(.leading, stacked ? Metrics.rowInset : 0)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: stacked ? height : 16)
                 .contentShape(Rectangle())
@@ -321,10 +317,11 @@ private struct SplitTabHalf: View {
             TabAddressField(browser: browser)
                 .frame(height: 16)
         } else {
-            HStack(spacing: stacked ? 8 : 5) {
+            HStack(spacing: stacked ? Metrics.rowSpacing : 5) {
                 if prefs.glyph == .icons || !tab.isBlank || narrow {
-                    Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: stacked ? 15 : 13, dim: tab.asleep)
-                        .frame(width: stacked ? 15 : 13, height: stacked ? 15 : 13)
+                    let mark = stacked ? prefs.sideMark : 13
+                    Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark, dim: tab.asleep)
+                        .frame(width: mark, height: mark)
                 }
                 if tab.shy {
                     Image(systemName: "eye.slash")

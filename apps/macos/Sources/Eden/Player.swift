@@ -94,13 +94,13 @@ struct PlayerRow: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Mark(icon: tab.icon, letter: tab.monogram, size: prefs.roomyTabs ? 17 : 15)
+        HStack(spacing: Metrics.rowSpacing) {
+            Mark(icon: tab.icon, letter: tab.monogram, size: prefs.sideMark)
             Text(tab.label)
                 .font(.system(size: prefs.sideTitle))
                 .lineLimit(1)
-                .truncationMode(.tail)
                 .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.muted)
+                .fadesOut(tab.label)
             Spacer(minLength: 0)
             if tab.stilled && hovering {
                 // Paused from here and not wanted again: the row goes until
@@ -112,19 +112,19 @@ struct PlayerRow: View {
                 if tab.stilled { tab.playAgain() } else { tab.still() }
             }
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 7)
+        .padding(.leading, Metrics.rowInset)
+        .padding(.trailing, Metrics.rowCrossInset)
         .frame(height: prefs.sideRow)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .fill(hovering ? greys.hover : .clear)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .strokeBorder(Palette.hairline, lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
         // The buttons take their own clicks; the rest of the row is the way
         // to the tab.
         .onTapGesture { browser.select(tab) }

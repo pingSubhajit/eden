@@ -198,6 +198,16 @@ enum Metrics {
     static let plusWidth: CGFloat = 30
     /// The address field, in both the places it shows up.
     static let fieldWidth: CGFloat = 560
+    /// A tab's line in the column, and what is drawn as one beside it (a
+    /// group's heading, a split, the row that makes a new tab): how round
+    /// its corners are, the air before its icon, between its icon and its
+    /// title, and after its cross. Its height and its icon's and title's
+    /// sizes follow Roomy Tabs (Preferences.sideRow, sideMark, sideTitle).
+    static let rowRadius: CGFloat = 9
+    static let rowInset: CGFloat = 10
+    static let rowSpacing: CGFloat = 8
+    static let rowCrossInset: CGFloat = 7
+
     /// The column of titles down the left, in the way that has one.
     static let side: CGFloat = 232
     static let sideMin: CGFloat = 176

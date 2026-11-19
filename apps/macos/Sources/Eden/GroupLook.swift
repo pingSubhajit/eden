@@ -94,11 +94,12 @@ enum GroupLook {
 
     /// Between the surface's edge and what it holds.
     static let inset: CGFloat = 3
-    /// The heading's height in the column.
-    static let heading: CGFloat = 30
+    /// The heading's height: folded, a group on its surface takes one
+    /// tab's line in the column, and lights as one would.
+    static func heading(row: CGFloat) -> CGFloat { row - surround }
     /// How much further in a group's tabs sit than the tabs outside it.
     static let indent: CGFloat = 12
-    static let radius: CGFloat = 12
+    static let radius = Metrics.rowRadius
 
     /// What the surface adds to the height of the rows it holds.
     static var surround: CGFloat { inset * 2 }
@@ -170,7 +171,10 @@ struct GroupIconView: View {
     let group: TabGroup
     /// The group's first tab, for its site icon.
     let first: Tab?
-    var size: CGFloat = 16
+    /// A tab's icon in the column (Preferences.sideMark).
+    let size: CGFloat
+    /// Letters for site icons, as the tabs show them (Settings › Tabs).
+    var letters = false
 
     var body: some View {
         Group {
@@ -182,9 +186,9 @@ struct GroupIconView: View {
                     .font(.system(size: size * 0.72, weight: .semibold))
                     .foregroundStyle(group.colour.ink)
             case nil:
-                if let first, let url = first.address {
-                    Mark(icon: Favicons.shared.cached(for: url), letter: first.label.first.map { String($0).uppercased() } ?? "",
-                         size: size * 0.875)
+                if let first {
+                    // The tab's own mark, as its row draws it.
+                    Mark(icon: letters ? nil : first.icon, letter: first.monogram, size: size)
                 } else {
                     Image(systemName: "square.on.square.fill")
                         .font(.system(size: size * 0.68, weight: .semibold))
