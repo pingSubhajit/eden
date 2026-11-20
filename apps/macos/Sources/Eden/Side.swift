@@ -1998,13 +1998,15 @@ struct RowSquare: View {
     let hovering: Bool
     /// The symbol's size: the cross a touch larger, for its thin strokes.
     var glyph: CGFloat = 10
+    /// The square's side: a line's, or a card's roomier one (TabHoverCard).
+    var size: CGFloat = RowCross.size
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: RowCross.corner, style: .continuous)
         Image(systemName: symbol)
             .font(.system(size: glyph, weight: .medium))
             .foregroundStyle(Palette.ink.opacity(hovering ? 0.9 : 0.65))
-            .frame(width: RowCross.size, height: RowCross.size)
+            .frame(width: size, height: size)
             .background(Palette.ink.opacity(hovering ? 0.1 : 0), in: shape)
             .contentShape(shape)
     }
