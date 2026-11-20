@@ -134,18 +134,12 @@ extension Browser {
     }
 
     /// A page another device sent here (the Mac's Sync.askToOpen), opened
-    /// behind the page in front: in its space, after that space's last tab,
-    /// loading once it is gone to, as a tab brought back from the last
-    /// session does. Nothing when it is open here already.
+    /// behind the page in front: in its space, after that space's last tab
+    /// (Browser.backgroundTab). Nothing when it is open here already.
     func openSent(_ page: DeviceTabs.Page) {
         guard let url = page.address else { return }
         let identity = History.identity(for: url)
         guard !ordinaryTabs.contains(where: { $0.url.map(History.identity(for:)) == identity }) else { return }
-        let space = space(of: page)
-        let last = ordinaryTabs.last { $0.owner == .space(space) }
-        guard last != nil || space == spaceID else { return }
-        // Not yet made, its page only waits (Tab.load); its title shown
-        // until it is gone to.
-        newTab(url: url, select: false, after: last).restore(url: url, title: page.title)
+        backgroundTab(url: url, title: page.title, in: space(of: page))
     }
 }

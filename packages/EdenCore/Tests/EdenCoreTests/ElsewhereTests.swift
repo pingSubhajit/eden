@@ -121,20 +121,36 @@ final class ElsewhereTests: XCTestCase {
         XCTAssertEqual(asks.values.first?.url, "https://a.example/")
     }
 
-    func testAPageAskedClosedIsHiddenUntilItsDeviceAnswers() {
+    func testAPageAskedClosedIsHiddenWhileTheAskStands() {
         let phone = device("phone", front: 1, tabs: [page("a"), page("b"), page("c")])
-        let asked = [Elsewhere.Asked(device: "phone", page: identity("a"), at: now - 30)]
-        let (shown, waiting) = Elsewhere.asAsked([phone], asked: asked, now: now)
+        let asked = [Elsewhere.Asked(device: "phone", page: identity("a"), at: now - 30, key: "close:phone:1")]
+        let (shown, waiting) = Elsewhere.asAsked([phone], asked: asked, standing: ["close:phone:1"], now: now)
         XCTAssertEqual(shown.first?.tabs.map(\.url), [page("b").url, page("c").url])
         XCTAssertEqual(shown.first?.frontPage, page("b"), "the page in front stays in front")
         XCTAssertEqual(waiting, asked)
 
-        // The phone has said what it has open since: what it says stands.
-        var answered = phone
-        answered.at = now
-        let after = Elsewhere.asAsked([answered], asked: asked, now: now)
-        XCTAssertEqual(after.devices, [answered])
+        // The phone saying its tabs again isn't an answer: a newer list may
+        // be from before the ask reached it.
+        var newer = phone
+        newer.at = now
+        XCTAssertEqual(Elsewhere.asAsked([newer], asked: asked, standing: ["close:phone:1"], now: now).waiting, asked)
+
+        // The ask gone: answered, and what the phone says stands.
+        let after = Elsewhere.asAsked([newer], asked: asked, standing: [], now: now)
+        XCTAssertEqual(after.devices, [newer])
         XCTAssertEqual(after.waiting, [])
+    }
+
+    func testAnAskStandsUntilItsDeviceHasDoneIt() {
+        var agreed = SyncItems.ask(close: page("a").url, on: "phone", now: now, id: "1")
+        agreed.merge(SyncItems.ask(open: page("b"), on: "phone", now: now, id: "2")) { a, _ in a }
+        agreed.merge(SyncItems.ask(open: page("c"), on: "phone", now: now - CloseAsk.life - 1, id: "3")) { a, _ in a }
+        agreed.merge(SyncItems.ask(close: page("d").url, on: "mac", now: now, id: "4")) { a, _ in a }
+        agreed["tabs:phone"] = "{}"
+        let standing = SyncItems.standingAsks(agreed, of: "phone", answered: [SyncItems.openKey("phone", id: "2")], now: now)
+        XCTAssertEqual(standing.keys.sorted(), [SyncItems.closeKey("phone", id: "1")],
+                       "not one done, a stale one, or one for another device")
+        XCTAssertEqual(standing.values.first, agreed[SyncItems.closeKey("phone", id: "1")], "said back as it was")
     }
 
     func testOnlyThisDevicesStandingAsksToOpenAreRead() {
@@ -149,15 +165,55 @@ final class ElsewhereTests: XCTestCase {
         XCTAssertFalse(SyncItems.asks(SyncItems.openKey("mac", id: "2"), of: "phone"))
     }
 
-    func testAPageAskedOpenedShowsInItsDevicesListUntilItAnswers() {
+    func testAPageAskedOpenedShowsInItsDevicesListWhileTheAskStands() {
         let phone = device("phone", tabs: [page("a")])
-        let asked = [Elsewhere.Asked(device: "phone", page: identity("b"), at: now - 30, opening: page("b")),
-                     Elsewhere.Asked(device: "phone", page: identity("a"), at: now - 30, opening: page("a"))]
-        let (shown, waiting) = Elsewhere.asAsked([phone], asked: asked, now: now)
+        let asked = [Elsewhere.Asked(device: "phone", page: identity("b"), at: now - 30, key: "open:phone:1", opening: page("b")),
+                     Elsewhere.Asked(device: "phone", page: identity("a"), at: now - 30, key: "open:phone:2", opening: page("a"))]
+        let standing: Set<String> = ["open:phone:1", "open:phone:2"]
+        let (shown, waiting) = Elsewhere.asAsked([phone], asked: asked, standing: standing, now: now)
         XCTAssertEqual(shown.first?.tabs.map(\.url), [page("a").url, page("b").url], "once each, at the end")
         XCTAssertEqual(waiting, asked)
-        var answered = phone
-        answered.at = now
-        XCTAssertEqual(Elsewhere.asAsked([answered], asked: asked, now: now).devices, [answered])
+        XCTAssertEqual(Elsewhere.asAsked([phone], asked: asked, standing: [], now: now).devices, [phone])
+    }
+
+    @MainActor
+    func testAnAskIsDoneOnlyOnceWhatItWroteHasLanded() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("answer-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let written = folder.appendingPathComponent("tabs.json")
+        XCTAssertTrue(SyncItems.answer({}, rewrite: { Disk.write(written) { Data("[]".utf8) } }))
+        XCTAssertEqual(try Data(contentsOf: written), Data("[]".utf8), "on disk by the time it says so")
+        // A file where its folder should be: the write can't land.
+        let blocked = written.appendingPathComponent("inside.json")
+        let rewrite = { Disk.write(blocked) { Data("[]".utf8) } }
+        XCTAssertFalse(SyncItems.answer({}, rewrite: rewrite), "not done: it stands")
+        // Tried again with nothing left to change: still written again, and
+        // still not done while the write can't land.
+        XCTAssertFalse(SyncItems.answer({}, rewrite: rewrite), "a retry that changes nothing isn't done either")
+        try FileManager.default.removeItem(at: written)
+        try FileManager.default.createDirectory(at: written, withIntermediateDirectories: true)
+        XCTAssertTrue(SyncItems.answer({}, rewrite: rewrite), "done once it lands")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blocked.path))
+    }
+
+    func testAnAskWhoseTabsDidntLandWaitsLongerEachTime() {
+        var retries = AskRetries()
+        XCTAssertTrue(retries.ready("close:mac:1", now: now))
+        retries.failed(["close:mac:1"], now: now)
+        XCTAssertFalse(retries.ready("close:mac:1", now: now + 1), "not at the very next pass")
+        XCTAssertTrue(retries.ready("close:mac:1", now: now + AskRetries.first))
+        retries.failed(["close:mac:1"], now: now + AskRetries.first)
+        XCTAssertFalse(retries.ready("close:mac:1", now: now + AskRetries.first * 2), "twice as long the second time")
+        XCTAssertTrue(retries.ready("close:mac:1", now: now + AskRetries.first * 3))
+        XCTAssertTrue(retries.ready("open:mac:2", now: now), "each ask its own")
+        for _ in 0..<20 { retries.failed(["close:mac:1"], now: now) }
+        XCTAssertTrue(retries.ready("close:mac:1", now: now + AskRetries.longest), "never longer than the longest")
+        retries.forget(["close:mac:1"])
+        XCTAssertTrue(retries.ready("close:mac:1", now: now))
+        retries.failed(["close:mac:1", "open:mac:2"], now: now)
+        retries.keep(["open:mac:2"])
+        XCTAssertTrue(retries.ready("close:mac:1", now: now), "gone from the items: forgotten")
+        XCTAssertFalse(retries.ready("open:mac:2", now: now))
     }
 }

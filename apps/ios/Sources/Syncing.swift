@@ -178,32 +178,55 @@ final class Syncing {
         if tabs != otherTabs { otherTabs = tabs }
     }
 
-    /// Asks to close pages here already acted on, by key: each is deleted
-    /// at the next pass, and not acted on twice meanwhile.
-    @ObservationIgnored private var heard: Set<String> = []
+    /// Asks of this device done, by key: its snapshot leaves them out, and
+    /// they go everywhere (SyncItems.standingAsks).
+    @ObservationIgnored private(set) var answered: Set<String> = []
+    /// Asks of this device being done now, not taken up twice meanwhile.
+    @ObservationIgnored private var answering: Set<String> = []
+    /// Asks of this device whose tabs didn't reach disk, waiting to be tried
+    /// again.
+    @ObservationIgnored private var retries = AskRetries()
 
     /// What another device asked of this one, from its list of this
     /// device's tabs: pages closed, as the cross on a card closes them
     /// (the Mac's Sync.askToClose), and pages opened, behind the one in
-    /// front (Sync.askToOpen). After the pass, as each tells sync of the
-    /// change it makes.
+    /// front (Sync.askToOpen). Done after the pass; each ask counts as done
+    /// — and goes everywhere at the next pass — only once its tabs have
+    /// changed and are on disk (SyncItems.answer), so a quit or a crash in
+    /// between leaves it to be done at the next launch.
     func answerAsks(in live: [String: String]) {
         let now = Date().timeIntervalSince1970
-        let closing = SyncItems.closeAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
-        let opening = SyncItems.openAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
+        let standing = Set(live.keys.filter(SyncItems.isAsk))
+        answered.formIntersection(standing)
+        retries.keep(standing)
+        let waiting = answered.union(answering)
+        let due = { (key: String) in !waiting.contains(key) && self.retries.ready(key, now: now) }
+        let closing = SyncItems.closeAsks(live, on: device, now: now).filter { due($0.key) }
+        let opening = SyncItems.openAsks(live, on: device, now: now).filter { due($0.key) }
         guard !closing.isEmpty || !opening.isEmpty else { return }
-        heard.formUnion(closing.keys)
-        heard.formUnion(opening.keys)
+        let keys = Set(closing.keys).union(opening.keys)
+        answering.formUnion(keys)
         let pages = Set(closing.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
         let sent = opening.values.sorted { $0.at < $1.at }.map(\.page)
-        DispatchQueue.main.async { [browser] in
+        DispatchQueue.main.async { [weak self, browser] in
             let asked = browser.ordinaryTabs.filter { tab in
                 guard let url = Continuity.page(tab.url), pages.contains(History.identity(for: url)) else { return false }
                 // A pin at its home isn't in the list the other device had.
                 return !PinDef.atHome(browser.pinDef(of: tab)?.homeURL, showing: url)
             }
-            for tab in asked { browser.close(tab) }
-            for page in sent { browser.openSent(page) }
+            let landed = SyncItems.answer({
+                for tab in asked { browser.close(tab) }
+                for page in sent { browser.openSent(page) }
+            }, rewrite: browser.saveAgain)
+            guard let self else { return }
+            self.answering.subtract(keys)
+            guard landed else {
+                self.retries.failed(keys, now: Date().timeIntervalSince1970)
+                return
+            }
+            self.retries.forget(keys)
+            self.answered.formUnion(keys)
+            self.cloud?.localChange()
         }
     }
 
@@ -256,6 +279,9 @@ final class AppScope: SyncScope {
         var items = browser.settings.syncItems
         if !owned { for key in Settings.spaceSettings { items[key] = nil } }
         items.merge(SyncItems.tabs(openTabs(agreed: agreed[own]))) { mine, _ in mine }
+        // What other devices asked of this one and it hasn't done yet.
+        items.merge(SyncItems.standingAsks(agreed, of: syncing.device, answered: syncing.answered,
+                                           now: Date().timeIntervalSince1970)) { mine, _ in mine }
         return items
     }
 

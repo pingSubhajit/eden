@@ -114,6 +114,19 @@ final class Browser {
         return tab
     }
 
+    /// A tab in `space`, after its last one, behind the page in front: its
+    /// address and title only, loaded once it is gone to, as a tab brought
+    /// back from the last session is. Made in the space itself, so one with
+    /// no tabs yet takes it as well as any (a page another device sent).
+    @discardableResult
+    func backgroundTab(url: URL, title: String, in space: UUID) -> Tab {
+        let tab = makeTab(.space(space))
+        insert(tab, after: tabs.last { $0.owner == .space(space) })
+        tab.restore(url: url, title: title)
+        save()
+        return tab
+    }
+
     /// A window a page opened (Tab's createWebViewWith): a tab right after the
     /// page's own, in front, made with WebKit's configuration. The page loads
     /// what it asked for itself; `request` only names it until then.
@@ -499,6 +512,14 @@ final class Browser {
             written[space.id] = snapshot
             Disk.write(file) { try? JSONEncoder().encode(snapshot) }
         }
+    }
+
+    /// Every space's tabs written again, whether or not they changed since
+    /// they were last: for what must be known to be on disk now
+    /// (SyncItems.answer), a write that failed included.
+    func saveAgain() {
+        written.removeAll()
+        save()
     }
 
     /// A deleted space's file gone, and any write of it still waiting with it.

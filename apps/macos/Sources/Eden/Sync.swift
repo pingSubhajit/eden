@@ -188,6 +188,7 @@ final class Sync: ObservableObject {
         heardTabs = []
         asks = [:]
         asked = []
+        heardAsks = []
     }
 
     private func begin() {
@@ -289,24 +290,38 @@ final class Sync: ObservableObject {
     /// The other devices' tabs as last heard, before any page asked closed
     /// there is taken out.
     private var heardTabs: [DeviceTabs] = []
-    /// Asks to close a page on another device, to be written at the next
-    /// pass: written once, then only carried (SyncItems.ask).
+    /// Every device's asks among the items as last heard, by key: an ask
+    /// still there still stands.
+    private var heardAsks: Set<String> = []
+    /// Asks of other devices, to be written at the next pass: written once,
+    /// then only carried (SyncItems.ask).
     fileprivate private(set) var asks: [String: String] = [:]
-    /// The pages asked closed, hidden from their device's list until it
-    /// answers (Elsewhere.withoutAsked).
+    /// The pages asked closed or opened there, shown so in their device's
+    /// list while the ask stands (Elsewhere.asAsked).
     private var asked: [Elsewhere.Asked] = []
-    /// Asks to close pages here already acted on, by key: each is deleted
-    /// at the next pass, and not acted on twice meanwhile.
-    private var heard: Set<String> = []
+    /// Asks of this Mac done, by key: its snapshot leaves them out, and
+    /// they go everywhere (SyncItems.standingAsks).
+    fileprivate private(set) var answered: Set<String> = []
+    /// Asks of this Mac being done now, not taken up twice meanwhile.
+    private var answering: Set<String> = []
+    /// Asks of this Mac whose tabs didn't reach disk, waiting to be tried
+    /// again.
+    private var retries = AskRetries()
 
     /// One of another device's pages, closed there: asked of it through
     /// iCloud, and gone from its list here at once. Done there when it
     /// next syncs, if it is an Eden that knows how.
     func askToClose(_ page: DeviceTabs.Page, on device: String) {
         guard on, let url = URL(string: page.url) else { return }
-        let now = Date().timeIntervalSince1970
-        asks.merge(SyncItems.ask(close: page.url, on: device, now: now)) { _, new in new }
-        asked.append(Elsewhere.Asked(device: device, page: History.identity(for: url), at: now))
+        ask(SyncItems.ask(close: page.url, on: device, now: Date().timeIntervalSince1970),
+            device: device, page: History.identity(for: url), opening: nil)
+    }
+
+    /// An ask written down to send, and its page shown as asked meanwhile.
+    private func ask(_ item: [String: String], device: String, page: String, opening: DeviceTabs.Page?) {
+        guard let key = item.keys.first else { return }
+        asks.merge(item) { _, new in new }
+        asked.append(Elsewhere.Asked(device: device, page: page, at: Date().timeIntervalSince1970, key: key, opening: opening))
         showOtherTabs(heardTabs)
         cloud?.localChange()
     }
@@ -319,47 +334,76 @@ final class Sync: ObservableObject {
     @discardableResult
     func askToOpen(_ tab: Tab, in space: UUID, on device: String) -> Bool {
         guard on, let page = Sync.page(of: tab, in: space), let url = URL(string: page.url) else { return false }
-        let now = Date().timeIntervalSince1970
-        asks.merge(SyncItems.ask(open: page, on: device, now: now)) { _, new in new }
-        asked.append(Elsewhere.Asked(device: device, page: History.identity(for: url), at: now, opening: page))
-        showOtherTabs(heardTabs)
-        cloud?.localChange()
+        ask(SyncItems.ask(open: page, on: device, now: Date().timeIntervalSince1970),
+            device: device, page: History.identity(for: url), opening: page)
         return true
     }
 
     /// After each pass: the asks written are only carried from now on; the
-    /// asks of this Mac acted on; and the other devices' tabs shown.
+    /// asks of this Mac done; and the other devices' tabs shown.
     fileprivate func settled(_ live: [String: String]) {
         asks = asks.filter { live[$0.key] == nil }
+        heardAsks = Set(live.keys.filter(SyncItems.isAsk))
+        // Done and gone everywhere: nothing more to leave out.
+        answered.formIntersection(heardAsks)
+        retries.keep(heardAsks)
+        answerAsks(in: live)
+        showOtherTabs(SyncItems.otherTabs(live, except: device, now: Date().timeIntervalSince1970))
+    }
+
+    /// What other devices asked of this Mac, done after the pass: pages
+    /// closed, as ⌘W closes them, and pages opened behind the one in front.
+    /// Each ask counts as done — and goes everywhere at the next pass —
+    /// only once its tabs have changed and are on disk (SyncItems.answer):
+    /// until then it stands, and a quit or a crash in between leaves it to
+    /// be done at the next launch. One that can't be done yet, a page sent
+    /// with no window to open it in, waits for a pass with one.
+    private func answerAsks(in live: [String: String]) {
         let now = Date().timeIntervalSince1970
-        let fresh = SyncItems.closeAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
-        if !fresh.isEmpty {
-            heard.formUnion(fresh.keys)
-            let pages = Set(fresh.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
-            // After the pass: closing writes the tabs down, which asks for
-            // another.
-            DispatchQueue.main.async {
-                for browser in Browsers.all where browser.profileID == Profile.personalID && !browser.isPopup {
-                    browser.closeAsked(pages)
+        let waiting = answered.union(answering)
+        let due = { (key: String) in !waiting.contains(key) && self.retries.ready(key, now: now) }
+        let closing = SyncItems.closeAsks(live, on: device, now: now).filter { due($0.key) }
+        let opening = SyncItems.openAsks(live, on: device, now: now).filter { due($0.key) }
+        guard !closing.isEmpty || !opening.isEmpty else { return }
+        answering.formUnion(closing.keys)
+        answering.formUnion(opening.keys)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let windows = Browsers.all.filter { $0.profileID == Profile.personalID && !$0.isPopup }
+            let target = windows.first(where: { $0 === Browsers.front }) ?? windows.first
+            let pages = Set(closing.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
+            var done = Set(closing.keys)
+            if target != nil { done.formUnion(opening.keys) }
+            let landed = SyncItems.answer({
+                for browser in windows { browser.closeAsked(pages) }
+                if let target {
+                    for page in opening.values.sorted(by: { $0.at < $1.at }).map(\.page) { target.openSent(page) }
                 }
+            }, rewrite: {
+                // Every row these windows hold, the spaces off screen too,
+                // written now rather than at the session's own moment later.
+                for browser in windows {
+                    browser.writeSession(now: true)
+                    for (space, row) in browser.parked { browser.writeSession(now: true, space: space, row: row) }
+                }
+            })
+            self.answering.subtract(closing.keys)
+            self.answering.subtract(opening.keys)
+            guard landed else {
+                self.retries.failed(done, now: Date().timeIntervalSince1970)
+                return
             }
+            guard !done.isEmpty else { return }
+            self.retries.forget(done)
+            self.answered.formUnion(done)
+            self.cloud?.localChange()
         }
-        let opening = SyncItems.openAsks(live, on: device, now: now).filter { !heard.contains($0.key) }
-        if !opening.isEmpty {
-            heard.formUnion(opening.keys)
-            let pages = opening.values.sorted { $0.at < $1.at }.map(\.page)
-            DispatchQueue.main.async {
-                let windows = Browsers.all.filter { $0.profileID == Profile.personalID && !$0.isPopup }
-                guard let browser = windows.first(where: { $0 === Browsers.front }) ?? windows.first else { return }
-                for page in pages { browser.openSent(page) }
-            }
-        }
-        showOtherTabs(SyncItems.otherTabs(live, except: device, now: now))
     }
 
     private func showOtherTabs(_ tabs: [DeviceTabs]) {
         heardTabs = tabs
-        let (shown, waiting) = Elsewhere.asAsked(tabs, asked: asked, now: Date().timeIntervalSince1970)
+        let (shown, waiting) = Elsewhere.asAsked(tabs, asked: asked, standing: heardAsks.union(asks.keys),
+                                                 now: Date().timeIntervalSince1970)
         asked = waiting
         if shown != otherTabs { otherTabs = shown }
     }
@@ -525,6 +569,9 @@ private final class AppScope: SyncScope {
         var items = SyncSettings.items(Shared.prefs)
         items.merge(SyncItems.tabs(Sync.openTabs(device: sync.device, agreed: agreed[own]))) { mine, _ in mine }
         items.merge(sync.asks) { mine, _ in mine }
+        // What other devices asked of this Mac and it hasn't done yet.
+        items.merge(SyncItems.standingAsks(agreed, of: sync.device, answered: sync.answered,
+                                           now: Date().timeIntervalSince1970)) { mine, _ in mine }
         return items
     }
 

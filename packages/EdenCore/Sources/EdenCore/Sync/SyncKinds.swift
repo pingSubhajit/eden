@@ -238,6 +238,46 @@ public struct CloseAsk: Codable, Equatable, Sendable {
     public static let life: Double = 3 * 24 * 60 * 60
 }
 
+/// Asks whose tabs didn't reach disk (SyncItems.answer), left a while
+/// before they are tried again. Writing their tabs tells sync of a change,
+/// which comes back as another pass; a file that couldn't be written then
+/// failed again, and again, every moment. Each failure waits twice as long
+/// as the last, from a few seconds to a few minutes, and the ask is tried
+/// at the first pass after that.
+public struct AskRetries: Sendable {
+    private var waits: [String: (until: Double, wait: Double)] = [:]
+
+    public static let first: Double = 5
+    public static let longest: Double = 5 * 60
+
+    public init() {}
+
+    /// Whether `key` may be tried now.
+    public func ready(_ key: String, now: Double) -> Bool {
+        waits[key].map { now >= $0.until } ?? true
+    }
+
+    /// Tried, and their tabs didn't land.
+    public mutating func failed(_ keys: some Sequence<String>, now: Double) {
+        for key in keys {
+            let wait = waits[key].map { min($0.wait * 2, Self.longest) } ?? Self.first
+            waits[key] = (now + wait, wait)
+        }
+    }
+
+    /// Done, or gone: nothing more to wait for.
+    public mutating func forget(_ keys: some Sequence<String>) {
+        for key in keys { waits[key] = nil }
+    }
+
+    /// Only the asks still standing (`keys`, those among the items): one
+    /// gone or out of date waits for nothing, and isn't kept for as long
+    /// as the app is open.
+    public mutating func keep(_ keys: Set<String>) {
+        waits = waits.filter { keys.contains($0.key) }
+    }
+}
+
 /// Another device asked a page opened here: one of its tabs carried onto
 /// this device's group in its list of your devices' tabs. The same life as
 /// a CloseAsk: its own item, "open:<this device>:<id>", which only this
@@ -287,6 +327,48 @@ extension SyncItems {
     public static func asks(_ key: String, of device: String) -> Bool {
         asksToClose(key, on: device) || asksToOpen(key, on: device)
     }
+
+    /// Asks of this device done by `act` — tabs closed or opened — and only
+    /// counted as done once they are on disk: `rewrite` writes again, whole,
+    /// every store of tabs `act` may have changed, and the asks are done when
+    /// every one of those writes landed (true), to go (`standingAsks`'s
+    /// `answered`). Counted done with the tabs not yet on disk, a crash in
+    /// between lost a page sent here, or brought back one closed. Written
+    /// again each time, not only as `act` changes something: tried again
+    /// after a write that failed, `act` finds the page already open, or
+    /// gone, and changes nothing, and the tabs as they are must still land.
+    /// False, and the asks stand, to be done again at the next pass.
+    @MainActor
+    public static func answer(_ act: () -> Void, rewrite: () -> Void) -> Bool {
+        let mark = Disk.mark()
+        act()
+        rewrite()
+        return Disk.drain(since: mark)
+    }
+
+    /// Whether `key` asks something of any device.
+    public static func isAsk(_ key: String) -> Bool {
+        key.hasPrefix("close:") || key.hasPrefix("open:")
+    }
+
+    /// The asks of `device` it hasn't acted on yet, as `agreed` has them:
+    /// its snapshot says them back unchanged, so they stand until what they
+    /// ask is done — closed or opened, and written down — rather than going
+    /// at the next pass with the work still to do, lost if the app quit in
+    /// between. Acted on (`answered`), or older than they stand, it leaves
+    /// them out, and they go everywhere. Acted on again after a relaunch,
+    /// nothing changes twice: a page closed is gone, one open isn't opened
+    /// again.
+    public static func standingAsks(_ agreed: [String: String], of device: String,
+                                    answered: Set<String>, now: Double) -> [String: String] {
+        agreed.filter { key, text in
+            guard asks(key, of: device), !answered.contains(key) else { return false }
+            if asksToClose(key, on: device) {
+                return SyncMerge.value(CloseAsk.self, text).map { now - $0.at <= CloseAsk.life } ?? false
+            }
+            return SyncMerge.value(OpenAsk.self, text).map { now - $0.at <= CloseAsk.life } ?? false
+        }
+    }
 }
 
 extension SyncItems {
@@ -316,32 +398,38 @@ extension SyncItems {
 
 extension Elsewhere {
     /// A page asked closed on another device, or opened there, shown so in
-    /// its list here until that device has said what it has open since —
-    /// done or not.
+    /// its list here for as long as the ask stands.
     public struct Asked: Equatable, Sendable {
         public let device: String
         /// The page, by History.identity.
         public let page: String
         public let at: Double
+        /// The ask's item: the device deletes it once it has done what it
+        /// asks, and that is its answer.
+        public let key: String
         /// The page asked opened there; nil for one asked closed.
         public let opening: DeviceTabs.Page?
 
-        public init(device: String, page: String, at: Double, opening: DeviceTabs.Page? = nil) {
+        public init(device: String, page: String, at: Double, key: String, opening: DeviceTabs.Page? = nil) {
             self.device = device
             self.page = page
             self.at = at
+            self.key = key
             self.opening = opening
         }
     }
 
     /// `devices` as asked of them — without the pages asked closed there,
-    /// with those asked opened at the end of the list — until each device
-    /// answers; and the asks still waiting for an answer.
-    public static func asAsked(_ devices: [DeviceTabs], asked: [Asked],
+    /// with those asked opened at the end of the list — while each ask
+    /// stands (`standing`: the asks among the items, and those written here
+    /// and not yet sent); and the asks still waiting. Its device deletes an
+    /// ask in the same pass as it says the tabs that answer it, so the list
+    /// never shows the page as it was in between. Not by when the device
+    /// last said its tabs: that may be before the ask reached it, or by a
+    /// clock that runs ahead.
+    public static func asAsked(_ devices: [DeviceTabs], asked: [Asked], standing: Set<String>,
                                now: Double) -> (devices: [DeviceTabs], waiting: [Asked]) {
-        let waiting = asked.filter { ask in
-            now - ask.at <= CloseAsk.life && !devices.contains { $0.device == ask.device && $0.at > ask.at }
-        }
+        let waiting = asked.filter { ask in now - ask.at <= CloseAsk.life && standing.contains(ask.key) }
         guard !waiting.isEmpty else { return (devices, []) }
         let shown = devices.map { device -> DeviceTabs in
             let mine = waiting.filter { $0.device == device.device }
