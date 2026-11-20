@@ -372,7 +372,9 @@ final class TabSwitcher: ObservableObject {
     }
 
     private func requestPreview(of tab: Tab, gesture: UUID?) {
-        guard let address = tab.address else { return }
+        // A tab put down or brought back draws its mark here (see
+        // preview(for:)): nothing is read from disk for it.
+        guard let address = tab.address, !tab.asleep || tab.keptPicture != nil else { return }
         let id = tab.id
         let request = UUID()
         previewRequests[id] = request

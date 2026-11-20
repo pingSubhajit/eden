@@ -178,6 +178,8 @@ final class Links: NSObject, NSApplicationDelegate {
         // in the middle of it — a Safari export's passwords in the clear
         // among it — goes (Security).
         DispatchQueue.global(qos: .utility).async { ImportFile.sweepScratch() }
+        // Pictures of pages not seen for a month (PagePictures).
+        PagePictures.shared.prune()
         Trim.start()
         MainActor.assumeIsolated {
             Shared.prefs.followFile()

@@ -79,6 +79,12 @@ final class Browser: NSObject, ObservableObject {
                 DispatchQueue.main.async { held.forEach { $0.present() } }
             }
             guard oldValue != activeID else { return }
+            // The pages as they were left, for their hover cards at the next
+            // launch: both halves of a pair left together.
+            if let left = tabs.first(where: { $0.id == oldValue }) {
+                let shown = split(for: left)?.tabs ?? [left.id]
+                for tab in tabs where shown.contains(tab.id) { tab.keepPicture() }
+            }
             cameFrom = (oldValue, ProcessInfo.processInfo.systemUptime)
             followPeek()
             // Going to another tab ends a page's run of links (see
@@ -1756,6 +1762,8 @@ final class Browser: NSObject, ObservableObject {
         // The sites' icons are a list of where you have been, too, and so
         // are the searches learned from sites visited (SiteSearch.swift).
         Favicons.shared.forgetAll()
+        // The pictures of pages kept for their hover cards (PagePictures).
+        PagePictures.shared.forgetAll()
         SiteSearch.forget()
         Shared.forgetDownloadAddresses()
         announce("History cleared", look: .done)
@@ -6375,6 +6383,9 @@ final class Browser: NSObject, ObservableObject {
     /// `blank`: with nothing in front, an empty tab is, rather than the
     /// first of the row (see frontBlank).
     func showRow(_ row: [Tab], active: Tab.ID?, splits restored: [TabSplit] = [], blank: Bool = false) {
+        // The pages on screen, kept as they were left (Tab.keepPicture): once
+        // the row is replaced, the tab left is no longer in it to be found.
+        for tab in tabs where visibleTabIDs.contains(tab.id) { tab.keepPicture() }
         splits = restored
         tabs = row
         if active == nil, blank { return frontBlank() }
@@ -8715,6 +8726,12 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         Favicons.shared.fetch(for: tab)
         guard !tab.shy, !tab.bench else { return }
         history.record(url, title: tab.title)
+        // The page on screen as it came in, once it has drawn, for its hover
+        // card at the next launch: the tab in front when Eden quits is never
+        // left, so it is kept from here.
+        if visibleTabIDs.contains(tab.id) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak tab] in tab?.keepPicture() }
+        }
         // A site's home page that says where its search is (OpenSearch):
         // with Search a site on, it joins the list (see SiteSearch.learn).
         if prefs.searchesSites, profileID == Profile.personalID, url.scheme == "https", url.path.isEmpty || url.path == "/" {
