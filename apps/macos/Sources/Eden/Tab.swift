@@ -1609,29 +1609,83 @@ final class Tab: ObservableObject, Identifiable {
         }
     }
 
-    /// A small picture of the page for the tab switcher. A sleeping tab's
-    /// comes from the picture kept for waking it; a tab brought back from
-    /// last time and not opened yet has none, rather than a page built for it.
+    /// A small picture of the page for the tab switcher and the hover card.
+    /// A sleeping tab's comes from the picture kept for waking it; a tab
+    /// brought back from last time and not opened yet has the one kept on
+    /// disk for its page (PagePictures), if any, rather than a page built
+    /// for it.
     func preview(width: CGFloat, _ done: @escaping (NSImage?) -> Void) {
-        if let picture {
-            DispatchQueue.global(qos: .userInitiated).async {
-                let source = CGImageSourceCreateWithData(picture as CFData, nil)
-                let options = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: Int(width * 2)
-                ] as CFDictionary
-                let thumbnail = source.flatMap { CGImageSourceCreateThumbnailAtIndex($0, 0, options) }
-                DispatchQueue.main.async {
-                    let image = thumbnail.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
-                    done(image)
-                }
+        if picture == nil, built == nil, !shy, let page = pageAddress {
+            Task {
+                let kept = await PagePictures.shared.kept(for: page, store: store.identifier)
+                guard let kept else { return done(nil) }
+                Tab.thumbnail(kept, width: width, done)
             }
+            return
+        }
+        if let picture {
+            Tab.thumbnail(picture, width: width, done)
             return
         }
         guard let built else { return done(nil) }
         let configuration = WKSnapshotConfiguration()
         configuration.snapshotWidth = NSNumber(value: Double(width))
         built.takeSnapshot(with: configuration) { image, _ in done(image) }
+    }
+
+    /// Whether preview has a picture to give, without making one: a page
+    /// built, the picture kept for waking, or one kept on disk.
+    var hasPreview: Bool {
+        built != nil || picture != nil || (!shy && pageAddress.map { PagePictures.shared.has($0, store: store.identifier) } == true)
+    }
+
+    /// The page as it shows now, small, kept on disk by its address and its
+    /// website store for the hover card to show at the next launch, before
+    /// the page is loaded again (PagePictures). Taken as the tab is left and
+    /// as its page comes in on screen. Never a private tab's, nor a script's.
+    func keepPicture() {
+        // Filed under the page drawn, which is the one committed: the address
+        // moves on as soon as a navigation starts, while the old page is
+        // still what shows, and before the first page commits there is only
+        // a blank one.
+        guard !shy, !bench, let page = committed, let built else { return }
+        let pictures = PagePictures.shared
+        let ticket = pictures.ticket()
+        let store = self.store.identifier
+        let configuration = WKSnapshotConfiguration()
+        // Sharp at the card's width on a Retina screen.
+        configuration.snapshotWidth = NSNumber(value: Double(Tab.keptWidth))
+        built.takeSnapshot(with: configuration) { [weak self] image, _ in
+            // Another page committed while it was drawn: the picture could
+            // be either, so it is no one's.
+            let same = MainActor.assumeIsolated { self?.committed == page }
+            guard same, let image, image.size.width > 0,
+                  let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+            let scale = CGFloat(cg.width) / image.size.width
+            Task.detached(priority: .utility) {
+                guard let data = Tab.jpeg(cg, scale: scale) else { return }
+                pictures.keep(data, for: page, store: store, ticket: ticket)
+            }
+        }
+    }
+
+    /// The width, in points, of a picture kept on disk: the hover card's.
+    private static let keptWidth: CGFloat = 260
+
+    /// A JPEG shrunk to `width`, off the main thread.
+    private static func thumbnail(_ data: Data, width: CGFloat, _ done: @escaping (NSImage?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let source = CGImageSourceCreateWithData(data as CFData, nil)
+            let options = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceThumbnailMaxPixelSize: Int(width * 2)
+            ] as CFDictionary
+            let thumbnail = source.flatMap { CGImageSourceCreateThumbnailAtIndex($0, 0, options) }
+            DispatchQueue.main.async {
+                let image = thumbnail.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+                done(image)
+            }
+        }
     }
 
     /// `scale`: pixels to a point, written as the picture's density (72 a
