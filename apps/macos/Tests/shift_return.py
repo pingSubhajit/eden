@@ -50,7 +50,7 @@ def write(key, value):
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"newtab.floating": False})
+        sv.setup()
         write("search.engine", "custom"); write("search.custom", MAIN)
         sv.launch()
 
@@ -93,10 +93,7 @@ def main():
         t.ok("⌘Return: untouched, a new tab on the default engine",
              len(after) == before + 1 and any("/main?q=koalas" in u for u in after), str(after))
 
-        # The floating new tab, over a page: a tab of its own.
-        sv.quit()
-        subprocess.run(["defaults", "write", sv.SUITE, "newtab.floating", "-bool", "true"])
-        sv.launch()
+        # ⌘T's field, over a page: a tab of its own.
         sv.cmd({"do": "field", "text": f"{sv.BASE}/start"}); time.sleep(0.3)
         press(36, "\r"); time.sleep(1.0)
         before = len(urls())

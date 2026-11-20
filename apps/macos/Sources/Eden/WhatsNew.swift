@@ -79,8 +79,6 @@ enum WhatsNew {
                since: "0.1.0", get: { $0.darkensPages }, set: { $0.darkensPages = $1 }),
         Toggle(title: "Roomier tabs", detail: "Taller rows and larger titles in the sidebar.",
                since: "0.1.0", get: { $0.roomyTabs }, set: { $0.roomyTabs = $1 }),
-        Toggle(title: "New tab in a floating field", detail: "⌘T raises the address field over the page you are on, as in Arc.",
-               since: "0.1.0", get: { $0.floatingNewTab }, set: { $0.floatingNewTab = $1 }),
 
         Toggle(title: "Pinned rows", detail: "Pins as rows with their names, under the squares, as in Arc. Right-click a tab to pin it as a row.",
                since: "0.1.0", get: { $0.listsPins }, set: { $0.listsPins = $1 }),

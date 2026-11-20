@@ -45,7 +45,7 @@ def world():
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"newtab.floating": True})
+        sv.setup()
         sv.launch()
         b = world()
         cmd_t()
@@ -53,7 +53,7 @@ def main():
         t.ok("switch off, as it ships: ⌘T lists nothing", s["editing"] and s["offers"] == [], s["offers"])
         sv.quit()
 
-        sv.setup(**{"newtab.floating": True, "newtab.recent": True})
+        sv.setup(**{"newtab.recent": True})
         sv.launch()
         b = world()
         cmd_t()

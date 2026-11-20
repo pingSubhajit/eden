@@ -124,7 +124,10 @@ enum AddressCommand: Equatable {
     func run(on browser: Browser) {
         switch self {
         case .settings: browser.tuning = true
-        case .newTab: browser.newTab()
+        // ⌘T's field, as ⌘T raises it. A turn later: the field this was
+        // typed in is put away after its command has run, and would take
+        // the new one with it.
+        case .newTab: Task { @MainActor in browser.launch() }
         case .newPrivateTab: browser.newShyTab()
         case .newSpace: browser.askForSpace()
         case .bookmarks: browser.bookmarking = true

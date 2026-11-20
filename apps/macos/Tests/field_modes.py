@@ -39,7 +39,7 @@ def look():
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"newtab.floating": True})
+        sv.setup()
         sv.launch()
         blank = next(x["id"] for x in sv.cmd({"do": "tabs"})["tabs"] if not x.get("url"))
         sv.sp("select", id=blank); time.sleep(0.6)

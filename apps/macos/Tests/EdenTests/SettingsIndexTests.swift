@@ -15,7 +15,7 @@ final class SettingsIndexTests: XCTestCase {
     private let touched = ["sidebar", "sidebar.position", "tabs.sleep", SleepPace.key, "float.leave", "float.away",
                            "pins.home", "pins.peek", "links.peek", "links.peekClick", "pages.120", "pages.120.mode",
                            "swipe.history", "links.show", "float.flicks", "spaces", "pins.list",
-                           "newtab.floating", "search.shift", "search.shiftCustom"]
+                           "search.shift", "search.shiftCustom"]
 
     private func fresh(_ body: () -> Void) {
         let saved = touched.map { ($0, Store.settings.object(forKey: $0)) }
@@ -111,11 +111,11 @@ final class SettingsIndexTests: XCTestCase {
             prefs.pinsKeepSite = false
             let before = prefs.arcSnapshot
             XCTAssertFalse(prefs.looksLikeArc)
-            XCTAssertEqual(prefs.setUpLikeArc().count, 5)
+            XCTAssertEqual(prefs.setUpLikeArc().count, 4)
             XCTAssertTrue(prefs.looksLikeArc)
             prefs.restore(before)
             XCTAssertEqual(prefs.tabsLayout, before.layout)
-            XCTAssertFalse(prefs.usesSpaces || prefs.listsPins || prefs.pinsKeepSite || prefs.floatingNewTab)
+            XCTAssertFalse(prefs.usesSpaces || prefs.listsPins || prefs.pinsKeepSite)
         }
     }
 

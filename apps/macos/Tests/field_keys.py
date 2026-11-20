@@ -48,7 +48,7 @@ def state():
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"newtab.floating": True})
+        sv.setup()
         sv.launch()
         a, b, c = sv.page("alpha"), sv.page("bravo"), sv.page("charlie")
         sv.sp("select", id=b); time.sleep(0.5)

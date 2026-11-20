@@ -36,7 +36,7 @@ def field():
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"newtab.floating": True})
+        sv.setup()
         sv.launch()
         pages = [sv.page(name) for name in ("a", "b", "c")]
         for key, name in (("t", "⌘T"), ("l", "⌘L"), ("k", "⌘K")):

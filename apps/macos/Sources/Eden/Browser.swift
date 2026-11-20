@@ -368,10 +368,9 @@ final class Browser: NSObject, ObservableObject {
             if !editing, launching { launching = false }
         }
     }
-    /// True while the field is up over a page for a tab that doesn't exist
-    /// yet (Settings › General › New tab in a floating field): Return opens
-    /// what was typed in a new tab, and putting the field away leaves the
-    /// page you were on as it was.
+    /// True while ⌘T's field is up over a page for a tab that doesn't exist
+    /// yet: Return opens what was typed in a new tab, and putting the field
+    /// away leaves the page you were on as it was.
     @Published private(set) var launching = false
     /// The page links were last opened behind from, and the last of them:
     /// the next one from that page goes after it (see placeForLink).
@@ -4262,20 +4261,23 @@ final class Browser: NSObject, ObservableObject {
         rememberSession()
     }
 
-    /// ⌘T, the + button and the menu. With the floating field turned on and
-    /// a page in front, the field comes up over that page instead of a blank
-    /// tab: the tab is made by Return, not by asking for one. Anywhere else
-    /// — a blank tab already in front, an extension's new tab page you
-    /// chose, or one still to be asked about, whose page needs the tab to
-    /// show in — it is an ordinary new tab. From a private tab the field
-    /// still comes up for one to be asked about: a private new tab never
-    /// asks.
+    /// ⌘T, the + button and the menu: the field comes up over the page in
+    /// front, as Zen's and Arc's do, and the tab is made by Return, not by
+    /// asking for one. There is no blank new tab to choose instead. Only
+    /// where there is no page to come up over — a window with nothing open,
+    /// or a blank tab already in front, whose field is the same one standing
+    /// on the window — or for an extension's new tab page you chose, or one
+    /// still to be asked about, whose page needs a tab to show in, is it
+    /// the tab. From a private tab the field still comes up for one to be
+    /// asked about: a private new tab never asks.
     func launch() {
         // Again while it is up: put away, as the key that raised it, the way
         // Spotlight's does. What was typed waits for the next ⌘T (see
         // dismiss()). It used to stay up with what was typed cleared.
         if launching { putAway(); return }
-        guard prefs.floatingNewTab, let tab = active, !tab.isBlank, !peekInFront else {
+        // A website's popup has no field to raise: its new tab goes to a
+        // window of tabs, as ⌘T's always has from there.
+        guard !websitePopup, let tab = active, !tab.isBlank else {
             newTab()
             return
         }
@@ -4283,6 +4285,9 @@ final class Browser: NSObject, ObservableObject {
             newTab()
             return
         }
+        // A peek is over the page, and the field would come up under it:
+        // put away first, as a click outside it would.
+        if peekInFront { closePeek() }
         // From ⌘K or ⌘L the words already typed come along, only where they
         // go changes; or else the words a ⌘T put away was left with, selected
         // whole when the field takes the keys, so typing over them costs nothing.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""⌘T with the floating field on and an extension's new tab page still to be
+"""⌘T with an extension's new tab page still to be
 asked about, in a hidden probe.
 
 Build first (`./build.sh`), then `python3 Tests/newtab_floating_extension.py`.
@@ -55,7 +55,7 @@ def answer(yes):
 def asked(): return sv.cmd({"do": "ext-answer", "answer": given[0]})["asked"]
 def on(tab, ext): return tab["url"].startswith(ext["base"].rstrip("/")) if ext["base"] else ext["name"] in tab.get("title", "")
 try:
-    sv.setup(**{"newtab.floating": True})
+    sv.setup()
     sv.launch()
     a = sv.page("a")
     sv.sp("select", id=a); time.sleep(0.3)

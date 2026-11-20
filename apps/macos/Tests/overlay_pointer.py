@@ -58,7 +58,7 @@ def main():
     t = sv.T()
     try:
         # ⌘T's field comes up over the page in front, not as a blank tab.
-        sv.setup(**{"newtab.floating": True})
+        sv.setup()
         sv.launch()
         page = sv.sp("open", url=f"{BASE}/under")["resultID"]
         time.sleep(1.5)

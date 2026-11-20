@@ -321,7 +321,7 @@ enum SettingsIndex {
         // Spaces & Pins
         .init(id: "arc.setup", group: "arc", icon: "wand.and.stars",
               title: "Set Up Like Arc", detail: "Tabs on the left, spaces, pinned rows and pins that keep their site",
-              more: "Also turns on New tab in a floating field. Undo puts back what you had.",
+              more: "Undo puts back what you had.",
               words: ["arc", "the browser company"]),
         .init(id: "arc.import", group: "arc", icon: "square.and.arrow.down",
               title: "Bring Arc's spaces and pins over", detail: "Your spaces, pinned tabs and folders, read from Arc on this Mac",
@@ -364,14 +364,10 @@ enum SettingsIndex {
               more: "As in Arc: ⌘-clicking a pin opens a new tab at its address; on a pin that has wandered from its page, the wandered page is kept in loose tabs and the pin gets a fresh tab at home. Off, ⌘-click adds the pin to your tab selection.",
               keys: ["pins.commandNewTab"],
               words: ["command click", "cmd click", "pinned", "arc", "selection", "multi select"]),
-        .init(id: "newtab.floating", group: "opening", icon: "rectangle.and.text.magnifyingglass",
-              title: "New tab in a floating field", detail: "⌘T raises the address field over the page, as in Arc",
-              more: "Return opens what you typed in a new tab; Escape, ⌘W or a click outside puts it away.",
-              keys: ["newtab.floating"], words: ["command bar", "cmd t", "spotlight"]),
         .init(id: "newtab.recent", group: "opening", icon: "clock.arrow.circlepath",
               title: "Recent places in the new tab", detail: "Before you type, ⌘T's field lists the last three places you went",
               more: "From History on this Mac, leaving out pages already open, which ⌘K finds. Nothing is picked until an arrow key picks it, and a private tab lists nothing.",
-              keys: ["newtab.recent"], words: ["recent", "history", "suggestions", "cmd t", "last visited"], parent: "newtab.floating"),
+              keys: ["newtab.recent"], words: ["recent", "history", "suggestions", "cmd t", "last visited"]),
         .init(id: "commandbar", group: "opening", icon: "chevron.right.square",
               title: "Address bar commands", detail: "\"settings\" or \"new tab\" alone in the address field goes there",
               more: "Part of a name, like \"down\" or \"dwn\", shows the command lower in the list, with every menu command and Settings page whose name has the words typed, as Arc's Command Bar.",
@@ -557,7 +553,6 @@ enum SettingsIndex {
         case "profiles.oneWindow": return Profiles.shared.several
         case "spaces.links": return prefs.usesSpaces
         case "tabs.frontBeside": return prefs.newTabPlace == .next
-        case "newtab.recent": return prefs.floatingNewTab
         case "links.little.tabs": return prefs.littleLinks
         case "links.peek.stays": return prefs.peeksLinks || prefs.pinsPeek
         case "launcher.key": return prefs.launcher
@@ -577,7 +572,6 @@ enum SettingsIndex {
         case "spaces.links": return "Only with Spaces on"
         case "sidebar.player": return "Only with titles in the sidebar"
         case "tabs.frontBeside": return "Only with New tab position on After current"
-        case "newtab.recent": return "Only with the new tab in a floating field"
         case "links.little.tabs": return "Only with links from other apps in a small window"
         case "links.peek.stays": return "Only when links or pins open peeks"
         case "launcher.key": return "Only with the address field from any app on"
@@ -693,15 +687,14 @@ extension Preferences {
         var spaces: Bool
         var rows: Bool
         var keep: (home: Bool, peek: Bool)
-        var floating: Bool
     }
 
     var arcSnapshot: ArcSetup {
-        ArcSetup(layout: tabsLayout, spaces: usesSpaces, rows: listsPins, keep: (pinsGoHome, pinsPeek), floating: floatingNewTab)
+        ArcSetup(layout: tabsLayout, spaces: usesSpaces, rows: listsPins, keep: (pinsGoHome, pinsPeek))
     }
 
     var looksLikeArc: Bool {
-        tabsLayout == .left && usesSpaces && listsPins && pinsGoHome && pinsPeek && floatingNewTab
+        tabsLayout == .left && usesSpaces && listsPins && pinsGoHome && pinsPeek
     }
 
     /// Turns Arc's way on and says what changed.
@@ -712,7 +705,6 @@ extension Preferences {
         if !usesSpaces { usesSpaces = true; changed.append("Spaces") }
         if !listsPins { listsPins = true; changed.append("pinned rows") }
         if !(pinsGoHome && pinsPeek) { pinsKeepSite = true; changed.append("pins keep their site") }
-        if !floatingNewTab { floatingNewTab = true; changed.append("the floating new tab") }
         return changed
     }
 
@@ -722,7 +714,6 @@ extension Preferences {
         listsPins = before.rows
         pinsGoHome = before.keep.home
         pinsPeek = before.keep.peek
-        floatingNewTab = before.floating
     }
 }
 

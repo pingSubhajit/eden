@@ -875,13 +875,6 @@ final class Preferences: ObservableObject {
     @Published var commandBar: Bool {
         didSet { store.set(commandBar, forKey: "commandbar") }
     }
-    /// ⌘T raises the field over the page you are on, as in Arc, and a tab is
-    /// only made once Return sends it somewhere. Escape, ⌘W or a click
-    /// outside puts the field away and leaves you where you were. Off unless
-    /// asked for.
-    @Published var floatingNewTab: Bool {
-        didSet { store.set(floatingNewTab, forKey: "newtab.floating") }
-    }
     /// The address field from any app, as Spotlight's comes: a key of your
     /// own raises it over the app in front, and Return opens what was typed
     /// in Eden (see Launcher.swift). Off unless asked for, and no key
@@ -1044,7 +1037,9 @@ final class Preferences: ObservableObject {
         aiProvider = store.string(forKey: "ai.provider").flatMap(AIProvider.init(rawValue:))
         aiModels = store.dictionary(forKey: "ai.models") as? [String: String] ?? [:]
         commandBar = store.bool(forKey: "commandbar")
-        floatingNewTab = store.bool(forKey: "newtab.floating")
+        // ⌘T's field over the page is the only new tab now: the switch
+        // between it and a blank tab is gone, and so is what it kept.
+        store.removeObject(forKey: "newtab.floating")
         launcher = store.bool(forKey: "launcher.on")
         launcherKey = store.data(forKey: "launcher.key").flatMap { try? JSONDecoder().decode(LauncherKey.self, from: $0) }
         recentInNewTab = store.bool(forKey: "newtab.recent")
