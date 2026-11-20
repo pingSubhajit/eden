@@ -22,6 +22,8 @@ struct EdenApp: App {
         made.sync = Syncing(browser: made)
         AppDelegate.syncing = made.sync
         _browser = State(initialValue: made)
+        // Pictures of pages not seen for a month (PagePictures).
+        PagePictures.shared.prune()
     }
 
     var body: some Scene {

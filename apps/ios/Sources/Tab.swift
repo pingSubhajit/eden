@@ -98,6 +98,11 @@ final class Tab: NSObject, Identifiable {
         super.init()
     }
 
+    /// The website store its pages are drawn with, by its identifier: nil
+    /// for WebKit's default. Its card's picture is kept apart by it
+    /// (PagePictures), a space signed in as someone else being another.
+    var storeID: UUID? { configuration.websiteDataStore.identifier }
+
     /// Where ordinary tabs keep cookies, sign-ins and caches: WebKit's own
     /// store, or for a test run (EDEN_PROBE) one of its own, under the test
     /// world's fixed identifier as on the Mac (Store.probeStore), so a test
@@ -261,6 +266,8 @@ final class Tab: NSObject, Identifiable {
     /// no page on screen.
     @MainActor func capture() async -> UIImage? {
         guard let built, built.window != nil, url != nil else { return nil }
+        // Taken before drawing: a picture drawn across Clear History isn't kept.
+        let ticket = PagePictures.shared.ticket()
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = false
         guard let image = try? await built.takeSnapshot(configuration: configuration) else { return nil }
@@ -276,7 +283,9 @@ final class Tab: NSObject, Identifiable {
         }
         snapshot = picture
         // Kept for the next launch, never a private tab's (CardPictures).
-        if !isPrivate, let url { CardPictures.shared.keep(picture, for: url) }
+        if !isPrivate, let url {
+            CardPictures.shared.keep(picture, for: url, store: storeID, ticket: ticket)
+        }
         return image
     }
 
