@@ -5493,14 +5493,45 @@ final class Browser: NSObject, ObservableObject {
 
     /// A tab in no group, or a whole group, carried to another place in the
     /// run under the pins, the others making way: the row made again in the
-    /// new order, a pair whole, a group's tabs together.
+    /// new order, a pair whole, a group's tabs together. Written a moment
+    /// later, as a tab carried along the row always was: this runs each time
+    /// the hand passes a neighbour.
     func moveItem(_ id: SideItemID, to index: Int) {
         var items = sideItems
         guard let from = items.firstIndex(where: { $0.id == id }), items.indices.contains(index), from != index else { return }
-        items.insert(items.remove(at: from), at: index)
         let pins = displayedTabs.filter { $0.pin != nil }
-        tabs = expandingPairs(pins + items.flatMap(\.tabs))
-        writeSession(now: true)
+        if case .tab(let tabID) = id, let tab = tabs.first(where: { $0.id == tabID }) {
+            // The tabs picked with it go with it, in their order, as one
+            // block (see moveDisplayedTab): beside the nearest place passed
+            // that stays — a tab not picked, or a group with a tab not
+            // picked, which stays where it is with the rest of its tabs. One
+            // picked from a group comes out of it, as the tab carried is in
+            // none; a group left empty goes.
+            let moving = carried(with: tab)
+            let ids = Set(moving.map(\.id))
+            let passed = from < index ? Array(items[(from + 1)...index].reversed()) : Array(items[index..<from])
+            guard let anchor = passed.first(where: { item in item.tabs.contains { !ids.contains($0.id) } }) else { return }
+            var rest = items.compactMap { item -> SideItem? in
+                switch item {
+                case .tab(let other):
+                    return ids.contains(other.id) ? nil : item
+                case .group(let group, let members):
+                    let kept = members.filter { !ids.contains($0.id) }
+                    return kept.isEmpty ? nil : .group(group, kept)
+                }
+            }
+            guard let at = rest.firstIndex(where: { $0.id == anchor.id }) else { return }
+            let shown = Set(displayedTabs.map(\.id))
+            rest.insert(contentsOf: moving.filter { shown.contains($0.id) }.map(SideItem.tab), at: from < index ? at + 1 : at)
+            let previous = Set(moving.compactMap(\.groupID))
+            for member in moving { member.groupID = nil }
+            tabs = expandingPairs(pins + rest.flatMap(\.tabs))
+            for group in previous { removeEmptyGroup(group) }
+        } else {
+            items.insert(items.remove(at: from), at: index)
+            tabs = expandingPairs(pins + items.flatMap(\.tabs))
+        }
+        rememberSession()
     }
 
     /// Reorder only among peers in the displayed section. The underlying

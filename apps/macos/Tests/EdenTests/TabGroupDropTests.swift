@@ -15,11 +15,20 @@ final class TabGroupDropTests: XCTestCase {
         let browser = Browser(record: WindowRecord())
         let grouped = browser.prefs.usesTabGroups
         let split = browser.prefs.splitView
+        let place = browser.prefs.newTabPlace
         defer {
             browser.prefs.usesTabGroups = grouped
             browser.prefs.splitView = split
+            browser.prefs.newTabPlace = place
         }
         browser.prefs.usesTabGroups = true
+        // Each new tab after the last, so `tabs.last` is the one just made.
+        browser.prefs.newTabPlace = .next
+        // Whatever an earlier test left in this world's session, gone: the
+        // row held their tabs too, and its order wasn't this test's.
+        let left = browser.tabs
+        browser.newTab()
+        for tab in left { browser.close(tab) }
         for number in 0..<6 {
             if number > 0 { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://\(number).example/")!, title: "\(number)")
@@ -238,5 +247,41 @@ final class TabGroupDropTests: XCTestCase {
         XCTAssertEqual(at(94), LooseDrop(before: .group(other.id)), "the top of the other's heading")
         XCTAssertNil(at(110), "in the other group: it takes it")
         XCTAssertEqual(at(160), LooseDrop(before: nil))
+    }
+
+    func testTabsPickedTogetherAreCarriedAlongTheRunTogether() {
+        let (browser, tabs, first, _) = grouped()
+        // "0" and "2" (out of its group) picked, "0" carried past "3".
+        browser.select(tabs[0])
+        browser.extendTabSelection(to: tabs[2], modifiers: .command)
+        browser.moveItem(.tab(tabs[0].id), to: 2)
+        XCTAssertEqual(order(browser), ["[1]", "3", "0", "2", "[4]", "5"], "as one block, in their order")
+        XCTAssertNil(browser.group(of: tabs[2]), "out of its group, as the tab carried is in none")
+        XCTAssertTrue(browser.tabGroups.contains { $0.id == first })
+        browser.clearTabSelection()
+    }
+
+    /// The group passed has one of its own tabs picked: the rest of it
+    /// stays, and the block lands beside it, either way, at the end too.
+    func testPickedTabsPassAGroupOneOfThemCameFrom() {
+        let (browser, tabs, _, second) = grouped()
+        browser.select(tabs[0])
+        browser.extendTabSelection(to: tabs[2], modifiers: .command)
+        browser.moveItem(.tab(tabs[0].id), to: 1)
+        XCTAssertEqual(order(browser), ["[1]", "0", "2", "3", "[4]", "5"], "down past it")
+        browser.moveItem(.tab(tabs[0].id), to: 0)
+        XCTAssertEqual(order(browser), ["0", "2", "[1]", "3", "[4]", "5"], "and back up past it")
+        browser.clearTabSelection()
+
+        // At the end of the run: "5" and "4", out of the last group, below it.
+        browser.moveItem(.tab(tabs[5].id), to: 3)
+        XCTAssertEqual(order(browser), ["0", "2", "[1]", "5", "3", "[4]"])
+        browser.select(tabs[5])
+        browser.extendTabSelection(to: tabs[4], modifiers: .command)
+        browser.moveItem(.tab(tabs[5].id), to: 5)
+        XCTAssertEqual(order(browser), ["0", "2", "[1]", "3", "5", "4"],
+                       "past the last group, which goes empty; in the order they stood")
+        XCTAssertFalse(browser.tabGroups.contains { $0.id == second })
+        browser.clearTabSelection()
     }
 }
