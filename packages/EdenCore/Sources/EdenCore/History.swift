@@ -62,6 +62,7 @@ public final class History: ObservableObject {
     private var visits: [String: Visit] = [:] {
         didSet {
             recentCache = nil
+            topCache = nil
             guard !publishingLoad else { return }
             objectWillChange.send()
             noteRecent()
@@ -99,6 +100,9 @@ public final class History: ObservableObject {
     /// into the address field included — and sorting the whole history for
     /// it each time cost more than everything else a key press does.
     private var recentCache: [Trace]?
+    /// The sites gone to most, as an empty address field lists them; worked
+    /// out again only once the history has changed.
+    private var topCache: [Trace]?
     /// Something in memory the file doesn't have yet.
     private var owed = false
     /// A write waiting out `save`'s pause.
@@ -509,6 +513,39 @@ public final class History: ObservableObject {
         }
         recentCache = made
         return made
+    }
+
+    /// The sites you go to most, often and lately (`frecency`), best first:
+    /// one place a site, the one of its pages you go to most. A site counts
+    /// as its best page, not the sum of them: every visit to a deep page is
+    /// already a visit to its front page too (see `record`), so the front
+    /// page holds the site's whole count, and adding the pages under it
+    /// counted each visit twice. What an address field offers before
+    /// anything is typed, as Zen's and Safari's do.
+    public func topSites(limit: Int = 6) -> [Trace] {
+        let all = topCache ?? rankSites()
+        topCache = all
+        return Array(all.prefix(limit))
+    }
+
+    /// Every site, best first, as `topSites` lists them: twenty kept, more
+    /// than any list asks for.
+    private func rankSites() -> [Trace] {
+        let now = Date()
+        var best: [String: (visit: Visit, score: Double)] = [:]
+        for visit in visits.values {
+            guard let host = pageText[visit.key]?.host, !host.isEmpty else { continue }
+            let score = frecency(visit, now: now)
+            if score > best[host]?.score ?? -1 { best[host] = (visit, score) }
+        }
+        return best.values
+            .sorted { $0.score > $1.score }
+            .prefix(20)
+            .compactMap { site in
+                guard let url = URL(string: site.visit.url) else { return nil }
+                return Trace(key: site.visit.key, address: pageText[site.visit.key]?.address ?? site.visit.key,
+                             title: site.visit.title, url: url, last: site.visit.last, count: site.visit.count)
+            }
     }
 
     // MARK: - reading
