@@ -121,8 +121,9 @@ struct RowGap: Equatable {
     enum Place: Equatable {
         /// In a group, before one of its tabs, or at its end.
         case group(UUID, before: UUID?)
-        /// Among the tabs in no group, before one of them, or after them all.
-        case loose(before: UUID?)
+        /// Among the tabs in no group, before one of them or a group, or
+        /// after them all.
+        case loose(before: SideItemID?)
         /// At the end of another device's group (DeviceGroup), by its id as
         /// it syncs: opened there too (Sync.askToOpen), and kept here.
         case device(String)

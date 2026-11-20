@@ -74,10 +74,12 @@ final class TabGroupDragOutTests: XCTestCase {
             XCTAssertNil(leaving(point(75), source), "on its own place: it stays")
             XCTAssertNil(leaving(point(5), source), "along its own group's run: it stays")
             XCTAssertNil(leaving(point(130), source), "level with another group: that group's to take")
-            XCTAssertEqual(leaving(point(170), source), LooseDrop(before: looseA), "before the first in no group")
-            XCTAssertEqual(leaving(point(195), source), LooseDrop(before: looseB), "between the two")
+            XCTAssertEqual(leaving(point(170), source), LooseDrop(before: .tab(looseA)), "before the first in no group")
+            XCTAssertEqual(leaving(point(195), source), LooseDrop(before: .tab(looseB)), "between the two")
             XCTAssertEqual(leaving(point(260), source), LooseDrop(before: nil), "past them all: after the last")
-            XCTAssertEqual(leaving(point(95), source), LooseDrop(before: looseA), "between the groups: the first in no group")
+            XCTAssertEqual(leaving(point(95), source), LooseDrop(before: .group(other.id)),
+                           "between the groups: before the next, which stands among the tabs")
+            XCTAssertEqual(leaving(point(104), source), LooseDrop(before: .group(other.id)), "the top of its heading too")
             XCTAssertNil(leaving(point(170), looseA), "a tab in no group leaves nothing")
             let aside = vertical ? CGPoint(x: 400, y: 170) : CGPoint(x: 170, y: 400)
             XCTAssertNil(leaving(aside, source), "off to the side of the row: not a place in it")
@@ -98,7 +100,7 @@ final class TabGroupDragOutTests: XCTestCase {
         // Group: one two three. In none: four five.
         XCTAssertEqual(browser.tabs.map(\.id), t.map(\.id))
 
-        browser.move(t[1], outOfGroupBefore: t[4].id)
+        browser.move(t[1], outOfGroupBefore: .tab(t[4].id))
         XCTAssertNil(browser.group(of: t[1]), "out of the group")
         XCTAssertEqual(browser.tabs.map(\.id), [t[0], t[2], t[3], t[1], t[4]].map(\.id), "in front of five")
 
@@ -107,11 +109,11 @@ final class TabGroupDragOutTests: XCTestCase {
 
         // In no group already: nothing moves.
         let order = browser.tabs.map(\.id)
-        browser.move(t[3], outOfGroupBefore: t[1].id)
+        browser.move(t[3], outOfGroupBefore: .tab(t[1].id))
         XCTAssertEqual(browser.tabs.map(\.id), order)
 
         // The last tab out takes the group with it, as Remove from Group does.
-        browser.move(t[0], outOfGroupBefore: t[3].id)
+        browser.move(t[0], outOfGroupBefore: .tab(t[3].id))
         XCTAssertFalse(browser.tabGroups.contains { $0.id == group }, "the empty group goes")
         XCTAssertEqual(browser.tabs.first?.id, t[0].id)
     }
@@ -134,7 +136,7 @@ final class TabGroupDragOutTests: XCTestCase {
         browser.select(t[0])
         browser.extendTabSelection(to: t[3], modifiers: .command)
         XCTAssertEqual(browser.selectedTabIDs, Set([t[0].id, t[3].id]))
-        browser.move(t[0], outOfGroupBefore: t[4].id)
+        browser.move(t[0], outOfGroupBefore: .tab(t[4].id))
         XCTAssertNil(browser.group(of: t[0]))
         XCTAssertNil(browser.group(of: t[3]))
         XCTAssertFalse(browser.tabGroups.contains { $0.id == group }, "nothing left in it")

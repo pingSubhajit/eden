@@ -85,21 +85,26 @@ struct TabBar: View {
                                                        group: nil, strip: geo.size.width, each: each)
                                             }
                                             if pinLine { PinLine() }
-                                            ForEach(browser.tabGroups) { group in
-                                                GroupHeading(browser: browser, group: group,
-                                                             horizontal: true, dragSpace: "strip")
-                                                let members = browser.visibleTabs(in: group)
-                                                let memberSteps = steps(members, each: each)
-                                                ForEach(Array(members.enumerated()), id: \.element.id) { index, tab in
-                                                    topTab(tab, index: index, steps: memberSteps,
-                                                           group: group.id, strip: geo.size.width, each: each)
+                                            // The tabs in no group and the groups as they
+                                            // stand, as the column has them: a tab in none
+                                            // carried along passes a group whole.
+                                            let items = browser.sideItems
+                                            let itemSteps = steps(of: items, each: each)
+                                            ForEach(Array(items.enumerated()), id: \.element.id) { place, item in
+                                                switch item {
+                                                case .tab(let tab):
+                                                    topTab(tab, index: place, steps: itemSteps,
+                                                           group: nil, strip: geo.size.width, each: each)
+                                                case .group(let group, _):
+                                                    GroupHeading(browser: browser, group: group,
+                                                                 horizontal: true, dragSpace: "strip")
+                                                    let members = browser.visibleTabs(in: group)
+                                                    let memberSteps = steps(members, each: each)
+                                                    ForEach(Array(members.enumerated()), id: \.element.id) { index, tab in
+                                                        topTab(tab, index: index, steps: memberSteps,
+                                                               group: group.id, strip: geo.size.width, each: each)
+                                                    }
                                                 }
-                                            }
-                                            let ungrouped = browser.displayedTabs.filter { $0.pin == nil && browser.group(of: $0) == nil }
-                                            let ungroupedSteps = steps(ungrouped, each: each)
-                                            ForEach(Array(ungrouped.enumerated()), id: \.element.id) { index, tab in
-                                                topTab(tab, index: index, steps: ungroupedSteps,
-                                                       group: nil, strip: geo.size.width, each: each)
                                             }
                                         } else {
                                             // Drawn before the first tab that isn't a pin,
@@ -250,9 +255,19 @@ struct TabBar: View {
             let groupsOn = browser.prefs.usesTabGroups
             // Its groups as they were left, folded or not (see Parked.drawn):
             // drawn flat, a folded group's tabs came out for the swipe.
-            let (groups, loose) = row.drawn(groupsOn: groupsOn, splitView: browser.prefs.splitView)
+            let items = row.drawnItems(groupsOn: groupsOn, splitView: browser.prefs.splitView)
+            let groups = items.compactMap { item -> Parked.DrawnGroup? in
+                if case .group(let drawn) = item { return drawn }
+                return nil
+            }
             let pins = rowTabs(row.tabs, splits: row.splits).filter { $0.pin != nil }
-            let shown = groupsOn ? pins + groups.flatMap(\.tabs) + loose : rowTabs(row.tabs, splits: row.splits)
+            let inRun = items.flatMap { item -> [Tab] in
+                switch item {
+                case .tab(let tab): return [tab]
+                case .group(let drawn): return drawn.tabs
+                }
+            }
+            let shown = groupsOn ? pins + inRun : rowTabs(row.tabs, splits: row.splits)
             let each = width(in: strip, tabs: shown, splits: row.splits)
             let line = TabBar.showsPinLine(shown, groups: groups.count)
             let firstLoose = shown.firstIndex { $0.pin == nil }
@@ -264,18 +279,20 @@ struct TabBar: View {
                                 height: Metrics.strip, interactive: false)
                     }
                     if line { PinLine() }
-                    ForEach(groups) { drawn in
-                        GroupHeading(browser: browser, group: drawn.group, horizontal: true)
-                        ForEach(drawn.tabs) { tab in
+                    ForEach(items) { item in
+                        switch item {
+                        case .tab(let tab):
                             rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
                                     width: each, room: strip - lights - 12,
                                     height: Metrics.strip, interactive: false)
+                        case .group(let drawn):
+                            GroupHeading(browser: browser, group: drawn.group, horizontal: true)
+                            ForEach(drawn.tabs) { tab in
+                                rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
+                                        width: each, room: strip - lights - 12,
+                                        height: Metrics.strip, interactive: false)
+                            }
                         }
-                    }
-                    ForEach(loose) { tab in
-                        rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
-                                width: each, room: strip - lights - 12,
-                                height: Metrics.strip, interactive: false)
                     }
                 } else {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { index, tab in
@@ -333,12 +350,27 @@ struct TabBar: View {
                               outside: { browser.dragOut(tab) }, browser: browser, tab: tab,
                               holding: { carrying = $0 }) {
                 if browser.prefs.usesTabGroups && tab.pin == nil {
-                    browser.move(tab, within: group, to: $0)
+                    // In no group, a place in the run of tabs and groups.
+                    if let group { browser.move(tab, within: group, to: $0) } else { browser.moveItem(.tab(tab.id), to: $0) }
                 } else {
                     browser.moveDisplayedTab(tab, to: $0)
                 }
             })
             .id(tab.id)
+    }
+
+    /// Each place in the run of tabs and groups: a tab's, or a group's
+    /// heading and the tabs it shows, and the gap after it.
+    private func steps(of items: [SideItem], each: CGFloat) -> [CGFloat] {
+        items.map { item in
+            switch item {
+            case .tab(let tab):
+                return steps([tab], each: each).first ?? each + Metrics.tabGap
+            case .group(let group, _):
+                let heading = groupFrames[group.id]?.rect.width ?? GroupHeading.width(for: group.name)
+                return heading + Metrics.tabGap + steps(browser.visibleTabs(in: group), each: each).reduce(0, +)
+            }
+        }
     }
 
     /// Each place in a run: a pin's width, a pair's or a tab's, and the gap.

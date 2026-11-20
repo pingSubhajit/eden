@@ -191,30 +191,56 @@ struct Parked {
     var groups: [TabGroup]? = nil
 
     /// The row as it is drawn while it passes during a swipe between spaces,
-    /// the same way it is drawn on screen: each group under its heading,
-    /// folded or not as it was left — a folded one shows only the tab in
-    /// front, if that is in it — then the loose tabs. Drawn flat, every tab
-    /// in a folded group came out for the length of the swipe and went back
-    /// in as the space landed. A pair's other half isn't a row of its own.
-    @MainActor func drawn(groupsOn: Bool, splitView: Bool) -> (groups: [DrawnGroup], loose: [Tab]) {
+    /// the same way it is drawn on screen: the tabs in no group and the
+    /// groups as they stand, each group under its heading, folded or not as
+    /// it was left — a folded one shows only the tab in front, if that is in
+    /// it. Drawn flat, every tab in a folded group came out for the length
+    /// of the swipe and went back in as the space landed. A pair's other
+    /// half isn't a row of its own.
+    @MainActor func drawnItems(groupsOn: Bool, splitView: Bool) -> [DrawnItem] {
         let stands: (Tab) -> Bool = { tab in
             !splitView || !splits.contains { $0.tabs.contains(tab.id) && $0.left != tab.id }
         }
         let front = splits.first { pair in active.map(pair.tabs.contains) ?? false }?.left ?? active
-        let kept = groupsOn ? (groups ?? []) : []
-        var shown: [DrawnGroup] = []
-        var inGroups = Set<UUID>()
-        for group in kept {
-            let members = tabs.filter { $0.pin == nil && $0.groupID == group.id && stands($0) }
-            // A group lasts as long as its tabs (see removeEmptyGroup).
-            guard !members.isEmpty else { continue }
-            inGroups.insert(group.id)
-            shown.append(DrawnGroup(group: group, tabs: group.collapsed ? members.filter { $0.id == front } : members))
+        let kept = Dictionary((groupsOn ? (groups ?? []) : []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<UUID>()
+        var out: [DrawnItem] = []
+        for tab in tabs where tab.pin == nil && stands(tab) {
+            guard let id = tab.groupID, let group = kept[id] else {
+                out.append(.tab(tab))
+                continue
+            }
+            guard seen.insert(id).inserted else { continue }
+            let members = tabs.filter { $0.pin == nil && $0.groupID == id && stands($0) }
+            out.append(.group(DrawnGroup(group: group, tabs: group.collapsed ? members.filter { $0.id == front } : members)))
         }
-        let loose = tabs.filter { tab in
-            tab.pin == nil && stands(tab) && !(tab.groupID.map(inGroups.contains) ?? false)
+        return out
+    }
+
+    /// The same, its groups and its tabs in none apart (the bench's).
+    @MainActor func drawn(groupsOn: Bool, splitView: Bool) -> (groups: [DrawnGroup], loose: [Tab]) {
+        var groups: [DrawnGroup] = []
+        var loose: [Tab] = []
+        for item in drawnItems(groupsOn: groupsOn, splitView: splitView) {
+            switch item {
+            case .tab(let tab): loose.append(tab)
+            case .group(let group): groups.append(group)
+            }
         }
-        return (shown, loose)
+        return (groups, loose)
+    }
+
+    /// A place in a row drawn off screen: a tab in no group, or a group.
+    enum DrawnItem: Identifiable {
+        case tab(Tab)
+        case group(DrawnGroup)
+
+        var id: SideItemID {
+            switch self {
+            case .tab(let tab): return .tab(tab.id)
+            case .group(let drawn): return .group(drawn.group.id)
+            }
+        }
     }
 
     /// One group of a row drawn off screen, and the tabs it shows.

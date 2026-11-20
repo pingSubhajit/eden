@@ -14,6 +14,37 @@ struct GroupDropTarget: Equatable {
     var after = false
 }
 
+/// One place in the run of tabs under the pins, with groups on: a tab in no
+/// group, or a group with its tabs. Groups stand among the tabs wherever
+/// they were put, in the order of the row itself (Browser.sideItems), and
+/// are carried along it as a tab is.
+enum SideItem: Identifiable {
+    case tab(Tab)
+    /// The group, and every one of its tabs in the row, folded or not.
+    case group(TabGroup, [Tab])
+
+    var id: SideItemID {
+        switch self {
+        case .tab(let tab): return .tab(tab.id)
+        case .group(let group, _): return .group(group.id)
+        }
+    }
+
+    /// Its tabs in the row, in order.
+    var tabs: [Tab] {
+        switch self {
+        case .tab(let tab): return [tab]
+        case .group(_, let members): return members
+        }
+    }
+}
+
+/// A place in that run by what stands there.
+enum SideItemID: Hashable {
+    case tab(UUID)
+    case group(UUID)
+}
+
 struct GroupDropFrames: PreferenceKey {
     static var defaultValue: [UUID: GroupDropFrame] = [:]
 
@@ -42,6 +73,11 @@ struct GroupDropFrames: PreferenceKey {
                 extent = vertical ? extent.insetBy(dx: 0, dy: -margin) : extent.insetBy(dx: -margin, dy: 0)
             }
             guard extent.contains(point) else { continue }
+            // The top of its heading is the place before it, among the tabs
+            // in no group (`leaving`); in it, for the group holding the tab.
+            if group.id != holding, let heading, (vertical ? point.y : point.x) < entry(of: heading, vertical: vertical) {
+                continue
+            }
             if heading?.contains(point) == true || group.collapsed || members.isEmpty {
                 return GroupDropTarget(group: group.id)
             }
@@ -64,17 +100,24 @@ final class LooseFrames {
 }
 
 /// A tab of a group let go outside every group: in front of the tab in no
-/// group it lands before, or after them all.
+/// group, or the group, it lands before, or after them all.
 struct LooseDrop: Equatable {
-    var before: UUID? = nil
+    var before: SideItemID? = nil
 }
 
 extension GroupDropFrames {
+    /// Where on a heading its group begins taking a tab: above it, the
+    /// place before the group, among the tabs in no group.
+    static func entry(of heading: CGRect, vertical: Bool) -> CGFloat {
+        vertical ? heading.minY + heading.height * 0.4 : heading.minX + heading.width * 0.4
+    }
+
     /// Where a tab carried out of its group lands, or nil when it stays:
     /// let go anywhere along its own group's run, its own place included
-    /// (a hand that barely moved leaves nothing), level with another
-    /// group's, or off to the side of the row. `loose` is the tabs in no
-    /// group, by where they are drawn.
+    /// (a hand that barely moved leaves nothing), in another group's, or off
+    /// to the side of the row. Otherwise before the tab in no group, or the
+    /// group, it hasn't passed: a tab's middle, the top of a group's heading.
+    /// `loose` is the tabs in no group, by where they are drawn.
     static func leaving(_ point: CGPoint, frames: [UUID: GroupDropFrame], loose: [UUID: CGRect],
                         groups: [TabGroup], source: UUID, vertical: Bool) -> LooseDrop? {
         guard frames[source]?.tab == source else { return nil }
@@ -84,13 +127,18 @@ extension GroupDropFrames {
               vertical ? (row.minX...row.maxX).contains(point.x) : (row.minY...row.maxY).contains(point.y)
         else { return nil }
         let position = vertical ? point.y : point.x
+        var places: [(item: SideItemID, edge: CGFloat)] = loose.map { (.tab($0.key), vertical ? $0.value.midY : $0.value.midX) }
+        let own = frames[source]?.group
         for group in groups {
             let run = frames.values.filter { $0.group == group.id }.reduce(CGRect.null) { $0.union($1.rect) }
-            if !run.isNull, (vertical ? run.minY...run.maxY : run.minX...run.maxX).contains(position) { return nil }
+            guard !run.isNull else { continue }
+            // Its own group's run keeps it whole, the top of its heading too.
+            let entry = group.id == own ? (vertical ? run.minY : run.minX) : entry(of: frames[group.id]?.rect ?? run, vertical: vertical)
+            if position >= entry, position <= (vertical ? run.maxY : run.maxX) { return nil }
+            places.append((.group(group.id), entry))
         }
-        let next = loose.filter { position < (vertical ? $0.value.midY : $0.value.midX) }
-            .min { vertical ? $0.value.minY < $1.value.minY : $0.value.minX < $1.value.minX }
-        return LooseDrop(before: next?.key)
+        let next = places.filter { position < $0.edge }.min { $0.edge < $1.edge }
+        return LooseDrop(before: next?.item)
     }
 }
 
@@ -107,6 +155,9 @@ struct GroupHeading: View {
     /// In the column of icons (SideIcons.swift): the name's first letter in
     /// a short heading, the name itself in its tooltip.
     var compact = false
+    /// Its group carried along the column by hand, as a tab is (Carried),
+    /// rather than picked up and dropped on another heading.
+    var carriedByHand = false
     /// Told while something dragged in from elsewhere is over it, for the
     /// group's surface to light (GroupSurface).
     var targeted: (Bool) -> Void = { _ in }
@@ -165,7 +216,8 @@ struct GroupHeading: View {
         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(shortFill))
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .onTapGesture { withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) } }
-        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
+        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace,
+                                       carriedByHand: carriedByHand, dropping: $dropping,
                                        iconEdge: besideColumn, targeted: targeted))
         .onHover { hovering = $0 }
         .help(group.collapsed ? "\(group.name) — folded" : group.name)
@@ -230,7 +282,8 @@ struct GroupHeading: View {
                 .transition(.opacity)
             }
         }
-        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
+        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace,
+                                       carriedByHand: carriedByHand, dropping: $dropping,
                                        iconEdge: besideColumn, targeted: targeted))
         // At once, as a tab's cross is.
         .onHover { hovering = $0 }
@@ -284,7 +337,8 @@ struct GroupHeading: View {
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .onTapGesture { if !editing { browser.toggleTabGroup(group.id) } }
         .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
-        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace, dropping: $dropping,
+        .modifier(GroupHeadingShared(browser: browser, group: group, dragSpace: dragSpace,
+                                       carriedByHand: carriedByHand, dropping: $dropping,
                                        iconEdge: .bottom, targeted: targeted))
         .onHover { hovering = $0 }
         .onChange(of: editing) { _, now in
@@ -313,6 +367,9 @@ private struct GroupHeadingShared: ViewModifier {
     @ObservedObject var browser: Browser
     let group: TabGroup
     let dragSpace: String?
+    /// Carried along the column by hand (Carried): no drag of AppKit's to
+    /// pick it up, nor a drop on it to take another heading.
+    let carriedByHand: Bool
     @Binding var dropping: Bool
     /// Where Add Icon's picker points from.
     let iconEdge: Edge
@@ -328,6 +385,30 @@ private struct GroupHeadingShared: ViewModifier {
                     }
                 }
             }
+            .modifier(HeadingDrop(browser: browser, group: group, on: !carriedByHand, dropping: $dropping))
+            // The group's menu: its colours in a row at the top, then what
+            // can be done to it (GroupMenu).
+            .overlay { GroupMenuArea { GroupMenu.make(for: group, in: browser) } }
+            .onChange(of: dropping) { _, now in targeted(now) }
+            .popover(isPresented: Binding(get: { browser.iconGroupID == group.id }, set: { if !$0 { browser.iconGroupID = nil } }),
+                     arrowEdge: iconEdge) {
+                GroupIconPicker(browser: browser, group: group.id)
+            }
+    }
+}
+
+/// A heading picked up, and another heading taking it, across the top:
+/// the group goes to that group's place. Not in the column, where it is
+/// carried by hand.
+private struct HeadingDrop: ViewModifier {
+    @ObservedObject var browser: Browser
+    let group: TabGroup
+    let on: Bool
+    @Binding var dropping: Bool
+
+    func body(content: Content) -> some View {
+        if on {
+            content
             .onDrop(of: [.text], isTargeted: $dropping) { providers in
                 guard let provider = providers.first(where: { $0.canLoadObject(ofClass: String.self) }) else { return false }
                 _ = provider.loadObject(ofClass: String.self) { value, _ in
@@ -343,13 +424,8 @@ private struct GroupHeadingShared: ViewModifier {
                 return true
             }
             .onDrag { NSItemProvider(object: "eden-group:\(group.id.uuidString)" as NSString) }
-            // The group's menu: its colours in a row at the top, then what
-            // can be done to it (GroupMenu).
-            .overlay { GroupMenuArea { GroupMenu.make(for: group, in: browser) } }
-            .onChange(of: dropping) { _, now in targeted(now) }
-            .popover(isPresented: Binding(get: { browser.iconGroupID == group.id }, set: { if !$0 { browser.iconGroupID = nil } }),
-                     arrowEdge: iconEdge) {
-                GroupIconPicker(browser: browser, group: group.id)
-            }
+        } else {
+            content
+        }
     }
 }

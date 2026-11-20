@@ -126,15 +126,117 @@ final class TabGroupDropTests: XCTestCase {
         frames[RowGap.frameKey] = GroupDropFrame(group: second.id, rect: rect(110, 28))
         XCTAssertEqual(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true),
                        GroupDropTarget(group: second.id, member: b, after: true))
-        // Just past the first group's foot, on the second's heading: the
-        // first keeps a tab it holds, until the hand is clear of it.
-        XCTAssertEqual(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true),
+        // The top of a heading is the place before its group, not in it.
+        XCTAssertNil(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true))
+        XCTAssertEqual(GroupDropFrames.resolve(at(66), frames: frames, groups: groups, excluding: source, vertical: true),
                        GroupDropTarget(group: second.id))
+        // Just past the first group's foot: the first keeps a tab it holds,
+        // until the hand is clear of it.
         XCTAssertEqual(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true,
                                                holding: first.id),
                        GroupDropTarget(group: first.id, member: a, after: true))
         XCTAssertEqual(GroupDropFrames.resolve(at(70), frames: frames, groups: groups, excluding: source, vertical: true,
                                                holding: first.id),
                        GroupDropTarget(group: second.id))
+    }
+
+    // MARK: - groups among the tabs
+
+    private func grouped() -> (Browser, [Eden.Tab], UUID, UUID) {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.prohibited)
+        let browser = Browser(record: WindowRecord())
+        browser.prefs.usesTabGroups = true
+        browser.prefs.splitView = false
+        browser.prefs.newTabPlace = .next
+        // Whatever an earlier test left in this world's session, gone.
+        let left = browser.tabs
+        browser.newTab()
+        for tab in left { browser.close(tab) }
+        for number in 0..<6 {
+            if number > 0 { browser.newTab() }
+            browser.tabs.last?.restore(url: URL(string: "https://\(number).example/")!, title: "\(number)")
+        }
+        let tabs = browser.tabs
+        // 0 alone, then a group of 1 and 2, then 3, then a group of 4, then 5.
+        let first = browser.addTabGroup(containing: tabs[1])
+        browser.move(tabs[2], toGroup: first)
+        let second = browser.addTabGroup(containing: tabs[4])
+        return (browser, tabs, first, second)
+    }
+
+    private func order(_ browser: Browser) -> [String] {
+        browser.sideItems.map { item in
+            switch item {
+            case .tab(let tab): return tab.title
+            case .group(_, let members): return "[" + members.map(\.title).joined(separator: " ") + "]"
+            }
+        }
+    }
+
+    func testAGroupStandsWhereItWasMadeAmongTheTabs() {
+        let (browser, _, first, second) = grouped()
+        let usesGroups = browser.prefs.usesTabGroups
+        defer { browser.prefs.usesTabGroups = usesGroups }
+        XCTAssertEqual(order(browser), ["0", "[1 2]", "3", "[4]", "5"])
+        XCTAssertEqual(browser.tabGroups.map(\.id), [first, second], "the groups' own list in the order they stand")
+    }
+
+    func testAGroupAndATabAreCarriedAlongTheRunAlike() {
+        let (browser, tabs, first, second) = grouped()
+        browser.moveItem(.group(first), to: 3)
+        XCTAssertEqual(order(browser), ["0", "3", "[4]", "[1 2]", "5"])
+        XCTAssertEqual(browser.tabGroups.map(\.id), [second, first])
+        browser.moveItem(.tab(tabs[5].id), to: 0)
+        XCTAssertEqual(order(browser), ["5", "0", "3", "[4]", "[1 2]"])
+        // Across the top, a heading dropped on another takes its place.
+        browser.moveTabGroup(first, to: 0)
+        XCTAssertEqual(order(browser), ["5", "0", "3", "[1 2]", "[4]"])
+    }
+
+    func testATabJoinsAGroupAtItsEndAndTheGroupStaysWhereItStands() {
+        let (browser, tabs, first, _) = grouped()
+        browser.move(tabs[5], toGroup: first)
+        XCTAssertEqual(order(browser), ["0", "[1 2 5]", "3", "[4]"])
+        browser.move(tabs[0], toGroup: first)
+        XCTAssertEqual(order(browser), ["[1 2 5 0]", "3", "[4]"], "not the whole group up to where the tab was")
+        // Taken out of the middle, it stands after the group.
+        browser.move(tabs[2], toGroup: nil)
+        XCTAssertEqual(order(browser), ["[1 5 0]", "2", "3", "[4]"])
+    }
+
+    func testATabCarriedOutOfItsGroupLandsBeforeATabOrAGroup() {
+        let (browser, tabs, first, second) = grouped()
+        browser.move(tabs[1], outOfGroupBefore: .group(second))
+        XCTAssertEqual(order(browser), ["0", "[2]", "3", "1", "[4]", "5"])
+        browser.move(tabs[2], outOfGroupBefore: .tab(tabs[0].id))
+        XCTAssertEqual(order(browser), ["2", "0", "3", "1", "[4]", "5"])
+        XCTAssertFalse(browser.tabGroups.contains { $0.id == first }, "a group left empty goes")
+    }
+
+    /// Out of a group, the hand passes the tabs in no group at their middle
+    /// and a group at the top of its heading: before that, it lands there.
+    func testWhereATabOutOfItsGroupLandsAmongTabsAndGroups() {
+        let own = TabGroup(id: UUID(), name: "Own", collapsed: false)
+        let other = TabGroup(id: UUID(), name: "Other", collapsed: false)
+        let source = UUID(), member = UUID(), loose = UUID()
+        let rect: (CGFloat, CGFloat) -> CGRect = { CGRect(x: 10, y: $0, width: 80, height: $1) }
+        let frames = [
+            own.id: GroupDropFrame(group: own.id, rect: rect(0, 22)),
+            source: GroupDropFrame(group: own.id, tab: source, rect: rect(24, 28)),
+            other.id: GroupDropFrame(group: other.id, rect: rect(90, 22)),
+            member: GroupDropFrame(group: other.id, tab: member, rect: rect(114, 28))
+        ]
+        let looseRects = [loose: rect(58, 28)]
+        let at: (CGFloat) -> LooseDrop? = {
+            GroupDropFrames.leaving(CGPoint(x: 30, y: $0), frames: frames, loose: looseRects,
+                                    groups: [own, other], source: source, vertical: true)
+        }
+        XCTAssertNil(at(40), "along its own group")
+        XCTAssertEqual(at(64), LooseDrop(before: .tab(loose)))
+        XCTAssertEqual(at(80), LooseDrop(before: .group(other.id)))
+        XCTAssertEqual(at(94), LooseDrop(before: .group(other.id)), "the top of the other's heading")
+        XCTAssertNil(at(110), "in the other group: it takes it")
+        XCTAssertEqual(at(160), LooseDrop(before: nil))
     }
 }

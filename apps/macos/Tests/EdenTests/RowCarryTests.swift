@@ -99,6 +99,8 @@ final class RowCarryTests: XCTestCase {
         let t = browser.tabs
         let group = browser.addTabGroup(containing: t[0])
         for tab in t[1...2] { browser.move(tab, toGroup: group) }
+        // Named: a new group's heading is its name being typed.
+        browser.editingGroupID = nil
         browser.select(t[4])
         return (browser, group, t)
     }
@@ -111,6 +113,21 @@ final class RowCarryTests: XCTestCase {
             try await send(.leftMouseDragged, at: point(y: y, in: window), in: window)
         }
         if letGo { try await send(.leftMouseUp, at: point(y: end, in: window), in: window) }
+    }
+
+    func testAGroupIsCarriedByItsHeadingAmongTheTabs() async throws {
+        let (browser, group, t) = makeGrouped()
+        let window = makeWindow(browser)
+        try await settle()
+        // The group's heading (3–25) down past "four" and "five", 30 each.
+        try await carry(from: 14, to: 66, in: window, letGo: false)
+        XCTAssertEqual(browser.sideItems.map(\.id), [.tab(t[3].id), .tab(t[4].id), .group(group)],
+                       "the tabs made way before it was let go")
+        try await send(.leftMouseUp, at: point(y: 66, in: window), in: window)
+        try await settle()
+        XCTAssertEqual(browser.sideItems.map(\.id), [.tab(t[3].id), .tab(t[4].id), .group(group)])
+        XCTAssertEqual(browser.tabs(in: group).map(\.id), [t[0], t[1], t[2]].map(\.id), "its tabs with it, in order")
+        XCTAssertFalse(browser.tabGroups.first?.collapsed ?? true, "carried, not folded by the press")
     }
 
     func testATabCarriedAlongItsGroupMovesAsItGoes() async throws {

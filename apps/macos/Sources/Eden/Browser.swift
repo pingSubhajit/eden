@@ -2242,8 +2242,7 @@ final class Browser: NSObject, ObservableObject {
         if let group, prefs.usesTabGroups, tabGroups.contains(where: { $0.id == group }) {
             move(tab, toGroup: group)
         } else if prefs.usesTabGroups {
-            let peers = tabs(in: nil).filter(standsInRow)
-            move(tab, within: nil, to: min(max(0, slot), peers.count - 1))
+            moveItem(.tab(tab.id), to: min(max(0, slot), sideItems.count - 1))
         } else {
             moveDisplayedTab(tab, to: min(pinnedCount + max(0, slot), displayedTabs.count - 1))
         }
@@ -5387,8 +5386,19 @@ final class Browser: NSObject, ObservableObject {
         // both halves go, and stay a pair. Dragged apart in the row, one
         // half leaves on its own (see dropTabIntoStrip).
         let partners = split(for: tab).map { pair in tabs.filter { pair.contains($0.id) && $0.id != tab.id } } ?? []
+        // Into a group that has tabs: at the end of its run. A group stands
+        // where its tabs do, so a tab only marked as its own would take the
+        // whole group up to its place.
+        let together = Set([tab.id] + partners.map(\.id))
+        let moving = tabs.filter { together.contains($0.id) }
+        var row = tabs.filter { !together.contains($0.id) }
+        let end: Int? = id.flatMap { id in row.lastIndex { $0.groupID == id && $0.pin == nil } }
         tab.groupID = id
         for partner in partners { partner.groupID = id }
+        if let end {
+            row.insert(contentsOf: moving, at: end + 1)
+            tabs = row
+        }
         removeEmptyGroup(previousGroup)
         arrangeGroupedTabs()
         if let id, let index = tabGroups.firstIndex(where: { $0.id == id }) {
@@ -5435,23 +5445,61 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// Carried out of its group and let go among the tabs in none (#1009):
-    /// in front of `loose`, or after the last of them. What goes with it
-    /// goes too, as into a group: the tabs picked with it, a pair whole. A
-    /// group left empty goes, as with Remove from Group.
-    func move(_ tab: Tab, outOfGroupBefore loose: Tab.ID?) {
+    /// in front of the tab in no group, or the group, `before` names, or
+    /// after them all. What goes with it goes too, as into a group: the tabs
+    /// picked with it, a pair whole. A group left empty goes, as with Remove
+    /// from Group.
+    func move(_ tab: Tab, outOfGroupBefore before: SideItemID?) {
         guard prefs.usesTabGroups, tabs.contains(where: { $0 === tab }) else { return }
         let moving = carried(with: tab)
         guard moving.allSatisfy({ $0.pin == nil && !$0.shy && !$0.bench }),
               moving.contains(where: { group(of: $0) != nil }) else { return }
         let ids = Set(moving.map(\.id))
         var row = tabs.filter { !ids.contains($0.id) }
-        let insertion = loose.flatMap { id in row.firstIndex { $0.id == id && $0.pin == nil && group(of: $0) == nil } }
-            ?? row.count
+        let insertion: Int? = switch before {
+        case .tab(let id)?: row.firstIndex { $0.id == id && $0.pin == nil && group(of: $0) == nil }
+        case .group(let id)?: row.firstIndex { $0.pin == nil && $0.groupID == id && !ids.contains($0.id) }
+        case nil: nil
+        }
         let previous = Set(moving.compactMap(\.groupID))
         for member in moving { member.groupID = nil }
-        row.insert(contentsOf: moving, at: insertion)
+        row.insert(contentsOf: moving, at: insertion ?? row.count)
         tabs = row
         for id in previous { removeEmptyGroup(id) }
+        writeSession(now: true)
+    }
+
+    /// The run under the pins as the column and the strip show it with
+    /// groups on: each tab in no group, and each group with its tabs, where
+    /// it stands in the row.
+    var sideItems: [SideItem] { items(of: displayedTabs) }
+
+    /// `row`'s places under the pins, in its order: a group where its first
+    /// tab is, its tabs together (arrangeGroupedTabs keeps them so).
+    func items(of row: [Tab]) -> [SideItem] {
+        let buckets = grouping(row)
+        let byID = Dictionary(tabGroups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<UUID>()
+        var out: [SideItem] = []
+        for tab in row where tab.pin == nil {
+            if let id = tab.groupID, let group = byID[id] {
+                if seen.insert(id).inserted { out.append(.group(group, buckets[id] ?? [])) }
+            } else {
+                out.append(.tab(tab))
+            }
+        }
+        return out
+    }
+
+    /// A tab in no group, or a whole group, carried to another place in the
+    /// run under the pins, the others making way: the row made again in the
+    /// new order, a pair whole, a group's tabs together.
+    func moveItem(_ id: SideItemID, to index: Int) {
+        var items = sideItems
+        guard let from = items.firstIndex(where: { $0.id == id }), items.indices.contains(index), from != index else { return }
+        items.insert(items.remove(at: from), at: index)
+        let pins = displayedTabs.filter { $0.pin != nil }
+        tabs = expandingPairs(pins + items.flatMap(\.tabs))
         writeSession(now: true)
     }
 
@@ -5465,34 +5513,49 @@ final class Browser: NSObject, ObservableObject {
         move(tab, to: destination)
     }
 
+    /// A heading dropped on another across the top: the group goes to that
+    /// group's place in the run, before it going up, after it going down.
     func moveTabGroup(_ id: UUID, to index: Int) {
         guard let from = tabGroups.firstIndex(where: { $0.id == id }),
-              tabGroups.indices.contains(index), from != index else { return }
-        tabGroups.move(fromOffsets: IndexSet(integer: from), toOffset: index > from ? index + 1 : index)
-        arrangeGroupedTabs()
-        writeSession(now: true)
+              tabGroups.indices.contains(index), from != index,
+              let at = sideItems.firstIndex(where: { $0.id == .group(tabGroups[index].id) }) else { return }
+        moveItem(.group(id), to: at)
     }
 
-    /// The row in the order it is shown: the pins, each group's tabs in the
-    /// groups' order, then the tabs in none. The one place that order is
-    /// made, run after every change to the row (see `tabs`) and to a group.
-    /// Nothing while groups are off: the row stays as you left it.
+    /// The row in the order it is shown: the pins, then the tabs in no group
+    /// and the groups as they stand, each group's tabs together where its
+    /// first one is — groups among the tabs anywhere, not above them. The
+    /// one place that order is made, run after every change to the row (see
+    /// `tabs`) and to a group; the groups' own list follows it. Nothing
+    /// while groups are off: the row stays as you left it.
     private func arrangeGroupedTabs(_ on: Bool? = nil) {
         guard on ?? prefs.usesTabGroups else { return }
         let representatives = displayedTabs
         let pins = representatives.filter { $0.pin != nil }
-        let buckets = grouping(representatives)
-        let grouped = tabGroups.flatMap { buckets[$0.id] ?? [] }
-        let ungrouped = buckets[nil] ?? []
-        let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let pairs = prefs.splitView ? Dictionary(splits.map { ($0.left, $0) }, uniquingKeysWith: { first, _ in first }) : [:]
-        let order = (pins + grouped + ungrouped).flatMap { tab -> [Tab] in
-            guard let pair = pairs[tab.id] else { return [tab] }
-            return pair.tabs.compactMap { byID[$0] }
+        let items = items(of: representatives)
+        let standing = items.compactMap { item -> UUID? in
+            if case .group(let group, _) = item { return group.id }
+            return nil
         }
+        if !tabGroups.map(\.id).starts(with: standing) {
+            let placed = Set(standing)
+            tabGroups = standing.compactMap { id in tabGroups.first { $0.id == id } }
+                + tabGroups.filter { !placed.contains($0.id) }
+        }
+        let order = expandingPairs(pins + items.flatMap(\.tabs))
         // Setting the row runs this again, which then finds nothing to do.
         guard !order.elementsEqual(tabs, by: { $0.id == $1.id }) else { return }
         tabs = order
+    }
+
+    /// Each pair's left half standing for it, given back as both halves.
+    private func expandingPairs(_ representatives: [Tab]) -> [Tab] {
+        let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let pairs = prefs.splitView ? Dictionary(splits.map { ($0.left, $0) }, uniquingKeysWith: { first, _ in first }) : [:]
+        return representatives.flatMap { tab -> [Tab] in
+            guard let pair = pairs[tab.id] else { return [tab] }
+            return pair.tabs.compactMap { byID[$0] }
+        }
     }
 
     /// The group a tab is shown in: none for a pin, or for a group this space
@@ -5541,11 +5604,13 @@ final class Browser: NSObject, ObservableObject {
     /// these; number shortcuts also give folded groups a place of their own.
     var shownTabs: [Tab] {
         guard prefs.usesTabGroups else { return displayedTabs }
-        let off = pairedOff
-        let buckets = grouping(tabs)
-        return tabs.filter { $0.pin != nil && !off.contains($0.id) }
-            + tabGroups.flatMap { visible($0, among: buckets[$0.id] ?? [], off: off) }
-            + (buckets[nil] ?? []).filter { !off.contains($0.id) }
+        let row = displayedTabs
+        return row.filter { $0.pin != nil } + items(of: row).flatMap { item -> [Tab] in
+            switch item {
+            case .tab(let tab): return [tab]
+            case .group(let group, let members): return visible(group, among: members, off: [])
+            }
+        }
     }
 
     /// Number shortcuts count a folded group once, even while its active tab
@@ -5553,18 +5618,17 @@ final class Browser: NSObject, ObservableObject {
     var tabShortcutTargets: [(id: UUID, tab: Tab)] {
         let row = displayedTabs
         guard prefs.usesTabGroups else { return row.map { ($0.id, $0) } }
-        let off = pairedOff
-        let buckets = grouping(tabs)
-        let groups = tabGroups.flatMap { group -> [(id: UUID, tab: Tab)] in
-            let members = (buckets[group.id] ?? []).filter { !off.contains($0.id) }
-            guard group.collapsed else { return members.map { ($0.id, $0) } }
-            let current = active.flatMap { self.group(of: $0) == group.id ? $0 : nil }
-            guard let tab = current ?? members.max(by: { $0.touched < $1.touched }) else { return [] }
-            return [(group.id, tab)]
+        return row.filter { $0.pin != nil }.map { ($0.id, $0) } + items(of: row).flatMap { item -> [(id: UUID, tab: Tab)] in
+            switch item {
+            case .tab(let tab):
+                return [(tab.id, tab)]
+            case .group(let group, let members):
+                guard group.collapsed else { return members.map { ($0.id, $0) } }
+                let current = active.flatMap { self.group(of: $0) == group.id ? $0 : nil }
+                guard let tab = current ?? members.max(by: { $0.touched < $1.touched }) else { return [] }
+                return [(group.id, tab)]
+            }
         }
-        return row.filter { $0.pin != nil }.map { ($0.id, $0) }
-            + groups
-            + (buckets[nil] ?? []).filter { !off.contains($0.id) }.map { ($0.id, $0) }
     }
 
     @Published var commandHeld = false
