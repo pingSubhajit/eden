@@ -191,7 +191,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   $ICONNAME
   <key>LSMinimumSystemVersion</key><string>$MINIMUM</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHumanReadableCopyright</key><string>© Techaboard · Eden</string>
+  <key>NSHumanReadableCopyright</key><string>© Subhajit Kundu · Eden</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleScriptEnabled</key><true/>
   <key>OSAScriptingDefinition</key><string>Eden.sdef</string>

@@ -6,7 +6,7 @@ build goes to anyone else. Each item names where it is in the code.
 ## Before a public release
 
 - [ ] **Developer ID certificate** A Developer ID Application certificate
-  for Techaboard (team `HMJX9736KN`), in the login keychain of the Mac that
+  for the team `HMJX9736KN`, in the login keychain of the Mac that
   ships. An Admin can make it under Certificates, Identifiers & Profiles
   once the Account Holder has given Admins access to Developer ID
   certificates; otherwise the Account Holder makes it. build.sh finds it on its own

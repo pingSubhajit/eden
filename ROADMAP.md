@@ -6,7 +6,7 @@ is in [TODO.md](TODO.md).
 
 ## Being built
 
-- **Rebrand to Eden** Search, renamed and signed by Techaboard. Done in
+- **Rebrand to Eden** Renamed and signed. Done in
   0.1.0; the open ends are in TODO.md.
 
 ## Next: Eden on iPhone and iPad

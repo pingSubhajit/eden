@@ -12,7 +12,11 @@ Rules for agents working in this repository.
 - The Mac is sidebar-only from here on. Don't invest in the top tab bar
   (`TabBar.swift`).
 - Borrow the best of other browsers, and copy outright where the owner says
-  so (Dia's tab groups and toasts). Adapt colours to Eden's palette.
+  so. Adapt colours to Eden's palette.
+- Don't name other products, browsers or their makers in issues, pull
+  requests, commit messages, `CHANGELOG.md`, `README.md` or the other docs.
+  Describe what Eden does in its own terms. Apple's platform (macOS, WebKit,
+  iCloud, Handoff) is what Eden is built on, and is fine to name.
 - Avoid noise. For example, no toast for something a well-known shortcut
   already covers, such as ⇧⌘T after closing a tab.
 
@@ -67,8 +71,9 @@ Rules for agents working in this repository.
   - Open the PR against `main`, title it as a conventional commit, and put
     `Fixes #12` in its description so it is tied to its issue and closes it
     on merge.
-  - Merge by rebasing rather than squashing, so the logical commits reach
-    `main` as separate commits, and only when the owner says so.
+  - Merge only when the owner says so. First rebase the branch on
+    `origin/main` and push it, so the PR is tested against what it lands
+    on, then squash-merge it into `main` as one commit titled after the PR.
 - A small fix or tweak goes straight to `main`, with the owner's permission.
 - Commit only your own changes. Other sessions may have unfinished work in
   the same tree, so never sweep it into your commits.
@@ -112,5 +117,5 @@ Rules for agents working in this repository.
 
 ## Signing
 
-- Eden is signed with the Techaboard team (`HMJX9736KN`) using automatic
+- Eden is signed with the team `HMJX9736KN` using automatic
   signing. iOS and macOS share the bundle ID `com.subhajit.eden.beta`.

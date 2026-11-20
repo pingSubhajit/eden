@@ -226,7 +226,7 @@ final class Updater: ObservableObject {
 
     /// The disk image, when the bundle can't be swapped where it is: fetched
     /// by Eden itself, never through a web page, and opened only if its
-    /// hash is the signed feed's and its signature is Techaboard's.
+    /// hash is the signed feed's and its signature is the team's.
     @Published private(set) var fetchingDisk = false
     /// What a test run decided about a disk image, for the bench.
     static var diskVerdict = ""
@@ -319,7 +319,7 @@ final class Updater: ObservableObject {
     }
 
     private static func fetch() async -> Release? {
-        // The feed as Techaboard signed it: appcast.json.zip, next to the
+        // The feed as the team signed it: appcast.json.zip, next to the
         // plain one older builds read, holding the same file with its code
         // signature (build.sh). Only what comes out of it, checked, is read:
         // a feed a server or a hijacked answer made up is no feed at all.
@@ -375,7 +375,7 @@ final class Updater: ObservableObject {
     nonisolated static let team = "HMJX9736KN"
     nonisolated static let feedIdentifier = "com.subhajit.eden.beta.appcast"
 
-    /// The feed inside `packed`, if it is Techaboard's: appcast.json with
+    /// The feed inside `packed`, if the team signed it: appcast.json with
     /// a code signature (codesign keeps it in the file's extended attributes,
     /// and ditto carries those in the ZIP) that holds up and meets the
     /// Developer ID requirement for the team and the feed's own identifier.

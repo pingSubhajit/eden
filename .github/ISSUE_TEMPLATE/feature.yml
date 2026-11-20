@@ -20,9 +20,9 @@ body:
   - type: textarea
     id: borrowed
     attributes:
-      label: After which browser
-      description: A browser that already does this well, and what to copy from it.
-      placeholder: Dia's tab groups, Zen's new tab dialog…
+      label: What to copy
+      description: How it works where it already works well, in your own words. Don't name the product.
+      placeholder: Each group a tinted surface in the column, folding on a quick spring…
     validations:
       required: false
   - type: dropdown

@@ -1,7 +1,7 @@
 // Eden for iPhone and iPad. One identity for both: the Mac app has the same
 // bundle id, so Handoff and iCloud are one app's on every device.
 EDEN_BUNDLE_IDENTIFIER = com.subhajit.eden.beta
-// Techaboard Digi Solutions Private Limited, as Mulberry and the Mac app.
+// The same team as the Mac app.
 DEVELOPMENT_TEAM = HMJX9736KN
 CODE_SIGN_STYLE = Automatic
 // The iCloud container the tabs and pins sync through (Phase 4). Xcode

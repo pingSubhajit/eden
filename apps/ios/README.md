@@ -29,7 +29,7 @@ never do. Everything is kept in the app's own folder (EdenCore's Store).
 | | |
 |---|---|
 | Bundle id | `com.subhajit.eden.beta`, the same as the Mac app |
-| Team | `HMJX9736KN`, Techaboard Digi Solutions Private Limited |
+| Team | `HMJX9736KN`, the same as the Mac app |
 | Signing | Automatic, as Mulberry's |
 | iOS | 27.0 or later, iPhone and iPad |
 | iCloud | CloudKit, container `iCloud.com.subhajit.eden.beta` |

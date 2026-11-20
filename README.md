@@ -1,139 +1,124 @@
+![Eden](.github/assets/banner.jpg)
+
 # Eden
 
-A small, fast, quiet web browser for the Mac, by Techaboard.
+An opinionated web browser for the Mac, iPhone and iPad, with your tabs on all three.
 
-Eden began as a fork of [Search](https://github.com/driceroland/Search) by Office Commun, released under the MIT licence. Thanks to its authors and contributors for the browser it started from.
+Eden picks one way to do each thing and leaves the screen to a column of tabs, one field and the page. It runs on WebKit, the engine already in macOS and iOS, so the Mac app weighs about 12 MB.
 
-macOS 14 or later · free · about 10 MB. No public download yet: [build it yourself](#building-it).
+macOS 14 or later · iOS and iPadOS 27 or later · free. No public download yet, so [build it yourself](#building-it).
 
----
+## Across your devices
 
-## What it is
+Eden keeps your Mac, iPhone and iPad in step through your own iCloud. It syncs your open tabs, bookmarks, history, spaces, pins and settings.
 
-Eden is a browser with nothing in the way. A row of tabs — down the left, or across the top if you prefer — and the page. There is no toolbar, no start page, no sidebar of suggestions, no account to sign into, nothing that wants your attention. You type an address or a few words in one field and you are on the page.
+- **Your other devices' tabs, beside your own.** On the Mac, each device gets a group in the column, under your pins, listing what it has open in the space you're in. On iPhone and iPad they sit in the tab overview and the sidebar.
+- **Carry on where you stopped.** Open a page from another device and Eden puts it in the space it came from, scrolled to where you were, in reading mode if you were reading. If the page is open here already, Eden switches to it.
+- **Send a tab, or close one.** Drag a tab onto a device's group to open it there, behind the page in front. Click the cross beside another device's tab to close it there. The device acts on both at its next sync.
+- **Pick up on iPhone.** A new tab offers the page you were just reading on your Mac and the pages you closed there in the last ten minutes. The field suggests pages open on your other devices as you type.
+- **One set of pins.** A page pinned on your Mac and your iPhone becomes one pin on each device, its tab and history with it.
+- **Handoff.** Turn it on in Settings › General to pass the page in front to a nearby device, in Eden or its browser.
 
-It uses **WebKit**, the engine already inside every Mac (it is what Safari runs on). That is why the whole app is about 10 MB on disk and opens instantly: there is no second copy of Chromium to download, update and keep in memory.
+## On each device
 
-It was built by a design studio that spends its whole day in a browser and was tired of the ones that had become products. This one is a tool.
+- **A column of tabs.** Pin the pages you keep open all day. Gather tabs into groups, give each a colour and an icon, and fold a group when you don't need it. Rest the pointer on a tab to see its page.
+- **Spaces and profiles.** A space holds its own tabs, pins and groups. A profile adds its own cookies, sign-ins and history.
+- **iPhone and iPad.** The iPhone keeps the field at the bottom and your tabs in a deck of cards, a room for each space. The iPad lists them down a sidebar.
+- **A blocker that runs first.** WebKit stops trackers and ad networks before it makes the request. Turn it off for a site that breaks.
+- **Hide what you don't want.** Press ⇧⌘H and click a cookie banner or an overlay. Eden hides it on that site from then on, before the page draws.
+- **Extensions.** Paste an extension's store link in Settings › Extensions. Eden runs it on WebKit's extension engine and adds the APIs WebKit lacks. Needs macOS 15.4.
 
-## What it does
+## Privacy
 
-- **One field.** Type an address and you go there; type words and you search. It finishes addresses from your own history and never sends what you type anywhere until you press Return.
-- **Tabs that stay out of the way.** Pin the pages you keep open all day and they shrink to a letter or their icon. Tabs from your last session come back instantly and cost nothing until you click them. `⌘T` finds your open tabs by name, as well as places to go.
-- **Keep an important site running.** Enable Keep selected sites awake in Settings › Tabs, then choose Keep This Site Awake in the site card. It prevents sleeping and automatic closure, even under memory pressure, at the cost of more memory. Private choices last only in that tab; manual closing still works.
-- **Two pages side by side.** Turn on Split View in Settings › Tabs, then drag a tab onto a page or choose Tabs › Split Current Page. Drag the divider to resize the panes; the outlined pane receives page commands. Pairs and their widths come back with their Space, including after a restart.
-- **Reading mode.** `⇧⌘R` strips a page down to the article.
-- **Pick up where you left off.** Turn on Settings › General › Hand off pages to your other devices, and the page in front can be picked up on your iPhone, iPad or another Mac with Handoff: in Eden there, or in its browser. A page handed over from them opens in a tab here.
-- **Hide anything, for good.** `⇧⌘H`, then click a cookie banner, a newsletter overlay, a rail of "related" nonsense — it goes, and it is still gone on that site next time, before the page has drawn a single frame.
-- **An ad blocker that runs before the page.** Third-party trackers and ad networks are stopped at the network level, so there is nothing to render and nothing to slow down. On by default, off per site if something breaks.
-- **Video that follows you.** `⇧⌘P` lifts the video out of the page into a small window that stays above everything, including other apps.
-- **Passwords, in your keychain.** Eden offers to save a sign-in once it has actually worked, and offers your saved accounts, and the Mac's passkeys for the site, under the field when you click it — the way Safari does, never filling anything on its own. Everything lives in the macOS keychain, encrypted by the system, readable only by Eden. Bring yours in from Chrome, Arc, Dia, Brave or Edge in one click; nothing leaves the Mac. Keep them in Apple's Passwords app instead? Turn it on in Settings › Passwords and its accounts and verification codes come up under their box too.
-- **Light, dark, or the Mac's own.** The frame and the pages follow.
-- **Bookmarks, history, downloads** — each a panel, each searchable, each one keystroke away.
-- **Chrome extensions, without Chrome.** Paste a Chrome Web Store link in Settings › Extensions, or open the extension's page in Eden and press Add. It runs on WebKit's own extension engine — the one Safari uses — and where Chrome has APIs WebKit doesn't (bookmarks, history, downloads, side panel, offscreen documents, fonts, notifications, speech, OAuth sign-in), Eden fills them in itself. They live behind the puzzle button; pin the ones you use often. Building your own? Load its folder as an unpacked extension and press Reload after each change, as in Chrome's developer mode. macOS 15.4 or later.
+Eden has no account, no server and no telemetry.
 
-## What it doesn't do
-
-On purpose:
-
-- No extension you have to install to feel at home. Blocking ads, hiding clutter, reading mode, picture-in-picture and passwords are built in; extensions are there for everything else.
-- No account and no cloud of Eden's own. Your tabs, bookmarks, history, spaces, pins and settings sync between your Macs, iPhone and iPad through your own private iCloud database, on unless you turn it off in Settings; passwords, cookies, sign-ins and private tabs never leave the device.
-- No telemetry, no analytics, no crash reports sent anywhere. The only things that leave your Mac are the pages you ask for and their icons, what syncs to your own iCloud, and, once you turn on Handoff, the address and title of the page in front, to your own devices.
-- One window. Tabs are the only kind of "new" there is.
-
-## Privacy, concretely
-
-| What | Where it is | Who can read it |
+| What | Where it lives | Synced |
 |---|---|---|
-| Passwords | The macOS login keychain, as ordinary keychain items tagged `Eden` | Eden, signed by Techaboard. Any other app triggers the system's permission dialog. |
-| History, bookmarks, open tabs, hidden elements | Small JSON files in `~/Library/Application Support/Eden/` | You. |
-| What syncs: open tabs, bookmarks, history, spaces, pins and settings | Your private CloudKit database, in a zone of Eden's (container `iCloud.com.subhajit.eden.beta`) | You, on the devices signed in to your Apple Account. Apple stores it, as it does any app's iCloud data. |
-| Cookies and site data | WebKit's own store for the app | The sites that set them, as in any browser. |
-| Extensions | Unpacked in `~/Library/Application Support/Eden/Extensions/`, their data in WebKit's extension store | Each extension, within the permissions you accepted when adding it. |
-| The page in front, with Handoff on | Offered to the devices signed in to your Apple Account, through Apple, while Eden is in front. Never a private tab. | Your own devices. |
-| Anything else | Nowhere. There is no server. | — |
+| Passwords | The macOS keychain, as items tagged `Eden` | No |
+| Tabs, bookmarks, history, spaces, pins, settings | `~/Library/Application Support/Eden/` | To your private CloudKit database |
+| Hidden elements, page pictures | `~/Library/Application Support/Eden/` | No |
+| Session cookies kept for a restart | The same folder, sealed with a key in the keychain | No |
+| Cookies and site data | WebKit's store | No |
+| Extensions | `~/Library/Application Support/Eden/Extensions/` and WebKit's extension store | No |
 
-A **private tab** (`⇧⌘N`) has its own cookie jar and leaves nothing behind when it closes.
+What leaves the device: the pages you open and their icons, what syncs to your iCloud, and, with Handoff on, the address and title of the page in front. Two settings, both off at first, change that. Search suggestions send what you type to your search engine, and a proxy carries everything Eden fetches.
 
-Apps you allow in System Settings › Privacy & Security › Automation can read the address and title of your tabs with AppleScript, and the name of the space and profile each window is in; private tabs are never shown, and a window with one in front shows neither name.
+A private tab (⇧⌘N) has its own cookies, keeps nothing when it closes, and stays out of sync and Handoff.
+
+Apps you allow in System Settings › Privacy & Security › Automation can read your tabs' addresses and titles with AppleScript. They can't see private tabs.
 
 ## Keyboard
 
 | | |
 |---|---|
-| `⌘L` address · `⌘T` new tab or open tab · `⌘W` close · `⇧⌘T` reopen | `⌘[` `⌘]` back, forward · `⇧⌘[` `⇧⌘]` previous, next tab · `⌘1`–`⌘9` jump |
-| `⇧⌘S` tabs down the left or across the top · `⌘S` fold the sidebar away · `⇧⌘B` bookmark this page | `⇧⌘R` reading mode · `⇧⌘P` float the video · `⇧⌘H` hide something · `⇧⌘U` what is hidden here |
-| `⌘F` find · `⌘D` duplicate tab · `⇧⌘C` copy address · `⇧⌘V` paste and go | `⌘Y` history · `⇧⌘J` downloads · `⌘,` settings · `⌥⌘L` passwords |
+| ⌘T new tab or find a tab | ⌘L the field |
+| ⌘W close tab | ⇧⌘T reopen it |
+| ⌘N new window | ⇧⌘N private tab |
+| ⌥⌘T new tab in group | ⌃⌘N new group |
+| ⇧⌘[ ⇧⌘] previous, next tab | ⌘1 to ⌘9 jump to a tab |
+| ⌃Tab recent tabs | ⌘S hide the column |
+| ⇧⌘H hide something | ⇧⌘B bookmark |
+| ⌘Y history | ⇧⌘J downloads |
 
-Space keys (Control+1–9 by default) and the modifier used to peek at a link can be changed in Settings › Shortcuts while those features are enabled.
-
-`⌘R` reloads the page; `⌥⌘R` reloads it from origin, checking everything cached with the site again, as Safari's Reload Page From Origin, which is also in a right-click on the reload button.
-
-`⌃Tab` and `⌃⇧Tab` walk along the row of tabs; `Tab` stays the page's, for moving through a form. `esc` puts away whatever is open.
-
-With Split View on, `⌥⌘N` splits the current page and `⌃⌘←` / `⌃⌘→` go from one page to the other. `⌘W` closes the focused tab and gives the remaining page the whole area. Tabs › Separate Split Tabs keeps both tabs open separately.
-
----
+Change any of them in Settings › Keyboard & Mouse › Shortcuts.
 
 ## For developers
 
-### Why the source is here
-
-So anyone can read exactly what a browser handling their passwords and history is doing, build it themselves, or fix something that bothers them. The code is small enough to actually read — about 90,000 lines of Swift, no dependencies beyond what Apple ships with macOS, one file per concern.
+The code is yours to read, build and change: about 136,000 lines of Swift, with nothing outside what Apple ships.
 
 ### Where things are
 
 | | |
 |---|---|
-| `apps/macos/` | Eden for the Mac: the Swift package, `build.sh`, the tests and `./bench`. Every command below runs from here. |
-| `apps/ios/` | Eden for iPhone and iPad, from Phase 0 on: an Xcode project generated by `scripts/generate-project.py`. See its README. |
-| `packages/EdenCore/` | The code both apps share: where things are kept, the address field's sense of what was typed, history, the blocker's rules, and the data that syncs. See packages/README.md. |
-| `VERSION` | The one version number both apps carry. |
+| `apps/macos/` | The Mac app: its Swift package, `build.sh`, tests and `bench` |
+| `apps/ios/` | The iPhone and iPad app, an Xcode project. See its README. |
+| `packages/EdenCore/` | What both apps share: storage, the field's sense of what you typed, history, the blocker's rules, spaces, sync. See `packages/README.md`. |
+| `VERSION` | The version both apps carry |
 
 ### Building it
 
-- macOS 14 or later, Xcode 16 / Swift 6 toolchain
-- `swift build` — runs the app straight from the SwiftPM binary
-- `./build.sh` — assembles a real, double-clickable `Eden.app` in `build/`, ad-hoc signed so it runs on your own Mac. `EDEN_DEV=1 ./build.sh` makes it a dev build, on a yellow icon and named for its branch (`Eden-split-view` from `claude/split-view-4a6927`), so it's never mistaken for an installed Eden or for another worktree's build; `EDEN_FEATURE=name` picks the name. It shares the installed app's settings and its bundle id, so while both run, a link from another app may land in either
+You need Xcode 27. From `apps/macos/`:
 
-A build you make yourself won't be notarized or carry Techaboard's Developer ID, so the first launch needs a right-click → Open (or an allow in System Settings → Privacy & Security). That's expected — it's the same thing that happens with any app that isn't from the App Store or a notarized DMG. Your own build also keeps its passwords apart from a signed Eden's: the keychain tells the two apart by their signatures.
+- `swift build` runs the app from SwiftPM.
+- `./build.sh` makes `build/Eden.app`. It signs with a Developer ID or development certificate from your keychain if it finds one, and ad hoc otherwise.
+- `EDEN_DEV=1 ./build.sh` makes a dev build with a yellow icon, named after its branch.
+- `./build.sh release dmg` adds `Eden.dmg` and `Eden.zip`. `./build.sh release ship` also notarizes, which needs the owner's Apple credentials.
 
-`./build.sh release dmg` also makes `Eden.dmg` / `Eden.zip`. `./build.sh release ship` additionally notarizes and staples — that step needs a Developer ID certificate and Apple credentials, so it only really does anything for Techaboard's own releases.
+An ad hoc build asks for a right-click › Open on first launch. Its passwords stay apart from a signed Eden's, since the keychain tells the two apps apart by signature.
 
 ### How it's put together
 
-- **SwiftUI** for everything drawn, **AppKit** for the handful of things SwiftUI doesn't reach on macOS (the window's title bar, dragging the window by an empty part of the tab row), **WKWebView** for pages.
-- One `Tab` per page. Its web view is built lazily — a tab restored from last session doesn't cost a process until you switch to it. That's most of why launching with twenty tabs is still instant. Each page runs in WebKit's own content process, as in Safari; a tab you close is really gone.
-- The ad blocker is a `WKContentRuleList` compiled once at launch and enforced inside WebKit's networking, before a request is made — zero cost at run time, unlike a JavaScript blocker.
-- Hidden elements are a per-site list of selectors injected as a stylesheet at document start, so nothing is ever seen appearing and vanishing.
-- Every colour is a light/dark pair in `Design.swift`, resolved by the window's appearance; nothing else in the code knows which mode it is in.
-- Extensions run on `WKWebExtension` (macOS 15.4+). `Crx.swift` fetches an extension from the Chrome Web Store's public update address and checks the CRX3 signature against the extension's id before anything is unpacked. `Extensions.swift` is the browser's side of WebKit's contract — tabs, the window, permissions, popups. `ExtensionShims.swift` adds, at install, a small script to the extension's worker, pages and content scripts: it defines the Chrome APIs WebKit lacks — `userScripts`, `privacy`, `browsingData`, `sessions`, the old FileSystem API and more — as calls answered natively by Eden, and mends the places where WebKit behaves differently from Chrome: replies from pages that don't answer, listeners added after a worker starts, workers WebKit loses track of, members and constants it leaves out. Extension pages are served from `chrome-extension://<id>/`, the address they have in Chrome, so servers and sites recognise them. `./bench ext-*` drives all of it from the shell against a test run. `ExtensionNative.swift` speaks Chrome's native messaging to hosts registered in Chrome's `NativeMessagingHosts` folders.
-- `apps/macos/Sources/Eden/` is one file per concern: `Vault.swift` is the keychain, `Shield.swift` the ad blocker, `Curtain.swift` the hidden elements, `Session.swift` what comes back at launch, `Updater.swift` the update, `Bench.swift` the test socket, and so on. There's no framework of its own to learn first.
+- SwiftUI draws the app, AppKit and UIKit cover what SwiftUI can't reach, and WKWebView shows pages.
+- Each page gets one `Tab`. Eden builds its web view the first time you look at it, so twenty restored tabs cost nothing at launch.
+- The blocker is a `WKContentRuleList` that Eden compiles once. WebKit enforces it in its networking.
+- Hidden elements are a stylesheet of selectors that Eden injects at document start.
+- `Design.swift` holds every colour as a light and dark pair.
+- Extensions run on `WKWebExtension`. `Crx.swift` checks a package's signature before unpacking it, and `ExtensionShims.swift` adds the APIs WebKit lacks.
+- `apps/macos/Sources/Eden/` has one file per concern: `Vault.swift` for the keychain, `Shield.swift` for the blocker, `Session.swift` for what comes back at launch.
 
-### Testing it without closing it
+### Testing it
 
-Turn on **Settings › General › Let a script drive Eden** and the running app listens on a Unix socket in its own folder (readable by your user only). `./bench` at the root of the repository speaks it:
+- Shared code: `swift test` in `packages/EdenCore`.
+- Mac: `swift test --filter …` in `apps/macos`.
+- iPhone and iPad: `apps/ios/scripts/test.sh "<simulator>"`.
+
+To drive a running Eden, turn on Settings › General › Let a script drive Eden and use `./bench` from `apps/macos`:
 
 ```
-./bench open https://example.com     # a tab of its own, at the end of your row, marked with a flask
-./bench wait 2e7e7e89                 # until it has loaded
+./bench open https://example.com     # a tab of its own, marked with a flask
+./bench wait 2e7e7e89                 # until it loads
 ./bench text 2e7e7e89                 # the page's text
 ./bench shot 2e7e7e89 out.png         # a picture of it
-./bench click 2e7e7e89 "button.go"    # click, type, submit — through the page's own events
-./bench probe                         # the window's state: open panels, a modal, every window
+./bench click 2e7e7e89 "button.go"    # through the page's own events
 ./bench close all
 ```
 
-Bench tabs are never selected for you, never enter the session or the history, and go when the script says so. It is how this browser is tested while somebody is using it.
-
-A coding agent can drive it through `./bench-mcp`, an MCP server over the same socket: `claude mcp add eden-bench -- "$PWD/bench-mcp"` (or `codex mcp add …`). Each session starts this checkout's `build/Eden.app` hidden, in a test world of its own, and wipes that world when it closes; the browser you use is never in reach. Its tools read a page as roles and names, click with real mouse events, type and check what the field holds, and wait on a condition, and a handle that has gone stale or a button that is covered is an error, never a guess. `python3 Tests/bench_mcp.py` checks it end to end.
-
-`python3 Tests/split_view.py`, after `./build.sh`, checks Split View through the app's own model in a hidden test run with its own settings and files, all removed afterwards. It never makes or shows a window; what can only be seen (dragging onto a page's edge, the divider under the pointer, the motion) is checked by hand on a release candidate.
+Bench tabs stay out of your session and history. `./bench-mcp` serves the same commands to a coding agent as an MCP server. It starts this checkout's build hidden, in a test world it wipes when the session ends.
 
 ### Contributing
 
-Issues and pull requests are genuinely welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how this is reviewed and what tends to get merged. The short version: small changes, no new dependencies, nothing that phones home. Found a security problem? Please report it privately, as [SECURITY.md](SECURITY.md) says.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) first. Keep changes small, add no dependencies, and send nothing home. Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
 
 ### License
 
-MIT — see [LICENSE](LICENSE). Do what you want with the code. Copyright © 2026 Office Commun (Search, which Eden began as) and © 2026 Techaboard Digi Solutions Private Limited (Eden). "Eden" and its icon are Techaboard's; please rename a fork before distributing it.
+MIT. See [LICENSE](LICENSE). Copyright © 2026 Subhajit Kundu, who also owns the name "Eden" and its icon. Rename a fork before you distribute it.

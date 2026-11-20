@@ -9,8 +9,9 @@ import Foundation
 enum Brand {
     /// The name people see: the menu bar, the Dock, About, every sentence.
     static let name = "Eden"
-    /// Who publishes it and signs it (Developer ID, team HMJX9736KN).
-    static let publisher = "Techaboard"
+    /// Who makes it, under the version in Settings. Its builds are signed
+    /// with team HMJX9736KN.
+    static let publisher = "Subhajit Kundu"
 
     /// Where people find out about Eden and download it. The repository for
     /// now.
