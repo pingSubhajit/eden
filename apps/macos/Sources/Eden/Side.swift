@@ -718,7 +718,7 @@ struct SideBar: View {
                     browser: browser,
                     prefs: prefs,
                     tab: tab,
-                    live: tab.id == browser.activeID,
+                    live: tab.id == browser.liveID,
                     width: cells[index].width,
                     height: cells[index].height
                 )
@@ -773,11 +773,11 @@ struct SideBar: View {
                     Group {
                         if icons {
                             IconTile(browser: browser, prefs: prefs, tab: tab,
-                                     live: tab.id == browser.activeID,
+                                     live: tab.id == browser.liveID,
                                      close: { browser.close(tab) })
                         } else {
                             SideRow(browser: browser, prefs: prefs, tab: tab,
-                                    live: tab.id == browser.activeID,
+                                    live: tab.id == browser.liveID,
                                     close: { browser.close(tab) })
                                 .padding(.leading, CGFloat(depth) * PinFolderHeading.indent)
                         }
@@ -857,11 +857,11 @@ struct SideBar: View {
                 Group {
                     if icons {
                         IconTile(browser: browser, prefs: prefs, tab: tab,
-                                 live: tab.id == browser.activeID,
+                                 live: tab.id == browser.liveID,
                                  close: { browser.close(tab) })
                     } else {
                         SideRow(browser: browser, prefs: prefs, tab: tab,
-                                live: tab.id == browser.activeID,
+                                live: tab.id == browser.liveID,
                                 close: { browser.close(tab) })
                     }
                 }
@@ -994,7 +994,7 @@ struct SideBar: View {
     /// A tab in no group in the run.
     private func looseRow(_ tab: Tab, index: Int, steps: [CGFloat]) -> some View {
         rowItem(tab, tabs: browser.tabs, splits: browser.splits,
-                activeID: browser.activeID, interactive: true,
+                activeID: browser.liveID, interactive: true,
                 close: { browser.closeTab(tab) })
         .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.empties == true,
                                landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
@@ -1216,7 +1216,7 @@ struct SideBar: View {
             ForEach(Array(members.enumerated()), id: \.element.id) { index, tab in
                 if let gap = rowGap, gap.place == .group(group.id, before: tab.id) { RowGapSlot(gap: gap, frame: gapFrame) }
                 rowItem(tab, tabs: browser.tabs, splits: browser.splits,
-                        activeID: browser.activeID, interactive: true,
+                        activeID: browser.liveID, interactive: true,
                         close: { browser.closeTab(tab) })
                     .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.empties == true,
                                            landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
@@ -1409,10 +1409,12 @@ struct SideBar: View {
     @ViewBuilder
     private var newTab: some View {
         if icons {
-            Quiet(icon: "plus", title: "", height: rowHeight, size: prefs.sideTitle, centred: true) { browser.launch() }
+            Quiet(icon: "plus", title: "", height: rowHeight, size: prefs.sideTitle, centred: true,
+                  lit: browser.launching) { browser.launch() }
                 .help("New Tab   ⌘T")
         } else {
-            Quiet(icon: "plus", title: "New tab", height: rowHeight, size: prefs.sideTitle) { browser.launch() }
+            Quiet(icon: "plus", title: "New tab", height: rowHeight, size: prefs.sideTitle,
+                  lit: browser.launching) { browser.launch() }
         }
     }
 
@@ -1940,6 +1942,9 @@ struct Quiet: View {
     var size: CGFloat = 12.5
     /// The icon alone, in the middle: the column of icons' new tab.
     var centred = false
+    /// Worn as the live tab's row is: the New tab row while ⌘T's field is
+    /// up, as Zen's is, the tab that will be made being the one in front.
+    var lit = false
     let act: () -> Void
 
     @State private var hovering = false
@@ -1957,13 +1962,13 @@ struct Quiet: View {
                 }
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.faint)
+            .foregroundStyle(lit ? Palette.ink : hovering ? Palette.ink.opacity(0.7) : Palette.faint)
             .padding(.leading, centred ? 0 : Metrics.rowInset)
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
-                    .fill(hovering ? greys.hover : .clear)
+                    .fill(lit ? greys.wash : hovering ? greys.hover : .clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
         }

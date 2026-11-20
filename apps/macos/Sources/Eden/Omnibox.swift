@@ -23,13 +23,18 @@ final class FieldState: ObservableObject {
 struct Omnibox: View {
     @ObservedObject var browser: Browser
     @ObservedObject private var typing: FieldState
-    /// Raised over a page by ⌘T, ⌘L or ⌘K, rather than standing on an
+    /// Raised over a page by ⌘T or ⌘L, rather than standing on an
     /// empty tab.
     let over: Bool
 
     @State private var shake: CGFloat = 0
     @State private var refused = false
+    /// Moved on whenever a site is put in the field with Tab or taken out
+    /// of it, for the panel's pulse; `glowed` only as one goes in.
+    @State private var searchChanged = 0
+    @State private var glowed = 0
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var solid
 
     /// Sized to a pane of a split rather than to the window.
     var fitted = false
@@ -47,14 +52,17 @@ struct Omnibox: View {
     /// Where the panel stands and how wide it is, after Zen's, for the space
     /// it stands in: two thirds of it up to 750 points, never narrower than
     /// 90% of it up to 682, and never closer than 14 to its edges. Its top
-    /// is where a panel 333 points high would be centred, so a list that
-    /// grows only ever grows downwards, and the field never moves from
-    /// under what is being typed.
+    /// is where the tallest it can be would be centred, as Zen's is, so a
+    /// list that grows only ever grows downwards, and the field never moves
+    /// from under what is being typed.
     enum Layout {
         /// The band the field stands in.
         static let header: CGFloat = 62
-        /// The height the panel's top is centred as if it were.
-        static let reference: CGFloat = 333
+        /// The height the panel's top is centred as if it were: the field,
+        /// its hairline and seven rows, the most it shows. Zen's 333 is its
+        /// own tallest, five rows; with seven, a full panel stood 45 points
+        /// below the middle.
+        static let reference: CGFloat = header + 1 + listMost
 
         static func width(in space: CGFloat) -> CGFloat {
             let zen = max(min(space * 0.9, 682), min(space / 1.5, 750))
@@ -64,6 +72,10 @@ struct Omnibox: View {
         static func top(in height: CGFloat) -> CGFloat {
             max(16, (height - reference) / 2)
         }
+
+        /// The most of the list shown at once, seven rows and the list's
+        /// edges: past that it scrolls, as Zen's does past its fifth.
+        static let listMost: CGFloat = Row.height * 7 + Row.pitch * 6 + 20
     }
 
     var body: some View {
@@ -72,7 +84,7 @@ struct Omnibox: View {
             // The list's room: down to 16 points from the bottom, under the
             // field and its hairline.
             content(width: Layout.width(in: geometry.size.width), top: top,
-                    room: geometry.size.height - top - Layout.header - 1 - 16)
+                    room: min(Layout.listMost, geometry.size.height - top - Layout.header - 1 - 16))
         }
         .allowsHitTesting(browser.fieldShowing)
     }
@@ -101,7 +113,7 @@ struct Omnibox: View {
     }
 
     private var listing: Bool {
-        !browser.offers.isEmpty || browser.siteOffer != nil || browser.switcherNote != nil
+        !browser.offers.isEmpty || browser.siteOffer != nil
     }
 
     private func panel(room: CGFloat) -> some View {
@@ -115,15 +127,7 @@ struct Omnibox: View {
                 FittedRows(room: room, picked: pickedID, asked: browser.typed) { list }
             }
         }
-        .background {
-            // The shadow is the background's, not the panel's: drawn again
-            // only when the panel changes size, not with every keystroke.
-            // Broad and low, as Zen's is, and no scrim: it is what lifts
-            // the panel off the page.
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Palette.ground)
-                .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.22), radius: 50, y: 24)
-        }
+        .background { glass }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(refused ? Color.red.opacity(0.35) : Palette.hairline, lineWidth: 1)
@@ -131,6 +135,30 @@ struct Omnibox: View {
         )
         .modifier(Shake(travel: shake))
         .animation(Motion.settle, value: refused)
+        // Zen's pulse as the search changes: in to 98% and back in a
+        // quarter of a second, and, as a site goes in, a glow that spreads
+        // and fades over a second.
+        .keyframeAnimator(initialValue: 1.0, trigger: searchChanged) { panel, scale in
+            panel.scaleEffect(scale)
+        } keyframes: { _ in
+            CubicKeyframe(0.98, duration: 0.125)
+            CubicKeyframe(1, duration: 0.125)
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .keyframeAnimator(initialValue: 0.0, trigger: glowed) { shape, strength in
+                    shape.shadow(color: Palette.ink.opacity(0.32 * strength), radius: 10 + 115 * (1 - strength))
+                        .modifier(OutsideOnly(radius: 14))
+                } keyframes: { _ in
+                    MoveKeyframe(1)
+                    CubicKeyframe(0, duration: 1)
+                }
+        }
+        .onChange(of: browser.siteChip) { before, now in
+            guard !Motion.reduced, (before == nil) != (now == nil) else { return }
+            searchChanged += 1
+            if now != nil { glowed += 1 }
+        }
         .onAppear {
             shake = 0
             refused = false
@@ -142,6 +170,27 @@ struct Omnibox: View {
         }
         .onChange(of: browser.typed) { _, _ in
             withAnimation(Motion.quick) { refused = false }
+        }
+    }
+
+    /// The panel's ground: the page through glass, in Eden's own colour, as
+    /// Zen's acrylic is its own near-black or white over a blur of what is
+    /// under it. Solid with Reduce Transparency. Its shadow is drawn only
+    /// outside its edge, or the glass would show the shape casting it, and
+    /// it is the background's, not the panel's: drawn again only when the
+    /// panel changes size, not with every keystroke.
+    private var glass: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        return ZStack {
+            shape
+                .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.22), radius: 50, y: 24)
+                .modifier(OutsideOnly(radius: 14))
+            if solid {
+                shape.fill(Palette.ground)
+            } else {
+                Blur().clipShape(shape)
+                shape.fill(Palette.ground.opacity(0.86))
+            }
         }
     }
 
@@ -157,6 +206,16 @@ struct Omnibox: View {
                 if let site = browser.siteChip {
                     SiteChip(site: site)
                         .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+                } else if switching {
+                    // Zen's: Return will go to that tab, not load its
+                    // address, which the field shows.
+                    Text("Switch to tab")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize()
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(Palette.wash, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 }
                 AddressField(browser: browser, tab: tab)
                     .frame(height: 22)
@@ -169,8 +228,15 @@ struct Omnibox: View {
     }
 
     /// The row the arrow keys are on, for the list to keep in sight.
-    private var pickedID: String? {
-        browser.picked.flatMap { browser.offers.indices.contains($0) ? browser.offers[$0].id : nil }
+    private var pickedOffer: Suggestion? {
+        browser.picked.flatMap { browser.offers.indices.contains($0) ? browser.offers[$0] : nil }
+    }
+
+    private var pickedID: String? { pickedOffer?.id }
+
+    /// An open tab's row picked: Return switches to it.
+    private var switching: Bool {
+        pickedOffer.map { $0.kind == .open && $0.tab != nil } ?? false
     }
 
     /// What it thinks you mean, in the panel under the field. Places you
@@ -185,17 +251,9 @@ struct Omnibox: View {
                     .onTapGesture { _ = browser.lockSiteOffer() }
             }
             ForEach(Array(browser.offers.enumerated()), id: \.element.id) { index, offer in
-                Row(offer: offer, picked: browser.picked == index, wide: true)
+                Row(offer: offer, picked: browser.picked == index, wide: true, context: browser.context(for: offer))
                     .contentShape(Rectangle())
                     .onTapGesture { browser.take(offer) }
-            }
-            if let note = browser.switcherNote {
-                Text(note)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Palette.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, Row.inset + Row.iconBox + Row.gap)
-                    .padding(.vertical, 12)
             }
         }
         .padding(.horizontal, Row.listInset)
@@ -225,6 +283,20 @@ struct Omnibox: View {
         /// In a panel wide enough to say Switch to Tab in words. A narrow
         /// list keeps an open tab's address instead, and the arrow alone.
         var wide = false
+        /// What the window says of the row beyond the suggestion.
+        var context = Context()
+
+        /// What a row says that the suggestion alone can't: what it is
+        /// called instead ("Open", for a group or a space), a small label
+        /// after it (an open tab's group; "Work / Reading"), the symbol it
+        /// wears instead of its own, and what choosing it does, at its end
+        /// ("Visit from clipboard").
+        struct Context: Equatable {
+            var name: String?
+            var badge: String?
+            var symbol: String?
+            var action: String?
+        }
 
         @State private var hovering = false
 
@@ -256,6 +328,15 @@ struct Omnibox: View {
         /// up whatever stands in it.
         @ViewBuilder
         private var icon: some View {
+            if let symbol = context.symbol {
+                self.symbol(symbol)
+            } else {
+                ownIcon
+            }
+        }
+
+        @ViewBuilder
+        private var ownIcon: some View {
             switch offer.kind {
             case .search, .suggested:
                 // The icon of where the words go, when this Mac already
@@ -291,11 +372,24 @@ struct Omnibox: View {
         private var words: some View {
             let (name, place) = parts
             return HStack(spacing: 0) {
-                Text(name)
+                Text(context.name ?? name)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Palette.ink)
                     .lineLimit(1)
                     .layoutPriority(1)
+                if let badge = context.badge {
+                    // Zen's label after a tab's title: the group it is in,
+                    // or where a group or a space is.
+                    Text(badge)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Palette.ink.opacity(0.8))
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .frame(height: 20)
+                        .background(picked ? Palette.hairline : Palette.wash,
+                                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .padding(.leading, 8)
+                }
                 if let place {
                     Text("—")
                         .font(.system(size: 13))
@@ -320,8 +414,8 @@ struct Omnibox: View {
                 // address: Switch to Tab says the rest where there is room.
                 return (offer.key, wide || offer.title.isEmpty ? nil : offer.title)
             case .search, .suggested, .searched, .command:
-                // A search's title says where it goes ("Search with Kagi",
-                // or ⌘K's "Search in a new tab"); a past one, which site.
+                // A search's title says where it goes ("Search with Kagi");
+                // a past one, which site.
                 return (offer.key, offer.title.isEmpty ? nil : offer.title)
             default:
                 let address = Address.withoutWWW(offer.key)
@@ -331,6 +425,14 @@ struct Omnibox: View {
 
         @ViewBuilder
         private var trailing: some View {
+            if let action = context.action {
+                Text(action)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(picked ? Palette.ink : Palette.muted)
+                    .padding(.horizontal, 7)
+                    .frame(height: 22)
+                    .background(Palette.wash, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
             // A command's key, as Arc's Command Bar shows it.
             if let command = offer.command, let key = command.key {
                 Text(key)
@@ -430,6 +532,43 @@ struct FittedRows<Rows: View>: View {
                     scroller.scrollTo(Self.top, anchor: .top)
                 }
             }
+        }
+    }
+}
+
+/// What is under the panel, blurred: the page in the same window, not the
+/// desktop behind it.
+private struct Blur: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .popover
+        view.blendingMode = .withinWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+/// A view's drawing outside a rounded rectangle of its own size only: a
+/// shadow without the shape that casts it.
+private struct OutsideOnly: ViewModifier {
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content.mask {
+            Outside(radius: radius).fill(style: FillStyle(eoFill: true))
+        }
+    }
+
+    /// Far round the rectangle, with the rectangle cut out of it.
+    private struct Outside: Shape {
+        let radius: CGFloat
+
+        func path(in rect: CGRect) -> Path {
+            var path = Path(rect.insetBy(dx: -300, dy: -300))
+            path.addRoundedRect(in: rect, cornerSize: CGSize(width: radius, height: radius), style: .continuous)
+            return path
         }
     }
 }
@@ -573,7 +712,6 @@ struct AddressField: NSViewRepresentable {
         case .blank: return "Enter a web address"
         case .newTab: return "New tab: enter a web address"
         case .thisTab: return "This tab: enter a web address"
-        case .switcher: return "Switch to an open tab"
         }
     }
 
@@ -584,7 +722,6 @@ struct AddressField: NSViewRepresentable {
         case .blank: return "Address"
         case .newTab: return "Address, new tab"
         case .thisTab: return "Address, this tab"
-        case .switcher: return "Switch to an open tab"
         }
     }
 

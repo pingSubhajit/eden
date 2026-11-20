@@ -29,6 +29,15 @@ enum AddressCommand: Equatable {
     case menu(String)
     /// A Settings page, opened on that page.
     case page(SettingsPanel.Page)
+    /// A tab group of this window's, opened at the tab you were last on in
+    /// it; a space, gone to. Offered when what is typed names one, as Zen
+    /// offers Open for its folders and spaces (FieldOffers.swift).
+    case group(UUID)
+    case space(UUID)
+    /// The link on the clipboard, visited (Zen's Visit from clipboard): the
+    /// copy it was offered for, by the pasteboard's change count, so a link
+    /// copied since is never the one opened in its place.
+    case copiedLink(change: Int)
 
     /// How a suggestion carries it (Suggestion.Command, in EdenCore): a name
     /// for each word, `menu:` and a menu command's id, `page:` and a
@@ -46,6 +55,9 @@ enum AddressCommand: Equatable {
         case .toggleSidebar: return .init("toggleSidebar")
         case .menu(let id): return .init("menu:" + id)
         case .page(let page): return .init("page:" + page.rawValue)
+        case .group(let id): return .init("group:" + id.uuidString)
+        case .space(let id): return .init("space:" + id.uuidString)
+        case .copiedLink(let change): return .init("copiedLink:\(change)")
         }
     }
 
@@ -57,6 +69,21 @@ enum AddressCommand: Equatable {
         if id.hasPrefix("page:") {
             guard let page = SettingsPanel.Page(rawValue: String(id.dropFirst("page:".count))) else { return nil }
             self = .page(page)
+            return
+        }
+        if id.hasPrefix("group:") {
+            guard let group = UUID(uuidString: String(id.dropFirst("group:".count))) else { return nil }
+            self = .group(group)
+            return
+        }
+        if id.hasPrefix("space:") {
+            guard let space = UUID(uuidString: String(id.dropFirst("space:".count))) else { return nil }
+            self = .space(space)
+            return
+        }
+        if id.hasPrefix("copiedLink:") {
+            guard let change = Int(id.dropFirst("copiedLink:".count)) else { return nil }
+            self = .copiedLink(change: change)
             return
         }
         guard let word = AddressCommand.allCases.first(where: { $0.suggested == suggested }) else { return nil }
@@ -82,6 +109,10 @@ enum AddressCommand: Equatable {
         case .toggleSidebar: return ["toggle sidebar", "sidebar"]
         case .menu(let id): return [Command.named(id)?.title ?? id]
         case .page(let page): return ["\(page.title) Settings"]
+        // Never typed to: offered by name (FieldOffers.swift), and read as
+        // what they do.
+        case .group, .space: return ["open"]
+        case .copiedLink: return ["visit from clipboard"]
         }
     }
 
@@ -104,7 +135,7 @@ enum AddressCommand: Equatable {
         case .passwords: return "app.passwords"
         case .toggleSidebar: return "view.sidebar"
         case .menu(let id): return id
-        case .newSpace, .page: return nil
+        case .newSpace, .page, .group, .space, .copiedLink: return nil
         }
     }
 
@@ -136,6 +167,9 @@ enum AddressCommand: Equatable {
         case .passwords: browser.managing = true
         case .toggleSidebar: browser.toggleSidebar()
         case .menu(let id): Command.named(id)?.run(browser)
+        case .group(let id): browser.openGroup(id)
+        case .space(let id): browser.switchSpace(to: id)
+        case .copiedLink(let change): browser.followCopiedLink(change)
         case .page(let page):
             browser.settingsPage = page
             browser.tuning = true
@@ -172,7 +206,7 @@ enum AddressCommand: Equatable {
     /// Menu commands that make no sense from the field: it is already open,
     /// there is nothing found to step through, or the key must be held.
     private static let unoffered: Set<String> = [
-        "file.openAddress", "edit.findNext", "edit.findPrevious", Command.recentTabs, "tabs.search",
+        "file.openAddress", "edit.findNext", "edit.findPrevious", Command.recentTabs,
     ]
     /// Those the menu greys out without a web page in front.
     private static let needsPage: Set<String> = [

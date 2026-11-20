@@ -6,8 +6,8 @@ Build first (`./build.sh` or `./build.sh debug`), then
 `python3 Tests/field_close.py`. It uses the split suite's harness: started
 hidden in a world of its own, keys pressed through the app's own event queue.
 
-Reported as: ⌘T, then ⌘W, put the floating field away; ⌘L or ⌘K, then ⌘W,
-closed the page under the field, though the field looks the same.
+Reported as: ⌘T, then ⌘W, put the floating field away; ⌘L, then ⌘W, closed
+the page under the field, though the field looks the same.
 """
 import sys
 import time
@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import split_view as sv  # noqa: E402
 
 sv.use("field-close")
-KEYS = {"t": 17, "l": 37, "k": 40, "w": 13}
+KEYS = {"t": 17, "l": 37, "w": 13}
 
 
 def press(key):
@@ -39,7 +39,7 @@ def main():
         sv.setup()
         sv.launch()
         pages = [sv.page(name) for name in ("a", "b", "c")]
-        for key, name in (("t", "⌘T"), ("l", "⌘L"), ("k", "⌘K")):
+        for key, name in (("t", "⌘T"), ("l", "⌘L")):
             sv.sp("select", id=pages[1])
             time.sleep(0.5)
             before = tabs()

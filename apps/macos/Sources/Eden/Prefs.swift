@@ -892,11 +892,6 @@ final class Preferences: ObservableObject {
             }
         }
     }
-    /// The floating field lists the last few places from History before
-    /// anything is typed (Browser.recentPlaces). Off unless asked for.
-    @Published var recentInNewTab: Bool {
-        didSet { store.set(recentInNewTab, forKey: "newtab.recent") }
-    }
 
     init() {
         Preferences.settleLittleLinks(in: store)
@@ -1042,7 +1037,9 @@ final class Preferences: ObservableObject {
         store.removeObject(forKey: "newtab.floating")
         launcher = store.bool(forKey: "launcher.on")
         launcherKey = store.data(forKey: "launcher.key").flatMap { try? JSONDecoder().decode(LauncherKey.self, from: $0) }
-        recentInNewTab = store.bool(forKey: "newtab.recent")
+        // The field lists the sites you go to most whenever it is empty
+        // (FieldOffers.swift): the switch for a few recent places is gone.
+        store.removeObject(forKey: "newtab.recent")
         // On for everyone who never touched it (24 Oct 2026).
         let history = store.object(forKey: "swipe.history") as? Bool ?? true
         holdsHistory = history

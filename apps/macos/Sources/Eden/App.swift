@@ -254,8 +254,6 @@ struct EdenApp: App {
                     .shortcut("tabs.next")
                 Button("Previous Tab") { browser.step(-1) }
                     .shortcut("tabs.previous")
-                Button("Search Tabs…") { browser.summon() }
-                    .shortcut("tabs.search")
                 Divider()
                 if browser.prefs.splitView {
                     // The same key puts a pair apart: on a pair, the item
@@ -740,7 +738,7 @@ struct ContentView: View {
         .animation(Motion.settle, value: browser.offering)
     }
 
-    /// The address field: raised over a page by ⌘L or ⌘K, and standing on its
+    /// The address field: raised over a page by ⌘T or ⌘L, and standing on its
     /// own whenever a tab has nowhere to be yet.
     @ViewBuilder
     private var field: some View {
@@ -1204,8 +1202,6 @@ struct ContentView: View {
                 if browser.tabSwitcher.active, !ShortcutStore.shared.recentHeld(event.modifierFlags) {
                     browser.commitTabSwitch()
                 }
-                // ⌘ let go of ends a ⌘K walk, wherever it stopped.
-                if !event.modifierFlags.contains(.command) { browser.landSummon() }
                 return event
             }
             ContentView.keyed(event)
@@ -1320,11 +1316,8 @@ struct ContentView: View {
     /// event back through the app, and it comes here a second time. Only
     /// while the page has the keyboard; in the address field or a panel,
     /// Eden's keys are Eden's. The keys that make and close tabs and move
-    /// between them stay Eden's first, as Chrome keeps them its own.
-    ///
-    /// ⌘K is always Eden's, on every page: the way to any open page is
-    /// the one key that must never be taken (Drice; #238). Slack, X, GitHub
-    /// and ChatGPT use it themselves, and given it first they kept it.
+    /// between them stay Eden's first, as Chrome keeps them its own. ⌘K is
+    /// the page's alone: open tabs are found from ⌘T's field now.
     ///
     /// ⌘← and ⌘→ are Eden's too while nothing is being typed: WebKit takes
     /// them to scroll the page sideways and never hands them back, so
@@ -1333,7 +1326,6 @@ struct ContentView: View {
         let reserved = (key == "t") || (key == "w") || (key == "n" && shifted)
             || ((key == "[" || key == "]" || key == "{" || key == "}") && shifted)
             || (key == "z" && browser.veiling)
-            || (key == "k" && !shifted)
             || (!shifted && (event.keyCode == 123 || event.keyCode == 124) && !caretIn(event))
         guard !reserved, event.window?.firstResponder is PageView else { return false }
         if let passed = ContentView.passed, PageView.same(passed, event) {
@@ -1402,7 +1394,7 @@ struct ContentView: View {
         // from them like any other.
         return !browser.welcoming &&
             !browser.reviewing && !browser.bookmarksOpen &&
-            !browser.veiling && !browser.summoning && !browser.makingSpace &&
+            !browser.veiling && !browser.makingSpace &&
             !browser.peekInFront && browser.editingTab == nil &&
             browser.asking == nil && browser.offering == nil && browser.suggesting == nil
     }
@@ -1764,10 +1756,6 @@ struct ContentView: View {
             browser.pauseMedia()
         case "p" where shifted:
             browser.toggleFloat()
-        case "k" where !shifted:
-            // Held down, ⌘K walks the list a step at a time; letting go of ⌘
-            // takes wherever it stopped. Pressed afresh, it puts it away.
-            browser.searchTabsKey()
         case "s" where shifted:
             browser.toggleSidebar()
         case "s" where !shifted:
