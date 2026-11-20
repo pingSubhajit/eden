@@ -132,6 +132,9 @@ struct RowGap: Equatable {
     let tab: UUID
     let place: Place
     let height: CGFloat
+    /// The row's whole item, rather than a pair's half leaving it, whose
+    /// other half keeps the row's place.
+    var whole = true
 
     var group: UUID? {
         if case .group(let id, _) = place { return id }
@@ -147,6 +150,10 @@ struct RowGap: Equatable {
     /// Whether the tab leaves its own place for it: not for another device,
     /// where it is opened as well as kept here.
     var moves: Bool { device == nil }
+
+    /// Whether the row's place closes behind it: not for a copy, nor for a
+    /// half whose pair stays.
+    var empties: Bool { moves && whole }
 
     /// The run it is in, to tell when it moves into another.
     var run: String {

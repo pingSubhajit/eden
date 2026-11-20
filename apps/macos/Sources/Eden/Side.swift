@@ -996,7 +996,7 @@ struct SideBar: View {
         rowItem(tab, tabs: browser.tabs, splits: browser.splits,
                 activeID: browser.activeID, interactive: true,
                 close: { browser.closeTab(tab) })
-        .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.moves == true,
+        .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.empties == true,
                                landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
         // Positions here are among the run's places; the pinned block
         // sits in front of them in the real list.
@@ -1009,7 +1009,7 @@ struct SideBar: View {
                                           land: { land(tab, $0) }, faded: crossing?.tab == tab.id,
                                           holding: { if !$0 { putDown() } },
                                           gap: { source, point in preview(source, at: point) },
-                                          placed: { placed($0, at: $1) }) {
+                                          placed: { placed($0) }) {
             if prefs.usesTabGroups {
                 browser.moveItem(.tab(tab.id), to: $0)
             } else {
@@ -1039,7 +1039,9 @@ struct SideBar: View {
             return .none
         }
         var place: RowGap.Place?
-        if let device = device(for: tab, at: point) {
+        // The page picked up — a pair's half, either one — is what another
+        // device is sent, and what it may have open already.
+        if let device = device(for: TabDrag.shared.source(of: tab) ?? tab, at: point) {
             place = .device(device)
         } else if prefs.usesTabGroups, tab.pin == nil, !tab.shy, !tab.bench {
             let own = browser.group(of: tab)
@@ -1049,8 +1051,11 @@ struct SideBar: View {
                 place = .loose(before: out.before)
             }
         }
-        let length = (steps([tab]).first ?? rowHeight + SideBar.gap) - SideBar.gap
-        let gap = place.map { RowGap(tab: tab.id, place: $0, height: length) }
+        // A pair's half shown leaving it needs a line of its own; the pair
+        // whole, its two.
+        let half = PairSeparation.shared.leaving.map { browser.split(for: tab)?.contains($0) == true } ?? false
+        let length = half ? rowHeight : (steps([tab]).first ?? rowHeight + SideBar.gap) - SideBar.gap
+        let gap = place.map { RowGap(tab: tab.id, place: $0, height: length, whole: !half) }
         showGap(gap)
         guard let gap else { return .none }
         return gap.moves ? .away : .copy
@@ -1132,35 +1137,36 @@ struct SideBar: View {
     /// faded, a second tab beside the first — and the new one takes the
     /// gap, which is just its size, starting under the hand (`drawn`, its
     /// leading edge in the rows' space) and settling into it.
-    private func placed(_ tab: Tab, at drawn: CGFloat?) -> Bool {
-        guard let gap = rowGap, gap.tab == tab.id else { return false }
+    private func placed(_ drop: CarriedDrop) -> Bool {
+        guard let gap = rowGap, gap.tab == drop.row.id else { return false }
         // Into the group it opened: it stays open.
         if gap.group == sprung { sprung = nil }
-        // Onto another device: opened there, and kept here, sliding home as
-        // its page comes into that device's list.
+        // Onto another device: the page picked up opened there, and kept
+        // here, sliding home as it comes into that device's list.
         if let device = gap.device {
             withAnimation(Motion.settle) {
-                Sync.shared.askToOpen(tab, in: browser.spaceID, on: device)
+                Sync.shared.askToOpen(drop.source, in: browser.spaceID, on: device)
                 rowGap = nil
             }
             litGroup = nil
             return true
         }
         var offset: CGFloat = 0
-        if let drawn, let top = gapFrame.top { offset = drawn - top }
+        if let drawn = drop.drawn, let top = gapFrame.top { offset = drawn - top }
         var still = Transaction()
         still.disablesAnimations = true
         withTransaction(still) {
             switch gap.place {
             case .group(let id, let before):
-                browser.move(tab, toGroup: GroupDropTarget(group: id, member: before))
+                browser.move(drop.source, toGroup: GroupDropTarget(group: id, member: before), detaching: drop.detaching)
             case .loose(let before):
-                browser.move(tab, outOfGroupBefore: before)
+                browser.move(drop.source, outOfGroupBefore: before, detaching: drop.detaching)
             case .device:
                 break
             }
             rowGap = nil
-            settling = RowLanding(tab: tab.id, offset: offset)
+            // The row that lands: the half on its own, or the pair's.
+            settling = RowLanding(tab: drop.detaching ? drop.source.id : drop.row.id, offset: offset)
         }
         DispatchQueue.main.async {
             withAnimation(Motion.settle) { settling = nil }
@@ -1212,7 +1218,7 @@ struct SideBar: View {
                 rowItem(tab, tabs: browser.tabs, splits: browser.splits,
                         activeID: browser.activeID, interactive: true,
                         close: { browser.closeTab(tab) })
-                    .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.moves == true,
+                    .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.empties == true,
                                            landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
                     .modifier(Carried(index: index, steps: memberSteps, vertical: true,
                                       space: "rows", onDropTab: { source, point in drop(source, at: point) },
@@ -1225,7 +1231,7 @@ struct SideBar: View {
                                           if !held { putDown() }
                                       },
                                       gap: { source, point in preview(source, at: point) },
-                                      placed: { placed($0, at: $1) }) {
+                                      placed: { placed($0) }) {
                         browser.move(tab, within: group.id, to: $0)
                     })
             }

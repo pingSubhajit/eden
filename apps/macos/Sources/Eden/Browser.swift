@@ -5449,9 +5449,11 @@ final class Browser: NSObject, ObservableObject {
     /// after them all. What goes with it goes too, as into a group: the tabs
     /// picked with it, a pair whole. A group left empty goes, as with Remove
     /// from Group.
-    func move(_ tab: Tab, outOfGroupBefore before: SideItemID?) {
+    /// `detaching`: a pair's half on its own, out of its pair too, as into
+    /// a group (move(_:toGroup:detaching:)).
+    func move(_ tab: Tab, outOfGroupBefore before: SideItemID?, detaching: Bool = false) {
         guard prefs.usesTabGroups, tabs.contains(where: { $0 === tab }) else { return }
-        let moving = carried(with: tab)
+        let moving = detaching ? [tab] : carried(with: tab)
         guard moving.allSatisfy({ $0.pin == nil && !$0.shy && !$0.bench }),
               moving.contains(where: { group(of: $0) != nil }) else { return }
         let ids = Set(moving.map(\.id))
@@ -5462,6 +5464,7 @@ final class Browser: NSObject, ObservableObject {
         case nil: nil
         }
         let previous = Set(moving.compactMap(\.groupID))
+        if detaching { leaveSplit(tab) }
         for member in moving { member.groupID = nil }
         row.insert(contentsOf: moving, at: insertion ?? row.count)
         tabs = row

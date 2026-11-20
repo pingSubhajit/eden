@@ -1030,6 +1030,18 @@ private struct TabPill: View, Equatable {
 /// A field of its own rather than SwiftUI's, for one reason: the system paints
 /// selected text as a solid block of accent colour, which over a pale grey pill
 /// this size is the loudest thing in the window. Here it is a tenth of the ink.
+/// What was let go into a gap (Carried.placed): the row carried, the page
+/// picked up with it — either half of a pair — and whether that half leaves
+/// its pair, as it does once the pair has been shown letting go of it (see
+/// TabDrag.separate); else the pair goes whole. `drawn`: the row's leading
+/// edge under the hand, in the run's space.
+struct CarriedDrop {
+    let row: Tab
+    let source: Tab
+    let detaching: Bool
+    let drawn: CGFloat?
+}
+
 /// What a run of the column does for a tab carried over it (Carried.gap).
 enum CarryGap {
     /// Nothing: it is along its own run, and moves as it goes.
@@ -1094,10 +1106,8 @@ struct Carried: ViewModifier {
     /// along its own. Given, it takes the place of the old rule that a tab
     /// of a group, or one over a group, only landed when let go.
     var gap: ((Tab, CGPoint?) -> CarryGap)? = nil
-    /// Let go: true when it went into the gap that was open for it. Told
-    /// where its leading edge is drawn in `space`, under the hand, for its
-    /// place there to start from (nil before that was read).
-    var placed: ((Tab, CGFloat?) -> Bool)? = nil
+    /// Let go: true when it went into the gap that was open for it.
+    var placed: ((CarriedDrop) -> Bool)? = nil
     let move: (Int) -> Void
 
     @State private var held = false
@@ -1248,8 +1258,10 @@ struct Carried: ViewModifier {
                                     browser.pair(source, with: target, onLeft: onLeft)
                                 case .strip(let target):
                                     // Into the gap open for it: where it was
-                                    // shown it would go.
-                                    if placed?(tab, origin.map { $0 + travel }) == true { break }
+                                    // shown it would go, the half shown
+                                    // leaving its pair on its own.
+                                    if placed?(CarriedDrop(row: tab, source: source, detaching: true,
+                                                           drawn: origin.map { $0 + travel })) == true { break }
                                     if let destination = groupDestination?(source, value.location) {
                                         // Along its own group it has moved as
                                         // it went (see `gap`): already there.
@@ -1260,7 +1272,8 @@ struct Carried: ViewModifier {
                                         browser.dropTabIntoStrip(source, before: target)
                                     }
                                 case .outside:
-                                    if placed?(tab, origin.map { $0 + travel }) == true { break }
+                                    if placed?(CarriedDrop(row: tab, source: source, detaching: false,
+                                                           drawn: origin.map { $0 + travel })) == true { break }
                                     if !browser.dragOut(source, at: finished.point) {
                                         if let onDropTab { onDropTab(source, value.location) }
                                         else if source.id == tab.id { onDrop?(value.location) }
@@ -1270,7 +1283,8 @@ struct Carried: ViewModifier {
                                 }
                             }
                         } else if land?(value.location) != true, outside?() != true {
-                            if let tab, placed?(tab, origin.map { $0 + travel }) == true {}
+                            if let tab, placed?(CarriedDrop(row: tab, source: tab, detaching: false,
+                                                            drawn: origin.map { $0 + travel })) == true {}
                             else if let onDropTab, let tab { onDropTab(tab, value.location) }
                             else { onDrop?(value.location) }
                         }

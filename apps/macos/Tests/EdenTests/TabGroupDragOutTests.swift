@@ -132,6 +132,15 @@ final class TabGroupDragOutTests: XCTestCase {
         XCTAssertNotNil(browser.split(for: t[1]), "still a pair")
         XCTAssertEqual(Array(browser.tabs.suffix(2)).map(\.id), [t[1], t[2]].map(\.id))
 
+        // A half shown leaving its pair goes on its own, out of the pair.
+        browser.move(t[1], toGroup: group)
+        XCTAssertEqual(browser.group(of: t[2]), group, "the pair back in, whole")
+        browser.move(t[2], outOfGroupBefore: nil, detaching: true)
+        XCTAssertNil(browser.group(of: t[2]))
+        XCTAssertEqual(browser.group(of: t[1]), group, "its other half stays")
+        XCTAssertNil(browser.split(for: t[1]), "no longer a pair")
+        browser.move(t[1], toGroup: nil)
+
         // Tabs picked together leave together.
         browser.select(t[0])
         browser.extendTabSelection(to: t[3], modifiers: .command)
