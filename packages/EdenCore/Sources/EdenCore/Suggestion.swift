@@ -65,6 +65,9 @@ public struct Suggestion: Identifiable, Equatable, Sendable {
     /// A command's row can read the same as the search for the same word
     /// ("Settings" typed with its capital), and two rows can't share a name.
     public var id: String {
+        // By the tab: two tabs of one title are two rows, and a list that
+        // scrolls to the one picked must tell them apart.
+        if case .open = kind, let tab { return "open " + tab.uuidString }
         if kind.isCommand { return "command " + key }
         if case .suggested = kind { return "suggested " + key }
         // By the page: the same words searched on two sites are two rows.
