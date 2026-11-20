@@ -230,6 +230,9 @@ private struct SplitTabHalf: View {
                 // item clears it, so the shared cross keeps its half.
                 else if stacked, hovered == tab.id { hovered = nil }
             }
+            // A line of the column has the column's card; across the top,
+            // where the card has no column to stand beside, the tooltip.
+            .tabHoverCard(tab, in: browser, enabled: stacked && interactive && !editing)
             .contextMenu {
                 if interactive { TabMenu(browser: browser, tab: tab, close: { browser.closeTab(tab) }) }
             }
@@ -253,7 +256,7 @@ private struct SplitTabHalf: View {
             .accessibilityAction(named: tab.muted ? "Unmute tab" : "Mute tab") {
                 if interactive && playing { tab.toggleMute() }
             }
-            .help(title)
+            .help(stacked ? "" : title)
     }
 
     /// The grey's shape: round, but square on the side it shares with the
