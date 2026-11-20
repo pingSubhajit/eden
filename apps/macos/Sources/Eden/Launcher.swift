@@ -19,7 +19,7 @@ import SwiftUI
 // Its own field and list, not a window's. A window's field shows wherever
 // its browser says it is editing, and on every blank tab, so one shared with
 // it showed every key typed here in that window too. What answers what is
-// typed is the window's own: Browser.placeOffers, and ⌘K's open pages.
+// typed is the window's own: Browser.placeOffers, and its open pages.
 //
 // Nothing is asked of a search engine while typing: words typed over another
 // app are not a page Eden was asked to show.
@@ -348,7 +348,7 @@ final class Launcher: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     /// Pages open in the windows of the profile the field was raised for,
-    /// each window's space on screen as ⌘K lists them, the window in front
+    /// each window's space on screen as its own field lists them, the window in front
     /// first. Never a private tab, nor one a script opened. Three at most.
     private func openTabs(matching typed: String, for target: Browser) -> [Suggestion] {
         var found: [Suggestion] = []

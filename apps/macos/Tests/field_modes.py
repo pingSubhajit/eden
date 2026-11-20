@@ -6,9 +6,8 @@ Build first (`./build.sh` or `./build.sh debug`), then
 `python3 Tests/field_modes.py`. It uses the split suite's harness: started
 hidden in a world of its own, keys pressed through the app's own event queue.
 
-Reported as: ⌘T, ⌘K and a blank tab all showed "Enter a web address", though
-Return opens a new tab after ⌘T, a page already open after ⌘K and this tab
-after ⌘L. ⌘K only ever finds open tabs.
+Reported as: ⌘T and a blank tab both showed "Enter a web address", though
+Return opens a new tab after ⌘T and this tab after ⌘L.
 """
 import sys
 import time
@@ -18,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import split_view as sv  # noqa: E402
 
 sv.use("field-modes")
-KEYS = {"t": 17, "l": 37, "k": 40}
+KEYS = {"t": 17, "l": 37}
 
 
 def press(key):
@@ -58,13 +57,6 @@ def main():
         s = look()
         t.ok("⌘L, emptied: This tab", s["placeholder"] == "This tab: enter a web address" and s["name"] == "Address, this tab", s)
         bare(53, "\x1b")
-
-        press("k")
-        s = look()
-        t.ok("⌘K: Switch to an open tab", s["placeholder"] == "Switch to an open tab", s)
-        press("t")
-        s = look()
-        t.ok("⌘K, then ⌘T: New tab again", s["placeholder"] == "New tab: enter a web address", s)
     finally:
         t.done()
         sv.finish()

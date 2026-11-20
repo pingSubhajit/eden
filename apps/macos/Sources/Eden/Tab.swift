@@ -775,7 +775,7 @@ final class Tab: ObservableObject, Identifiable {
         didSet { if name == nil, oldValue != nil { letGo = Date() } }
     }
 
-    /// When you last looked at it. The summon lists pages by this, because
+    /// When you last looked at it. The field lists open tabs by this, because
     /// what you were just reading is what you are most likely to want back.
     /// Written into the session, so a tab's time away counts across quits.
     private(set) var touched = Date()

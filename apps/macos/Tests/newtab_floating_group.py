@@ -10,9 +10,6 @@ group, that tab went into the group, as a link opened from the page does,
 though nothing was opened from the page. It now lands in no group, where a
 new tab has always gone.
 
-The same for ⌘K, whose field looks no different: an address typed into it
-over a grouped tab gets a tab in no group.
-
 Left as they were, and checked so the fix reaches no further: the field
 raised over a tab in no group puts its tab beside that one, and ⌘Return from
 the address of a grouped tab still opens in its group.
@@ -86,17 +83,6 @@ def main():
         order = [p for p, _ in row(s)]
         t.ok("floating, over a tab in no group: in no group", gid(s, "beside") == "", row(s))
         t.ok("…and right after that tab", order.index("beside") == order.index("c") + 1, order)
-
-        # ⌘K over a grouped tab, an address typed: a tab of its own too.
-        sv.sp("select", id=b); time.sleep(0.4)
-        n = len(st()["tabs"])
-        press(40, "k", ["cmd"]); time.sleep(0.6)
-        sv.cmd({"do": "field", "text": f"{sv.BASE}/switched"}); time.sleep(0.4)
-        press(36, "\r"); time.sleep(1.2)
-        s = st()
-        t.ok("⌘K over a grouped tab: one tab more", len(s["tabs"]) == n + 1, row(s))
-        t.ok("…in no group", gid(s, "switched") == "", row(s))
-        t.ok("…the group keeps its two tabs", [p for p, g in row(s) if g] == ["a", "b"], row(s))
 
         # ⌘Return from a grouped tab's address is a page opened from it.
         sv.sp("select", id=b); time.sleep(0.4)

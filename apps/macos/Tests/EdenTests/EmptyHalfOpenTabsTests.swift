@@ -5,7 +5,7 @@ import XCTest
 /// The empty page of a pair finds open tabs by what is typed: its list of
 /// six goes once typing starts, and the field offered only places, so a tab
 /// past those six could only be loaded again as a new copy. The open tabs
-/// that answer come first, as in ⌘K, and taking one brings it into the pair.
+/// that answer come first, and taking one brings it into the pair.
 @MainActor
 final class EmptyHalfOpenTabsTests: XCTestCase {
     override class func setUp() {
@@ -54,11 +54,16 @@ final class EmptyHalfOpenTabsTests: XCTestCase {
         }
     }
 
-    func testAnEmptyTabOnItsOwnStillOffersNoOpenTabs() throws {
-        try withBrowser { browser, _ in
+    /// On a tab of its own the field is ⌘T's, which finds open tabs too
+    /// (FieldOffers.swift), but after the row Return takes: the empty tab
+    /// is there for somewhere new, not to bring a page in.
+    func testAnEmptyTabOnItsOwnOffersOpenTabsAfterTheFirstRow() throws {
+        try withBrowser { browser, tabs in
             browser.newTab()
             browser.typed = "notes"
-            XCTAssertFalse(browser.offers.contains { $0.tab != nil }, "⌘K is the key for those")
+            XCTAssertNotNil(browser.offers.first)
+            XCTAssertNil(browser.offers.first?.tab, "the row Return takes stays first")
+            XCTAssertEqual(browser.offers.dropFirst().first?.tab, tabs[8].id)
         }
     }
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """The address field's keys, pressed again and mixed: the key that raised the
-field puts it away, ⌘K walks only while ⌘ is held, and what was typed
-survives a change of key and a ⌘T put away.
+field puts it away, and what was typed survives a change of key and a ⌘T
+put away.
 
 Build first (`./build.sh` or `./build.sh debug`), then
 `python3 Tests/field_keys.py`. It uses the split suite's harness: started
 hidden in a world of its own, keys pressed through the app's own event queue.
 
 Reported as: ⌘T again left the field up with what was typed cleared, ⌘L
-again put the page's address back over an edit, ⌘K, let go, ⌘K switched to
-the second tab in the list, and ⌘T, ⌘K and ⌘L each cleared what the other
-had been given.
+again put the page's address back over an edit, and ⌘T and ⌘L each cleared
+what the other had been given. ⌘K's switcher is gone: open tabs are found
+from ⌘T's field (newtab_start.py).
 """
 import sys
 import time
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import split_view as sv  # noqa: E402
 
 sv.use("field-keys")
-KEYS = {"t": 17, "l": 37, "k": 40}
+KEYS = {"t": 17, "l": 37}
 
 
 def press(key, letgo=True, held=False):
@@ -66,9 +66,6 @@ def main():
         press("t")
         t.ok("and so after Escape", state()["typed"] == "half typed", state())
 
-        press("k")
-        s = state()
-        t.ok("⌘T, then ⌘K: the words stay, now finding open tabs", s["up"] and s["typed"] == "half typed", s)
         press("l")
         s = state()
         t.ok("then ⌘L: still the words, for this page now", s["up"] and s["typed"] == "half typed", s)
@@ -109,17 +106,6 @@ def main():
         press("t")
         t.ok("after Return opened something, ⌘T starts empty", state()["typed"] == "", state())
         bare(53, "\x1b")
-
-        before = state()["front"]
-        press("k"); press("k")
-        s = state()
-        t.ok("⌘K, let go, ⌘K: put away, still on the same page", not s["up"] and s["front"] == before, s)
-
-        press("k", letgo=False); press("k", letgo=True)
-        time.sleep(0.6)
-        s = state()
-        t.ok("⌘K held, ⌘K again, ⌘ let go: a step down the list, as before",
-             not s["up"] and s["front"] != before, s)
     finally:
         t.done()
         sv.finish()

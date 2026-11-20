@@ -68,7 +68,9 @@ public struct Suggestion: Identifiable, Equatable, Sendable {
         // By the tab: two tabs of one title are two rows, and a list that
         // scrolls to the one picked must tell them apart.
         if case .open = kind, let tab { return "open " + tab.uuidString }
-        if kind.isCommand { return "command " + key }
+        // By the command, not its words: two rows can read alike ("Open",
+        // a tab group's and a space's) and still do two things.
+        if case .command(let command) = kind { return "command " + command.id }
         if case .suggested = kind { return "suggested " + key }
         // By the page: the same words searched on two sites are two rows.
         if case .searched = kind { return "searched " + History.identity(for: url) }
