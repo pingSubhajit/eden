@@ -115,6 +115,25 @@ final class RowCarryTests: XCTestCase {
         if letGo { try await send(.leftMouseUp, at: point(y: end, in: window), in: window) }
     }
 
+    /// A muted tab's speaker, as Dia's, just after its icon: a click
+    /// unmutes it, and doesn't go to the tab.
+    func testTheSpeakerBesideTheIconMutesWithoutGoingToTheTab() async throws {
+        let browser = makeBrowser()
+        let t = browser.tabs
+        browser.select(t[4])
+        t[1].toggleMute()
+        let window = makeWindow(browser)
+        try await settle()
+        // "two", 30–58: its icon, then the speaker's square.
+        let x = 10 + Metrics.rowInset + browser.prefs.sideMark + Metrics.rowSpacing + RowCross.size / 2
+        let at = NSPoint(x: x, y: window.frame.height - Metrics.strip - 44)
+        try await send(.leftMouseDown, at: at, in: window)
+        try await send(.leftMouseUp, at: at, in: window)
+        try await settle()
+        XCTAssertFalse(t[1].muted, "unmuted")
+        XCTAssertEqual(browser.activeID, t[4].id, "still on the tab it was on")
+    }
+
     func testAGroupIsCarriedByItsHeadingAmongTheTabs() async throws {
         let (browser, group, t) = makeGrouped()
         let window = makeWindow(browser)

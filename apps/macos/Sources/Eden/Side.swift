@@ -1722,13 +1722,13 @@ private struct SideRow: View, Equatable {
     @State private var shake: CGFloat = 0
     @State private var pressed = false
 
-    /// The ring or the speaker, which stay for as long as the page loads or
-    /// plays (or is muted) and so keep a place of their own at the end of the
-    /// row. The cross is only there under the pointer, and takes none.
-    private var status: Bool { !editing && (tab.loading || speaker) }
-    /// The speaker, which can be pressed, and so steps in beside the cross
-    /// under the pointer rather than hiding beneath it as the ring does.
-    private var speaker: Bool { !tab.loading && (tab.noisy || tab.muted) }
+    /// The ring, which stays for as long as the page loads and so keeps a
+    /// place of its own at the end of the row. The cross is only there under
+    /// the pointer, and takes none.
+    private var status: Bool { !editing && tab.loading }
+    /// The speaker, just after the icon (Speaker), while the page plays or
+    /// is muted.
+    private var speaker: Bool { !editing && !tab.loading && (tab.noisy || tab.muted) }
     /// A pinned row with a peek opened from it: the peek's icon at its end,
     /// as on a square's corner.
     private var peeking: Bool { !editing && tab.pin != nil && peek != nil }
@@ -1758,6 +1758,9 @@ private struct SideRow: View, Equatable {
                         Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: prefs.sideMark,
                              dim: putAway)
                     }
+                    // The speaker's place: it is laid over it below, outside
+                    // the row's press, so muting a tab doesn't also go to it.
+                    if speaker { Color.clear.frame(width: RowCross.size, height: RowCross.size) }
                     if tab.bench {
                         // A script's tab, not yours.
                         Image(systemName: "flask")
@@ -1792,6 +1795,13 @@ private struct SideRow: View, Equatable {
                 browser.clearTabSelection()
                 browser.select(tab)
             })
+            .overlay(alignment: .leading) {
+                if speaker {
+                    Speaker(tab: tab)
+                        .padding(.leading, Metrics.rowInset + (tab.isBlank ? 0 : prefs.sideMark + Metrics.rowSpacing))
+                        .transition(.opacity)
+                }
+            }
 
             if peeking, let page = peek {
                 // Under the pointer the cross takes its place, unless the
@@ -1806,18 +1816,11 @@ private struct SideRow: View, Equatable {
             }
 
             if status {
-                ZStack {
-                    if tab.loading {
-                        Ring().transition(.opacity)
-                    } else {
-                        Speaker(tab: tab).transition(.opacity)
-                    }
-                }
-                .frame(width: 15, height: 15)
-                // The cross takes this place while the pointer is here; the
-                // speaker moves one place in, clear of the cross's reach.
-                .opacity(hovering && !speaker ? 0 : 1)
-                .padding(.trailing, hovering && speaker ? RowCross.size + 8 : 0)
+                Ring()
+                    .transition(.opacity)
+                    .frame(width: 15, height: 15)
+                    // The cross takes this place while the pointer is here.
+                    .opacity(hovering ? 0 : 1)
             }
         }
         .padding(.trailing, status || peeking ? 7 : 0)
@@ -1980,6 +1983,29 @@ extension AnyTransition {
     static let sideRow = AnyTransition.scale(scale: 0.94, anchor: .leading).combined(with: .opacity)
 }
 
+/// The face every small control on a line of the column wears, after Dia's:
+/// a symbol on a square with rounded corners, the square there all along
+/// for one that stays (`filled`: the speaker, the player's pause) and only
+/// under the pointer for one that comes with it (the cross). One face, so
+/// a control restyled is restyled everywhere.
+struct RowSquare: View {
+    let symbol: String
+    var filled = false
+    let hovering: Bool
+    /// The symbol's size: the cross a touch larger, for its thin strokes.
+    var glyph: CGFloat = 10
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: RowCross.corner, style: .continuous)
+        Image(systemName: symbol)
+            .font(.system(size: glyph, weight: .medium))
+            .foregroundStyle(Palette.ink.opacity(hovering ? 0.9 : 0.65))
+            .frame(width: RowCross.size, height: RowCross.size)
+            .background(Palette.ink.opacity(filled ? (hovering ? 0.14 : 0.08) : (hovering ? 0.1 : 0)), in: shape)
+            .contentShape(shape)
+    }
+}
+
 /// The cross at the end of a line in the column, under the pointer: a
 /// tab's, or a group heading's; a pinned tab's minus. As Dia's: a plain
 /// cross the size of the line's text, on nothing, that wears a rounded
@@ -1996,16 +2022,13 @@ struct RowCross: View {
     @State private var hovering = false
 
     static let size: CGFloat = 22
+    /// Its square's corners, the speaker's too (Speaker).
+    static let corner: CGFloat = 6
     /// How wide a reach around it takes the click.
     static let reachWidth: CGFloat = 30
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Palette.ink.opacity(hovering ? 0.9 : 0.65))
-            .frame(width: Self.size, height: Self.size)
-            .background(Palette.ink.opacity(hovering ? 0.1 : 0),
-                        in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        RowSquare(symbol: symbol, hovering: hovering, glyph: 11)
             .overlay {
                 // Wider than it, and the line's whole height.
                 Color.clear
@@ -2067,23 +2090,31 @@ struct KeepLine: View {
     }
 }
 
-/// The speaker at the end of a tab that plays sound, or that was muted and
-/// so says it is: a press mutes the tab or lets it be heard again. Drawn as
-/// it was before it could be pressed, with the cross's faint disc behind
-/// it only while the pointer is on it.
+/// A playing or muted tab's speaker, which mutes or unmutes it: as Dia's,
+/// just after the site's icon, a square of grey the size of the cross's
+/// (RowCross) that is there for as long as the page plays or is muted,
+/// rather than a small circle at the row's end that stepped aside for the
+/// cross under the pointer.
 struct Speaker: View {
     @ObservedObject var tab: Tab
+    /// Across the top, where a tab is too short for the square: the small
+    /// circle it always wore there.
+    var small = false
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: tab.toggleMute) {
-            Image(systemName: tab.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(Palette.muted)
-                .frame(width: 15, height: 15)
-                .background(Palette.ink.opacity(hovering ? 0.07 : 0), in: Circle())
-                .contentShape(Circle())
+            if small {
+                Image(systemName: tab.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(Palette.muted)
+                    .frame(width: 15, height: 15)
+                    .background(Palette.ink.opacity(hovering ? 0.07 : 0), in: Circle())
+                    .contentShape(Circle())
+            } else {
+                RowSquare(symbol: tab.muted ? "speaker.slash" : "speaker.wave.2", filled: true, hovering: hovering)
+            }
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

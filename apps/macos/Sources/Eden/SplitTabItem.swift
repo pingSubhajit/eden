@@ -248,6 +248,11 @@ private struct SplitTabHalf: View {
             .accessibilityHint(interactive ? "Click to focus this page; right-click for tab actions" : "")
             .accessibilityAction(named: "Focus page") { browser.focusPane(tab) }
             .accessibilityAction(named: "Close tab") { if interactive { browser.closeTab(tab) } }
+            // Its speaker is hidden with the line's other controls: the same
+            // press, named.
+            .accessibilityAction(named: tab.muted ? "Unmute tab" : "Mute tab") {
+                if interactive && playing { tab.toggleMute() }
+            }
             .help(title)
     }
 
@@ -295,6 +300,15 @@ private struct SplitTabHalf: View {
                     browser.clearTabSelection()
                     browser.focusPane(tab)
                 })
+                // Just after the icon, as a tab's line has it; outside the
+                // press, so muting a page doesn't also focus it.
+                .overlay(alignment: .leading) {
+                    if stacked && playing && !editing {
+                        let mark = prefs.glyph == .icons || !tab.isBlank || narrow
+                        Speaker(tab: tab)
+                            .padding(.leading, Metrics.rowInset + (mark ? prefs.sideMark + Metrics.rowSpacing : 0))
+                    }
+                }
             if !editing {
                 if interactive, let number = shortcutNumbers[tab.id] {
                     TabShortcutNumber(number: number)
@@ -319,6 +333,10 @@ private struct SplitTabHalf: View {
                     Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark, dim: tab.asleep)
                         .frame(width: mark, height: mark)
                 }
+                // In the column, as a tab's line has it: just after the icon.
+                // Its place: the speaker is laid over it, outside the line's
+                // press (see `row`).
+                if stacked && playing { Color.clear.frame(width: RowCross.size, height: RowCross.size) }
                 if tab.shy {
                     Image(systemName: "eye.slash")
                         .font(.system(size: 9))
@@ -345,25 +363,22 @@ private struct SplitTabHalf: View {
 
     @ViewBuilder
     private var status: some View {
-        if playing {
-            Speaker(tab: tab)
-                .padding(.trailing, stacked && hovering ? 3 : 0)
+        if playing && !stacked {
+            Speaker(tab: tab, small: true)
         } else if tab.loading && !(stacked && hovering) {
             Ring(size: 10)
                 .padding(.trailing, 3)
         }
     }
 
+    /// Each line's own cross in the column, a tab's (RowCross); the click
+    /// taken by CloseClick, as the item's across the top is.
     private var closeButton: some View {
-        Image(systemName: "xmark")
-            .font(.system(size: 8, weight: .semibold))
-            .foregroundStyle(Palette.muted)
-            .frame(width: 15, height: 15)
-            .background(hovering ? Palette.ink.opacity(0.07) : .clear, in: Circle())
+        RowCross(height: height)
             .opacity(hovering ? 1 : 0)
             .overlay {
                 CloseClick(armed: hovering) { browser.closeTab(tab) }
-                    .frame(width: 26, height: height)
+                    .frame(width: RowCross.reachWidth, height: height)
             }
     }
 }

@@ -928,7 +928,7 @@ private struct TabPill: View, Equatable {
             // and clear of its reach.
             HStack(spacing: 0) {
                 if speaker {
-                    Speaker(tab: tab)
+                    Speaker(tab: tab, small: true)
                         .padding(.trailing, hovering ? 8 : 0)
                         .transition(.opacity)
                 }

@@ -104,11 +104,14 @@ struct PlayerRow: View {
             Spacer(minLength: 0)
             if tab.stilled && hovering {
                 // Paused from here and not wanted again: the row goes until
-                // the tab plays again.
-                PlayerButton(symbol: "xmark", help: "Put Away") { tab.stilled = false }
+                // the tab plays again. A cross, as a tab's.
+                PlayerButton(symbol: "xmark", help: "Put Away", glyph: 11) { tab.stilled = false }
                     .transition(.opacity)
             }
-            PlayerButton(symbol: tab.stilled ? "play.fill" : "pause.fill", help: tab.stilled ? "Play" : "Pause") {
+            // Its pause or play, which stays: a filled square, as a tab's
+            // speaker is.
+            PlayerButton(symbol: tab.stilled ? "play.fill" : "pause.fill", help: tab.stilled ? "Play" : "Pause",
+                         filled: true) {
                 if tab.stilled { tab.playAgain() } else { tab.still() }
             }
         }
@@ -135,23 +138,20 @@ struct PlayerRow: View {
     }
 }
 
-/// One of the row's buttons, drawn as the tab's speaker is: a symbol, with
-/// the cross's faint disc behind it under the pointer.
+/// One of the row's buttons, wearing the face a tab's line does
+/// (RowSquare).
 private struct PlayerButton: View {
     let symbol: String
     let help: String
+    var filled = false
+    var glyph: CGFloat = 10
     let act: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: act) {
-            Image(systemName: symbol)
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(Palette.muted)
-                .frame(width: 15, height: 15)
-                .background(Palette.ink.opacity(hovering ? 0.07 : 0), in: Circle())
-                .contentShape(Circle())
+            RowSquare(symbol: symbol, filled: filled, hovering: hovering, glyph: glyph)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
