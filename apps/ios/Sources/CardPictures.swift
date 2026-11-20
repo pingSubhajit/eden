@@ -1,11 +1,11 @@
-import CryptoKit
 import EdenCore
 import UIKit
 import WebKit
 
 // Pictures of pages for the tab overview's cards. A tab whose page has been
 // seen has its own (Tab.capture), and an ordinary one's is kept on disk by
-// its page, so a tab brought back at the next launch shows its page at once.
+// its page (PagePictures, as the Mac's hover cards keep theirs), so a tab
+// brought back at the next launch shows its page at once.
 // One with none at all has its page loaded out of sight, behind the app, and
 // photographed there, the tabs nearest the one in front first, one at a
 // time, while the overview is open. Never on disk for a private tab, and
@@ -25,22 +25,11 @@ final class CardPictures {
     /// The longest a page has to load before it is photographed as it is.
     private static let patience: TimeInterval = 10
 
-    private static var folder: URL { Store.folder.appendingPathComponent("cards", isDirectory: true) }
-
-    private static func file(for url: URL) -> URL {
-        let name = SHA256.hash(data: Data(History.identity(for: url).utf8)).prefix(16)
-            .map { String(format: "%02x", $0) }.joined()
-        return folder.appendingPathComponent(name + ".jpg")
-    }
-
-    /// An ordinary tab's picture of `url`, kept for the next launch.
-    func keep(_ picture: UIImage, for url: URL) {
+    /// An ordinary tab's picture of `url`, drawn with the website store
+    /// `store`, kept for the next launch; `ticket` taken before it was drawn.
+    func keep(_ picture: UIImage, for url: URL, store: UUID?, ticket: PagePictures.Ticket) {
         guard let data = picture.jpegData(compressionQuality: 0.72) else { return }
-        let file = Self.file(for: url)
-        Task.detached(priority: .utility) {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? data.write(to: file, options: .atomic)
-        }
+        PagePictures.shared.keep(data, for: url, store: store, ticket: ticket)
     }
 
     /// Pictures for `tabs`, in their order: those kept on disk first, then
@@ -62,15 +51,14 @@ final class CardPictures {
 
     /// Clear History: every picture kept goes.
     func forgetAll() {
-        try? FileManager.default.removeItem(at: Self.folder)
+        PagePictures.shared.forgetAll()
     }
 
     private func work() async {
         // Those kept on disk: quick, so all of them first.
         for tab in waiting where !tab.isPrivate {
             guard tab.snapshot == nil, let url = tab.url else { continue }
-            let file = Self.file(for: url)
-            let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: file) }.value
+            let data = await PagePictures.shared.kept(for: url, store: tab.storeID)
             if let data, let picture = UIImage(data: data) { tab.adopt(snapshot: picture) }
         }
         // The rest, one page at a time.
