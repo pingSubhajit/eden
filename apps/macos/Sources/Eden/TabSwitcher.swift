@@ -434,7 +434,7 @@ struct TabSwitcherOverlay: View {
                 let moonRoom: CGFloat = moonColumns == 0 ? 0 : 14 + 16 + CGFloat(moonColumns - 1) * 6
                 let width = min(176, (geometry.size.width - 64 - CGFloat(columns - 1) * 8 - moonRoom)
                     / (CGFloat(columns) + Self.moonScale * CGFloat(moonColumns)))
-                let previewHeight = (width - 16) * 0.62
+                let previewHeight = (width - 16) * TabPicture.ratio
                 let cardHeight = previewHeight + 39
                 ZStack {
                     Color.black.opacity(0.12)
@@ -530,7 +530,7 @@ struct TabSwitcherOverlay: View {
                     ForEach(Array(switcher.moons.dropFirst(column * per).prefix(per)), id: \.self) { id in
                         if let tab = tab(id) {
                             let size = width * Self.moonSize(screens: tab.screens)
-                            moon(tab, width: size, previewHeight: (size - 12) * 0.62)
+                            moon(tab, width: size, previewHeight: (size - 12) * TabPicture.ratio)
                         }
                     }
                 }
@@ -574,19 +574,8 @@ struct TabSwitcherOverlay: View {
     }
 
     private func picture(_ tab: Tab, width: CGFloat, height: CGFloat, mark: CGFloat = 26) -> some View {
-        ZStack {
-            Palette.hover
-            if let preview = switcher.preview(for: tab) {
-                Image(nsImage: preview)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: width, height: height)
-                    .clipped()
-            } else {
-                Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark)
-            }
-        }
-        .frame(width: width, height: height)
+        TabPicture(image: switcher.preview(for: tab), tab: tab, glyph: prefs.glyph,
+                   width: width, height: height, mark: mark)
     }
 
     /// A card whose sound is off, as ⌃M leaves it.
@@ -673,5 +662,35 @@ struct TabSwitcherOverlay: View {
         })
         .accessibilityLabel("Switch to the small window \(tab.label)")
         .accessibilityValue(selected ? "Selected" : "")
+    }
+}
+
+/// A tab's page as a picture, or its mark on a grey where there is none yet:
+/// the switcher's cards and the column's hover card (TabHoverCard) alike.
+struct TabPicture: View {
+    /// How tall a picture is for its width.
+    static let ratio: CGFloat = 0.62
+
+    let image: NSImage?
+    let tab: Tab
+    let glyph: Glyph
+    let width: CGFloat
+    let height: CGFloat
+    var mark: CGFloat = 26
+
+    var body: some View {
+        ZStack {
+            Palette.hover
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipped()
+            } else {
+                Mark(icon: glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark)
+            }
+        }
+        .frame(width: width, height: height)
     }
 }

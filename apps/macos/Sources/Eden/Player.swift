@@ -105,10 +105,10 @@ struct PlayerRow: View {
             if tab.stilled && hovering {
                 // Paused from here and not wanted again: the row goes until
                 // the tab plays again. A cross, as a tab's.
-                PlayerButton(symbol: "xmark", help: "Put Away", glyph: 11) { tab.stilled = false }
+                SquareButton(symbol: "xmark", help: "Put Away", glyph: 11) { tab.stilled = false }
                     .transition(.opacity)
             }
-            PlayerButton(symbol: tab.stilled ? "play.fill" : "pause.fill", help: tab.stilled ? "Play" : "Pause") {
+            SquareButton(symbol: tab.stilled ? "play.fill" : "pause.fill", help: tab.stilled ? "Play" : "Pause") {
                 if tab.stilled { tab.playAgain() } else { tab.still() }
             }
         }
@@ -135,19 +135,20 @@ struct PlayerRow: View {
     }
 }
 
-/// One of the row's buttons, wearing the face a tab's line does
-/// (RowSquare).
-private struct PlayerButton: View {
+/// A small button wearing the face a tab's line does (RowSquare): the
+/// player's, and the hover card's (TabHoverCard).
+struct SquareButton: View {
     let symbol: String
     let help: String
     var glyph: CGFloat = 10
+    var size: CGFloat = RowCross.size
     let act: () -> Void
 
     @State private var hovering = false
 
     var body: some View {
         Button(action: act) {
-            RowSquare(symbol: symbol, hovering: hovering, glyph: glyph)
+            RowSquare(symbol: symbol, hovering: hovering, glyph: glyph, size: size)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
