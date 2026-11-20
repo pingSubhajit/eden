@@ -581,8 +581,8 @@ final class Tab: ObservableObject, Identifiable {
     /// A video of the page's own document is playing, as the page last
     /// said (see MediaKeys.watch). Sound or none: a muted one counts.
     var playingVideo = false
-    /// Paused from the player at the foot of the sidebar, to be played again
-    /// from there (see Player.swift).
+    /// Paused from the player at the foot of the sidebar or from the tab's
+    /// hover card, to be played again from either (see Player.swift).
     @Published var stilled = false
     /// Darkened by Eden, as its page last said (see Dusk.swift).
     @Published var dusked = false

@@ -210,6 +210,9 @@ struct Fold: View {
                     // Away exactly when the lights are, which ride with it.
                     SideBar(browser: browser, prefs: prefs, onFrame: browser.asCards, onDrag: onDrag)
                         .frame(maxHeight: .infinity, alignment: .top)
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                            browser.columnFrame = frame
+                        }
                         .modifier(FoldShadow(x: onRight ? -4 : 4, behind: true,
                                              strength: browser.folded && browser.peeking ? 1 : 0))
                         .offset(x: lightsOff ? (onRight ? prefs.columnWidth : -prefs.columnWidth) : 0)

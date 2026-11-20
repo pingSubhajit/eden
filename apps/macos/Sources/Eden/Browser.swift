@@ -2596,6 +2596,10 @@ final class Browser: NSObject, ObservableObject {
 
     /// In SwiftUI's own window rather than one made for it (see Windows.swift).
     var inScene = false
+    /// Where the column is in the window, in SwiftUI's top-left points, as
+    /// last laid out: the tabs' hover cards stand beside it (TabHoverCard).
+    /// Not published: nothing is drawn from it.
+    var columnFrame: CGRect = .zero
     /// Its window, once it has one.
     weak var window: NSWindow? {
         didSet { if window != nil { shut = false } }
@@ -5332,11 +5336,17 @@ final class Browser: NSObject, ObservableObject {
 
     /// Copy All Links: every tab's address in the group, a line each.
     func copyLinks(of id: UUID) {
-        let links = tabs(in: id).compactMap { ($0.restAddress ?? $0.address)?.absoluteString }
+        let links = links(of: id)
         guard !links.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
         announce(links.count == 1 ? "Link copied" : "\(links.count) links copied", look: .done)
+    }
+
+    /// A group's tabs' addresses, for Copy All Links in its menu and on its
+    /// hover card (TabHoverCard).
+    func links(of id: UUID) -> [String] {
+        tabs(in: id).compactMap { ($0.restAddress ?? $0.address)?.absoluteString }
     }
 
     func toggleTabGroup(_ id: UUID) {

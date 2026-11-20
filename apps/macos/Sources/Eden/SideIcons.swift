@@ -181,6 +181,7 @@ struct IconTile: View {
         .modifier(OptionClick { if interactive { browser.optionClick(tab) } })
         .overlay { if interactive { MiddleClick(act: close) } }
         .onHover { over in hovering = over }
+        .tabHoverCard(tab, in: browser, enabled: interactive)
         .onAppear {
             guard interactive else { return }
             Bench.rowAppeared(tab.id, hover: { hovering = $0 })
@@ -203,9 +204,11 @@ struct IconTile: View {
                 SplitDropZone(browser: browser, tab: tab, kind: .strip)
             }
         }
-        // The title, after the system's tooltip delay. Nothing else comes
-        // out under the pointer: no title sliding out, no column widening.
-        .help(tip)
+        // The title and the rest come on the hover card; a new tab, which
+        // has no card, says what it is after the system's tooltip delay.
+        // Nothing else comes out under the pointer: no title sliding out,
+        // no column widening.
+        .help(tab.isBlank ? tip : "")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(tip)
         .accessibilityAddTraits(.isButton)

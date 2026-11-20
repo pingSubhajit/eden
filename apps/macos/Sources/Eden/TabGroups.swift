@@ -287,6 +287,9 @@ struct GroupHeading: View {
                                        iconEdge: besideColumn, targeted: targeted))
         // At once, as a tab's cross is.
         .onHover { hovering = $0 }
+        // Its tabs at a glance, folded or not: only in the live column, not
+        // another space's passing by in a swipe.
+        .groupHoverCard(group.id, in: browser, enabled: !editing && dragSpace != nil)
         .groupAccessibility(name: group.name, collapsed: group.collapsed) { browser.toggleTabGroup(group.id) }
         .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
         .onChange(of: editing) { _, now in

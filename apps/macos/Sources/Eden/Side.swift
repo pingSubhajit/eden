@@ -463,7 +463,8 @@ struct SideBar: View {
                 VStack(spacing: 0) {
                     PinGrid(cells: cells) {
                         ForEach(Array(pins.enumerated()), id: \.element.id) { index, tab in
-                            PinSquare(browser: browser, prefs: prefs, tab: tab, live: tab.id == row.active, width: cells[index].width, height: cells[index].height)
+                            PinSquare(browser: browser, prefs: prefs, tab: tab, live: tab.id == row.active, width: cells[index].width, height: cells[index].height,
+                                      interactive: false)
                         }
                     }
                 }
@@ -1533,15 +1534,18 @@ private struct PinSquare: View, Equatable {
     private let pickedAmongOthers: Bool
     /// The peek opened from it, while it is up.
     private let peek: Tab?
+    /// Pressed and pointed at: not in another space's column passing by.
+    private let interactive: Bool
 
     init(browser: Browser, prefs: Preferences, tab: Tab, live: Bool,
-         width: CGFloat = 34, height: CGFloat = 34) {
+         width: CGFloat = 34, height: CGFloat = 34, interactive: Bool = true) {
         self.browser = browser
         self.prefs = prefs
         self.tab = tab
         self.live = live
         self.width = width
         self.height = height
+        self.interactive = interactive
         lettering = browser.editingPin == tab.id
         selected = browser.selectedTabIDs.contains(tab.id)
         pickedAmongOthers = browser.isPickedAmongOthers(tab)
@@ -1550,7 +1554,7 @@ private struct PinSquare: View, Equatable {
 
     static func == (a: PinSquare, b: PinSquare) -> Bool {
         a.browser === b.browser && a.prefs === b.prefs && a.tab === b.tab && a.live == b.live && a.width == b.width && a.height == b.height
-            && a.lettering == b.lettering && a.selected == b.selected
+            && a.interactive == b.interactive && a.lettering == b.lettering && a.selected == b.selected
             && a.pickedAmongOthers == b.pickedAmongOthers && a.peek === b.peek
     }
 
@@ -1637,8 +1641,10 @@ private struct PinSquare: View, Equatable {
         // Put down, like ⌘W: close() is what knows a pin isn't removed.
         .overlay { MiddleClick { browser.close(tab) } }
         .onHover { hovering = $0 }
+        // Its title, which a square has no room for, and more: the card
+        // takes the tooltip's place.
+        .tabHoverCard(tab, in: browser, enabled: interactive && !lettering)
         .contextMenu { TabMenu(browser: browser, tab: tab, close: { browser.close(tab) }) }
-        .help(tab.label)
         .animation(nil, value: hovering)
         .transition(.scale(scale: 0.8).combined(with: .opacity))
     }
@@ -1885,6 +1891,7 @@ private struct SideRow: View, Equatable {
         .modifier(OptionClick { if interactive && !editing { browser.optionClick(tab) } })
         .overlay { if interactive { MiddleClick(act: close) } }
         .onHover(perform: hover)
+        .tabHoverCard(tab, in: browser, enabled: interactive && !editing)
         .onAppear { if interactive { Bench.rowAppeared(tab.id, hover: hover) } }
         .onDisappear { if interactive { Bench.rowDisappeared(tab.id) } }
         .contextMenu { if interactive { TabMenu(browser: browser, tab: tab, close: close) } }
