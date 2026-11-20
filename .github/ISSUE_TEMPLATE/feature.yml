@@ -1,0 +1,39 @@
+name: Feature
+description: Something Eden should do that it doesn't yet.
+labels: [feature]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What Eden should do, as you would use it.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: Today
+      description: What Eden does now, if it changes something that exists, and on which build.
+      placeholder: On 87d1999, ⌘T opens a blank tab…
+    validations:
+      required: false
+  - type: textarea
+    id: borrowed
+    attributes:
+      label: After which browser
+      description: A browser that already does this well, and what to copy from it.
+      placeholder: Dia's tab groups, Zen's new tab dialog…
+    validations:
+      required: false
+  - type: dropdown
+    id: devices
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Mac
+        - iPhone
+        - iPad
+        - Not device-specific
+    validations:
+      required: true

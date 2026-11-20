@@ -1,0 +1,23 @@
+name: Polish
+description: Something that works but could look or feel better.
+labels: [polish]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What feels off now, and how it should look or feel instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: devices
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Mac
+        - iPhone
+        - iPad
+        - Not device-specific
+    validations:
+      required: true

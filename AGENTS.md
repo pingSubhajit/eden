@@ -25,6 +25,27 @@ Rules for agents working in this repository.
   same.
 - No real keys or tokens anywhere, including tests and logs.
 
+## Issues
+
+- Work is tracked in GitHub Issues on `pingSubhajit/eden`, through `gh`.
+  There is no other tracker.
+- Before starting a piece of work, find its issue or open one, so every
+  change has a place that says why it was made. An issue you open with
+  `gh issue create` follows the headings of its form in
+  `.github/ISSUE_TEMPLATE`, since `gh` doesn't fill the forms in itself.
+- Label each issue with one type, `bug`, `feature` or `polish`, and the
+  parts it touches: `macos`, `ios` (iPhone and iPad) or `core` (shared code
+  in `packages/EdenCore`), the same scopes the commits use.
+- Something broken that you or the owner notice along the way becomes an
+  issue, not an unasked fix or something forgotten. Say in your reply that
+  you filed it.
+- Name the issue in the body of each commit that belongs to it (`Refs #12`),
+  and close it from the last one (`Fixes #12`), so it closes when it reaches
+  `main`.
+- When the work lands, comment on the issue with how it was verified: the
+  tests that ran, what was checked on which device, what wasn't checked on
+  a real device, and failures that were there before.
+
 ## Review and commit
 
 - When a piece of work is done, get an independent review from GPT-6.1 Sol

@@ -1,0 +1,40 @@
+name: Bug
+description: Something in Eden doesn't work as it should.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a new tab with ⌘T
+        2. …
+    validations:
+      required: false
+  - type: dropdown
+    id: devices
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Mac
+        - iPhone
+        - iPad
+        - Not device-specific
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build and OS
+      description: Eden's version or commit, and the device's OS version.
+      placeholder: 87d1999 on macOS 27.2
+    validations:
+      required: false
