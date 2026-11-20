@@ -29,9 +29,11 @@ Rules for agents working in this repository.
 
 - Work is tracked in GitHub Issues on `pingSubhajit/eden`, through `gh`.
   There is no other tracker.
-- Before starting a piece of work, find its issue or open one, so every
-  change has a place that says why it was made. An issue you open with
-  `gh issue create` follows the headings of its form in
+- Larger work, such as a feature, a redesign or anything that takes
+  several commits, has an issue before its pull request is opened: find
+  it, or open one if there is none. A small fix or tweak, which goes
+  straight to `main` without a pull request, needs no issue. An issue you
+  open with `gh issue create` follows the headings of its form in
   `.github/ISSUE_TEMPLATE`, since `gh` doesn't fill the forms in itself.
 - Label each issue with one type, `bug`, `feature` or `polish`, and the
   parts it touches: `macos`, `ios` (iPhone and iPad) or `core` (shared code
@@ -39,9 +41,9 @@ Rules for agents working in this repository.
 - Something broken that you or the owner notice along the way becomes an
   issue, not an unasked fix or something forgotten. Say in your reply that
   you filed it.
-- Name the issue in the body of each commit that belongs to it (`Refs #12`),
-  and close it from the last one (`Fixes #12`), so it closes when it reaches
-  `main`.
+- Name the issue in the body of each commit that belongs to it (`Refs #12`).
+  Work pushed straight to `main` closes it from its last commit
+  (`Fixes #12`); work in a pull request closes it from the PR's description.
 - When the work lands, comment on the issue with how it was verified: the
   tests that ran, what was checked on which device, what wasn't checked on
   a real device, and failures that were there before.
@@ -55,15 +57,28 @@ Rules for agents working in this repository.
     formatting and data modelling.
   - Fix what it finds and send a fresh review each time, until nothing is
     blocking.
-- Then make logical conventional commits (`feat`, `fix`, `docs` and so on,
-  with scopes such as `core`, `macos` and `ios`), each one building on its
-  own, and push to `main`.
+- Don't commit or push until the owner asks. When they do, break the work
+  into logical conventional commits (`feat`, `fix`, `docs` and so on, with
+  scopes such as `core`, `macos` and `ios`), each one building on its own.
+- Larger work goes through a pull request:
+  - Branch from `main` as `<type>/<issue>-<short-slug>`, such as
+    `fix/12-speaker-square` or `feat/14-reader-mode`, the type being the
+    commit type and the number its issue's.
+  - Open the PR against `main`, title it as a conventional commit, and put
+    `Fixes #12` in its description so it is tied to its issue and closes it
+    on merge.
+  - Merge by rebasing rather than squashing, so the logical commits reach
+    `main` as separate commits, and only when the owner says so.
+- A small fix or tweak goes straight to `main`, with the owner's permission.
 - Commit only your own changes. Other sessions may have unfinished work in
   the same tree, so never sweep it into your commits.
 - Every fix or feature adds its line to `CHANGELOG.md` under Unreleased.
 
 ## Build and install
 
+- After every change, build and install it on the devices it reaches, the
+  Mac, the iPhone or both for shared code, without being asked and whether
+  or not it has been committed.
 - Mac: `apps/macos/build.sh`, then quit Eden, copy `build/Eden.app` into
   `/Applications` with `ditto`, and reopen it.
   - Install only if the build itself succeeded
