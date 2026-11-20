@@ -13,23 +13,23 @@ final class FieldState: ObservableObject {
     @Published var siteOffer: SearchSite?
 }
 
-/// One field, in the middle, and the few places it thinks you mean. It takes
+/// One field and the few places it thinks you mean, in one panel laid out
+/// as Zen's floating bar is (measured from Zen 1.24, 20 Nov 2026): the
+/// field in a band across the top, a hairline under it, and the list below
+/// in the same panel. Eden's own colours, corners and type. It takes
 /// addresses and only addresses: type something that isn't a place and it
 /// shivers and says so, rather than quietly handing your keystrokes to a
 /// search engine.
 struct Omnibox: View {
     @ObservedObject var browser: Browser
     @ObservedObject private var typing: FieldState
-    /// Raised over a page by ⌘L, rather than standing on an empty tab.
+    /// Raised over a page by ⌘T, ⌘L or ⌘K, rather than standing on an
+    /// empty tab.
     let over: Bool
-
-    /// The field's own height — the 22 of text and 14 of air above and below it
-    /// that `field` lays out — so the list can sit below it without being
-    /// stacked with it.
-    private static let fieldHeight: CGFloat = 22 + 14 * 2
 
     @State private var shake: CGFloat = 0
     @State private var refused = false
+    @Environment(\.colorScheme) private var scheme
 
     /// Sized to a pane of a split rather than to the window.
     var fitted = false
@@ -44,129 +44,148 @@ struct Omnibox: View {
         self.tab = tab
     }
 
+    /// Where the panel stands and how wide it is, after Zen's, for the space
+    /// it stands in: two thirds of it up to 750 points, never narrower than
+    /// 90% of it up to 682, and never closer than 14 to its edges. Its top
+    /// is where a panel 333 points high would be centred, so a list that
+    /// grows only ever grows downwards, and the field never moves from
+    /// under what is being typed.
+    enum Layout {
+        /// The band the field stands in.
+        static let header: CGFloat = 62
+        /// The height the panel's top is centred as if it were.
+        static let reference: CGFloat = 333
+
+        static func width(in space: CGFloat) -> CGFloat {
+            let zen = max(min(space * 0.9, 682), min(space / 1.5, 750))
+            return min(zen, max(0, space - 28))
+        }
+
+        static func top(in height: CGFloat) -> CGFloat {
+            max(16, (height - reference) / 2)
+        }
+    }
+
     var body: some View {
-        Group {
-            if fitted {
-                GeometryReader { geometry in
-                    content(width: min(Metrics.fieldWidth, max(0, geometry.size.width - 28)))
-                }
-            } else {
-                content(width: Metrics.fieldWidth)
-            }
+        GeometryReader { geometry in
+            let top = Layout.top(in: geometry.size.height)
+            // The list's room: down to 16 points from the bottom, under the
+            // field and its hairline.
+            content(width: Layout.width(in: geometry.size.width), top: top,
+                    room: geometry.size.height - top - Layout.header - 1 - 16)
         }
         .allowsHitTesting(browser.fieldShowing)
     }
 
-    private func content(width: CGFloat) -> some View {
-        ZStack {
-            // Keep the container mounted: only the field scales, while the
-            // page's cover fades without pulling its edges into view.
+    private func content(width: CGFloat, top: CGFloat, room: CGFloat) -> some View {
+        ZStack(alignment: .top) {
             if browser.fieldShowing {
                 if over {
-                    // The page is still there, just out of the way.
-                    Rectangle()
-                        .fill(Palette.ground.opacity(0.74))
+                    // The page stays as it is, as under Zen's bar: nothing
+                    // dims it. A click on it puts the field away.
+                    Color.clear
+                        .contentShape(Rectangle())
                         .ignoresSafeArea(.all, edges: fitted ? [] : .all)
                         .onTapGesture { browser.dismiss() }
-                        .transition(.opacity)
                 }
-
-                field
+                panel(room: room)
                     .frame(width: width)
-                // The list hangs below the field rather than stacking with it,
-                // so a list that grows never lifts the field out from under
-                // what is being typed.
-                .overlay(alignment: .top) {
-                    // Present or gone, not always-on-and-hidden: the list keeps
-                    // the appear and disappear it had, and the overlay is what
-                    // keeps that from moving the field.
-                    if !browser.offers.isEmpty || browser.siteOffer != nil || browser.switcherNote != nil {
-                        list
-                            .frame(width: width)
-                            .offset(y: Self.fieldHeight + 8)
-                    }
-                }
-                // Lifted a little above centre: dead centre reads as low,
-                // because the strip at the top isn't part of what the eye is
-                // measuring.
-                .padding(.bottom, 60)
-                .transition(.scale(scale: 0.97).combined(with: .opacity))
-                // The list's arrival and its leaving are animated from here,
-                // briefly: nothing that changes the suggestions does it inside
-                // an animation of its own. Its rows follow what was typed or
-                // pasted at once — sliding into place on a spring between
-                // keystrokes, they trailed behind the field.
-                .animation(Motion.quick, value: browser.offers.isEmpty && browser.siteOffer == nil && browser.switcherNote == nil)
-                .animation(Motion.settle, value: refused)
+                    .padding(.top, top)
+                    // There at once and gone at once, as Zen's is: a fade
+                    // too short to wait for, whatever the window's own
+                    // animation for the field is.
+                    .transition(.opacity.animation(Motion.reduced ? nil : .easeOut(duration: 0.08)))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var field: some View {
-        HStack(spacing: 8) {
-            if let site = browser.siteChip {
-                SiteChip(site: site)
-                    .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
-            }
-            AddressField(browser: browser, tab: tab)
-        }
-            .animation(Motion.quick, value: browser.siteChip)
-            .frame(height: 22)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 14)
-            .background {
-                ZStack {
-                    // A slow, almost invisible breath under the field. It is
-                    // the only thing on an empty tab, and a thing that never
-                    // moves at all reads as a picture of an app rather than
-                    // an app.
-                    Breath()
-
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Palette.ground)
-                }
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(
-                        refused ? Color.red.opacity(0.35) : Palette.hairline,
-                        lineWidth: 1
-                    )
-                    .allowsHitTesting(false)
-            )
-            .shadow(color: .black.opacity(0.06), radius: 24, y: 8)
-            .modifier(Shake(travel: shake))
-            .onAppear {
-                shake = 0
-                refused = false
-            }
-            .onChange(of: browser.refusals) { _, _ in
-                shake = 0
-                refused = true
-                withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
-            }
-            .onChange(of: browser.typed) { _, _ in
-                withAnimation(Motion.quick) { refused = false }
-            }
+    private var listing: Bool {
+        !browser.offers.isEmpty || browser.siteOffer != nil || browser.switcherNote != nil
     }
 
-    /// What it thinks you mean. Places you have been come with their titles;
-    /// the handful of well-known addresses it starts life knowing come without
-    /// the weight of one.
-    ///
-    /// It lives below the field, in an overlay, so arriving or leaving never
-    /// moves the field — and the transition that carried it in and out before
-    /// is kept, only anchored to its own top edge.
-    private var list: some View {
+    private func panel(room: CGFloat) -> some View {
         VStack(spacing: 0) {
+            header
+            if listing {
+                Rectangle()
+                    .fill(Palette.hairline)
+                    .frame(height: 1)
+                    .padding(.horizontal, 12)
+                FittedRows(room: room, picked: pickedID, asked: browser.typed) { list }
+            }
+        }
+        .background {
+            // The shadow is the background's, not the panel's: drawn again
+            // only when the panel changes size, not with every keystroke.
+            // Broad and low, as Zen's is, and no scrim: it is what lifts
+            // the panel off the page.
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Palette.ground)
+                .shadow(color: .black.opacity(scheme == .dark ? 0.5 : 0.22), radius: 50, y: 24)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(refused ? Color.red.opacity(0.35) : Palette.hairline, lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .modifier(Shake(travel: shake))
+        .animation(Motion.settle, value: refused)
+        .onAppear {
+            shake = 0
+            refused = false
+        }
+        .onChange(of: browser.refusals) { _, _ in
+            shake = 0
+            refused = true
+            withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
+        }
+        .onChange(of: browser.typed) { _, _ in
+            withAnimation(Motion.quick) { refused = false }
+        }
+    }
+
+    /// The field, after a glass in the column the rows' icons stand in, so
+    /// what is typed starts where the rows' words do.
+    private var header: some View {
+        HStack(spacing: Row.gap) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Palette.muted)
+                .frame(width: Row.iconBox, height: Row.iconBox)
+            HStack(spacing: 8) {
+                if let site = browser.siteChip {
+                    SiteChip(site: site)
+                        .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+                }
+                AddressField(browser: browser, tab: tab)
+                    .frame(height: 22)
+            }
+            .animation(Motion.quick, value: browser.siteChip)
+        }
+        .padding(.leading, Row.listInset + Row.inset)
+        .padding(.trailing, 22)
+        .frame(height: Layout.header)
+    }
+
+    /// The row the arrow keys are on, for the list to keep in sight.
+    private var pickedID: String? {
+        browser.picked.flatMap { browser.offers.indices.contains($0) ? browser.offers[$0].id : nil }
+    }
+
+    /// What it thinks you mean, in the panel under the field. Places you
+    /// have been come with their titles; the handful of well-known addresses
+    /// it starts life knowing come without the weight of one. Rows come and
+    /// go at once, as Zen's do: the panel grows down to hold them.
+    private var list: some View {
+        VStack(spacing: Row.pitch) {
             if let site = browser.siteOffer {
                 SiteOfferRow(site: site)
                     .contentShape(Rectangle())
                     .onTapGesture { _ = browser.lockSiteOffer() }
             }
             ForEach(Array(browser.offers.enumerated()), id: \.element.id) { index, offer in
-                Row(offer: offer, picked: browser.picked == index)
+                Row(offer: offer, picked: browser.picked == index, wide: true)
                     .contentShape(Rectangle())
                     .onTapGesture { browser.take(offer) }
             }
@@ -175,106 +194,57 @@ struct Omnibox: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.leading, Row.inset + Row.iconBox + Row.gap)
+                    .padding(.vertical, 12)
             }
         }
-        .padding(6)
-        .background(Palette.ground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.07), radius: 20, y: 6)
-        .transition(.scale(scale: 0.98, anchor: .top).combined(with: .opacity))
+        .padding(.horizontal, Row.listInset)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
     }
 
-    /// One row of a list of places, here and under the field in the tab.
+    /// One row of a list of places: in the panel, in the tab's own list
+    /// and over another app. Zen's: the site's icon in a column of its own,
+    /// what the place is called and, after a dash, where it is; an open tab
+    /// offers itself with Switch to Tab.
     struct Row: View {
+        /// Zen's measures for a row: the air before the icon, the box it
+        /// stands in, the gap after it, its least height, and the space
+        /// between rows. `listInset` is the list's own, from the panel's edge.
+        static let inset: CGFloat = 8
+        static let iconBox: CGFloat = 24
+        static let gap: CGFloat = 12
+        static let height: CGFloat = 45
+        static let pitch: CGFloat = 4
+        static let listInset: CGFloat = 11
+
         let offer: Suggestion
         /// Where the arrow keys have walked to. The pointer gets its own,
         /// quieter mark, and changes nothing but the look of the row.
         let picked: Bool
+        /// In a panel wide enough to say Switch to Tab in words. A narrow
+        /// list keeps an open tab's address instead, and the arrow alone.
+        var wide = false
 
         @State private var hovering = false
 
         var body: some View {
-            HStack(spacing: 10) {
-                // Every row has the same column before its words, so the
-                // words line up whatever stands in it.
-                Group {
-                    switch offer.kind {
-                    case .search, .suggested:
-                        // The icon of where the words go, when this Mac already
-                        // has it: what you typed and what the engine suggests
-                        // are both searches sent there, and wear the same mark.
-                        // Nothing is fetched for one that isn't known; the
-                        // glass is what every search row wears until then.
-                        if let icon = Favicons.shared.cached(for: offer.url) {
-                            Mark(icon: icon, letter: "", size: 14)
-                        } else {
-                            symbol("magnifyingglass")
-                        }
-                    case .command:
-                        symbol("command")
-                    case .searched:
-                        // Words you searched this site for before: yours, not
-                        // the site's, so a mark of their own.
-                        symbol("clock.arrow.circlepath")
-                    case .elsewhere:
-                        // Open on another of your devices: that device.
-                        symbol(offer.elsewhere?.kind.symbol ?? "laptopcomputer")
-                    default:
-                        // A place — open, kept or visited — wears its site's
-                        // icon, as it does in History and the bookmarks bar:
-                        // from what this Mac already keeps, nothing fetched
-                        // while typing, and the site's letter until a visit
-                        // brings one.
-                        Mark(icon: Favicons.shared.cached(for: offer.url), letter: letter, size: 14)
-                    }
-                }
-                .frame(width: 14, height: 14)
-                // The row reads as 1.0.4's did, without the www; the key
-                // itself keeps it, for completing and going there.
-                Text(offer.kind == .suggested || offer.kind == .searched ? offer.key : Address.withoutWWW(offer.key))
-                    .font(.system(size: 13))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
-
-                if !offer.title.isEmpty {
-                    Text(offer.title)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.muted)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+            HStack(spacing: Self.gap) {
+                icon
+                    .frame(width: 16, height: 16)
+                    .frame(width: Self.iconBox, height: Self.iconBox)
+                words
                 Spacer(minLength: 0)
-                // A command's key, as Arc's Command Bar shows it.
-                if let command = offer.command, let key = command.key {
-                    Text(key)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.muted)
-                }
-                if let elsewhere = offer.elsewhere {
-                    Text("On \(elsewhere.deviceName)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.muted)
-                        .lineLimit(1)
-                }
-                if offer.kind == .bookmark {
-                    // Kept by you, not only visited: the bookmark's mark,
-                    // at the end now that the site's icon leads the row.
-                    symbol("bookmark")
-                }
+                trailing
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.horizontal, Self.inset)
+            .frame(minHeight: Self.height)
             .background {
                 if picked {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                         .fill(Palette.wash)
                 } else if hovering {
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                         .fill(Palette.hover)
                 }
             }
@@ -282,9 +252,123 @@ struct Omnibox: View {
             .animation(Motion.quick, value: hovering)
         }
 
+        /// Every row has the same column before its words, so the words line
+        /// up whatever stands in it.
+        @ViewBuilder
+        private var icon: some View {
+            switch offer.kind {
+            case .search, .suggested:
+                // The icon of where the words go, when this Mac already
+                // has it: what you typed and what the engine suggests are
+                // both searches sent there, and wear the same mark. Nothing
+                // is fetched for one that isn't known; the glass is what
+                // every search row wears until then.
+                if let icon = Favicons.shared.cached(for: offer.url) {
+                    Mark(icon: icon, letter: "", size: 16)
+                } else {
+                    symbol("magnifyingglass")
+                }
+            case .command:
+                symbol("command")
+            case .searched:
+                // Words you searched this site for before: yours, not the
+                // site's, so a mark of their own.
+                symbol("clock.arrow.circlepath")
+            case .elsewhere:
+                // Open on another of your devices: that device.
+                symbol(offer.elsewhere?.kind.symbol ?? "laptopcomputer")
+            default:
+                // A place — open, kept or visited — wears its site's icon,
+                // as it does in History and the bookmarks bar: from what
+                // this Mac already keeps, nothing fetched while typing, and
+                // the site's letter until a visit brings one.
+                Mark(icon: Favicons.shared.cached(for: offer.url), letter: letter, size: 16)
+            }
+        }
+
+        /// What it is called, and after a dash where it is, as Zen writes
+        /// it: "Wikipedia — wikipedia.org", "otters — Search with Kagi".
+        private var words: some View {
+            let (name, place) = parts
+            return HStack(spacing: 0) {
+                Text(name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                if let place {
+                    Text("—")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Palette.muted.opacity(0.6))
+                        .padding(.horizontal, 5)
+                    Text(place)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Palette.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+
+        /// The row's name and, when it has one, where it is. An address
+        /// reads without its www, as 1.0.4's did; the key itself keeps it,
+        /// for completing and going there.
+        private var parts: (String, String?) {
+            switch offer.kind {
+            case .open:
+                // An open tab's key is its title, and its title its
+                // address: Switch to Tab says the rest where there is room.
+                return (offer.key, wide || offer.title.isEmpty ? nil : offer.title)
+            case .search, .suggested, .searched, .command:
+                // A search's title says where it goes ("Search with Kagi",
+                // or ⌘K's "Search in a new tab"); a past one, which site.
+                return (offer.key, offer.title.isEmpty ? nil : offer.title)
+            default:
+                let address = Address.withoutWWW(offer.key)
+                return offer.title.isEmpty || offer.title == address ? (address, nil) : (offer.title, address)
+            }
+        }
+
+        @ViewBuilder
+        private var trailing: some View {
+            // A command's key, as Arc's Command Bar shows it.
+            if let command = offer.command, let key = command.key {
+                Text(key)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.muted)
+            }
+            if let elsewhere = offer.elsewhere {
+                Text("On \(elsewhere.deviceName)")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.muted)
+                    .lineLimit(1)
+            }
+            if offer.kind == .bookmark {
+                // Kept by you, not only visited: the bookmark's mark, at
+                // the end now that the site's icon leads the row.
+                symbol("bookmark")
+            }
+            if offer.kind == .open, offer.tab != nil {
+                // Zen's: the words, quiet until the row is picked, and an
+                // arrow cut out of a small square.
+                HStack(spacing: 6) {
+                    if wide {
+                        Text("Switch to Tab")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(picked ? Palette.ink : Palette.muted)
+                    }
+                    Image(systemName: "arrow.right.square.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(picked ? Palette.ink.opacity(0.75) : Palette.muted)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Switch to Tab")
+            }
+        }
+
         private func symbol(_ name: String) -> some View {
             Image(systemName: name)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Palette.muted)
         }
 
@@ -297,9 +381,63 @@ struct Omnibox: View {
     }
 }
 
+/// A list's rows at their own height while they fit in `room`, and
+/// scrolled once they don't, the row the arrow keys are on (`picked`, a
+/// row's id) kept in sight: a long list under a field low in a short window
+/// ran off its bottom, its last rows still there to be picked and never
+/// seen. Kept in sight when it is picked, and again when the room or the
+/// rows change under it, as a window made shorter does. With nothing
+/// picked — the arrows walked off it back to the field, or something new
+/// asked (`asked`, what was typed) — it starts again at its top: the last
+/// place it was scrolled to left the first rows out of sight.
+struct FittedRows<Rows: View>: View {
+    let room: CGFloat
+    let picked: String?
+    let asked: String
+    @ViewBuilder let rows: Rows
+
+    /// The rows' own height, measured as they are laid out.
+    @State private var tall: CGFloat = 0
+
+    private var limit: CGFloat { max(room, Omnibox.Row.height) }
+
+    private struct Sight: Equatable {
+        let picked: String?
+        let asked: String
+        let limit: CGFloat
+        let tall: CGFloat
+    }
+
+    /// The top of the rows, to go back to.
+    private static var top: String { "fitted-rows-top" }
+
+    var body: some View {
+        ScrollViewReader { scroller in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 0).id(Self.top)
+                    rows
+                }
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { tall = $0 }
+            }
+            .scrollDisabled(tall <= limit)
+            .frame(height: min(tall, limit))
+            .onChange(of: Sight(picked: picked, asked: asked, limit: limit, tall: tall)) { before, sight in
+                guard sight.tall > sight.limit else { return }
+                if let id = sight.picked {
+                    scroller.scrollTo(id)
+                } else if before.picked != nil || sight.asked != before.asked {
+                    scroller.scrollTo(Self.top, anchor: .top)
+                }
+            }
+        }
+    }
+}
+
 /// A site's icon when this Mac has it, or a glass.
 private struct SiteIcon: View {
     let site: SearchSite
+    var size: CGFloat = 14
     var body: some View {
         let host = site.host.split(separator: "/").first.map(String.init) ?? site.host
         // By where its search goes first, as the rows below it are, so the
@@ -310,13 +448,13 @@ private struct SiteIcon: View {
             Image(nsImage: icon)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 14, height: 14)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
         } else {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: size * 0.72, weight: .medium))
                 .foregroundStyle(Palette.muted)
-                .frame(width: 14, height: 14)
+                .frame(width: size, height: size)
         }
     }
 }
@@ -347,10 +485,11 @@ private struct SiteOfferRow: View {
     let site: SearchSite
     @State private var hovering = false
     var body: some View {
-        HStack(spacing: 10) {
-            SiteIcon(site: site)
+        HStack(spacing: Omnibox.Row.gap) {
+            SiteIcon(site: site, size: 16)
+                .frame(width: Omnibox.Row.iconBox, height: Omnibox.Row.iconBox)
             Text("Search \(site.name)")
-                .font(.system(size: 13))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Palette.ink)
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -361,96 +500,16 @@ private struct SiteOfferRow: View {
                 .frame(height: 18)
                 .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, Omnibox.Row.inset)
+        .frame(minHeight: Omnibox.Row.height)
         .background {
-            if hovering { RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.hover) }
+            if hovering {
+                RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous).fill(Palette.hover)
+            }
         }
         .onHover { hovering = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Search \(site.name), press Tab")
-    }
-}
-
-/// The breath under the field: a soft shape of ink, blurred, moved by Core
-/// Animation. Animated by SwiftUI, it was drawn again on the main thread
-/// every frame for as long as an empty tab was showing — 18% of a core with
-/// the window doing nothing (24 Sep 2026). As a layer's shadow, breathed by
-/// Core Animation, it is played in the render server and costs the app
-/// nothing; and it is a layer, not a second SwiftUI view to build before
-/// the first frame.
-private struct Breath: NSViewRepresentable {
-    /// As dark as the shape it replaces, 5% ink blurred by 26: a shadow of
-    /// the same radius comes out at 0.7 of the darkness at equal strength,
-    /// measured on pictures of both (24 Sep 2026), so 7%.
-    static let strength: Swift.Float = 0.07
-
-    func makeNSView(context: Context) -> NSView { Lung() }
-    func updateNSView(_ view: NSView, context: Context) {}
-
-    private final class Lung: NSView {
-        private let glow = CALayer()
-        private var breathed: CGSize = .zero
-
-        override init(frame: NSRect) {
-            super.init(frame: frame)
-            wantsLayer = true
-            glow.shadowOpacity = Breath.strength
-            glow.shadowOffset = .zero
-            glow.shadowRadius = 26
-            layer?.addSublayer(glow)
-            NSWorkspace.shared.notificationCenter.addObserver(
-                self, selector: #selector(breathe),
-                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) { fatalError() }
-
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-        /// The ink is the look's: light on a dark window, dark on a light one.
-        override func viewDidChangeEffectiveAppearance() {
-            super.viewDidChangeEffectiveAppearance()
-            effectiveAppearance.performAsCurrentDrawingAppearance { glow.shadowColor = Palette.NS.ink.cgColor }
-        }
-
-        override func layout() {
-            super.layout()
-            guard bounds.size != breathed, bounds.width > 0 else { return }
-            breathed = bounds.size
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            glow.bounds = bounds
-            glow.position = CGPoint(x: bounds.midX, y: bounds.midY)
-            glow.shadowPath = CGPath(roundedRect: bounds, cornerWidth: 26, cornerHeight: 26, transform: nil)
-            effectiveAppearance.performAsCurrentDrawingAppearance { glow.shadowColor = Palette.NS.ink.cgColor }
-            CATransaction.commit()
-            breathe()
-        }
-
-        /// From 0.97 to 1.03, from 0.65 to full, 2.6 s each way, for as
-        /// long as the field is there. It never stops on its own, so with
-        /// Reduce Motion on it doesn't start: the glow holds still, at its
-        /// full strength. Asked again when that setting changes, so turning
-        /// it on stills a breath already going.
-        @objc private func breathe() {
-            glow.removeAnimation(forKey: "breath")
-            guard !Motion.reduced else { return }
-            let size = CABasicAnimation(keyPath: "transform.scale")
-            size.fromValue = 0.97
-            size.toValue = 1.03
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0.65
-            fade.toValue = 1.0
-            let both = CAAnimationGroup()
-            both.animations = [size, fade]
-            both.duration = 2.6
-            both.autoreverses = true
-            both.repeatCount = .infinity
-            both.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            glow.add(both, forKey: "breath")
-        }
     }
 }
 

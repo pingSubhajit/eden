@@ -233,7 +233,7 @@ final class Launcher: NSObject, ObservableObject, NSWindowDelegate {
 
     private func makePanel() -> LauncherPanel {
         let panel = LauncherPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Metrics.fieldWidth + LauncherView.margin * 2, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: Metrics.fieldWidth + LauncherView.margin * 2, height: LauncherView.panelHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: true
@@ -497,6 +497,10 @@ private struct LauncherView: View {
         .animation(Motion.quick, value: launcher.offers.isEmpty)
     }
 
+    private var pickedID: String? {
+        launcher.picked.flatMap { launcher.offers.indices.contains($0) ? launcher.offers[$0].id : nil }
+    }
+
     private var field: some View {
         LauncherField(launcher: launcher)
             .frame(height: 22)
@@ -521,12 +525,21 @@ private struct LauncherView: View {
             }
     }
 
+    /// The panel's own height leaves the list this much: the field, the gap
+    /// above the list and the list's own edges taken away.
+    private static let listRoom: CGFloat = panelHeight - margin * 2 - 50 - 8 - 12
+
+    /// How tall the panel is, room for the field, its list and the shadow.
+    static let panelHeight: CGFloat = 460
+
     private var list: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(launcher.offers.enumerated()), id: \.element.id) { index, offer in
-                Omnibox.Row(offer: offer, picked: launcher.picked == index)
-                    .contentShape(Rectangle())
-                    .onTapGesture { launcher.take(offer) }
+        FittedRows(room: Self.listRoom, picked: pickedID, asked: launcher.typed) {
+            VStack(spacing: 0) {
+                ForEach(Array(launcher.offers.enumerated()), id: \.element.id) { index, offer in
+                    Omnibox.Row(offer: offer, picked: launcher.picked == index)
+                        .contentShape(Rectangle())
+                        .onTapGesture { launcher.take(offer) }
+                }
             }
         }
         .padding(6)

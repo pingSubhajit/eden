@@ -7050,7 +7050,7 @@ final class Browser: NSObject, ObservableObject {
             ending = nil
             picked = nil
             let words = typed.trimmingCharacters(in: .whitespaces)
-            let search = site.url(for: words).map { [Suggestion(key: words, title: site.name, url: $0, kind: .search)] } ?? []
+            let search = site.url(for: words).map { [Suggestion(key: words, title: "Search with \(site.name)", url: $0, kind: .search)] } ?? []
             offers = search + searchedOffers(for: words, on: site)
             if !words.isEmpty { askEngine() }
             return
@@ -7230,7 +7230,7 @@ final class Browser: NSObject, ObservableObject {
         if !typed.isEmpty, Address.url(from: typed) == nil {
             if let (keyword, rest) = Keyword.match(typed, in: prefs.keywords),
                let asked = Engine.url(for: rest, template: keyword.template) {
-                list.append(Suggestion(key: typed, title: keyword.name, url: asked, kind: .search))
+                list.append(Suggestion(key: typed, title: "Search with \(keyword.name)", url: asked, kind: .search))
                 // A shortcut is a site put in the field, typed out: what you
                 // searched it for before, as under the site's chip.
                 let site = SearchSite(name: keyword.name, host: keyword.name, template: keyword.template)
@@ -7238,7 +7238,7 @@ final class Browser: NSObject, ObservableObject {
                 list += searchedOffers(for: rest, on: site, typedBefore: before)
             } else if let asked = searchURL(for: typed) {
                 list.append(
-                    Suggestion(key: typed, title: prefs.engine.name(custom: prefs.customEngine), url: asked, kind: .search)
+                    Suggestion(key: typed, title: "Search with \(prefs.engine.name(custom: prefs.customEngine))", url: asked, kind: .search)
                 )
             }
         }

@@ -300,12 +300,13 @@ private struct OpenTabs: View {
                         OpenTabRow(tab: tab) { browser.fill(blank, with: tab) }
                     }
                 }
-                // As wide as the field, its rows' text under the field's.
+                // As wide as the field's panel, its rows' text under the field's.
                 .padding(.horizontal, 12)
-                .frame(width: min(Metrics.fieldWidth, max(0, geo.size.width - 28)), alignment: .leading)
+                .frame(width: Omnibox.Layout.width(in: geo.size.width), alignment: .leading)
                 .frame(maxWidth: .infinity)
-                // Under the field, which stands 60 points above the middle.
-                .offset(y: geo.size.height / 2 + 10)
+                // Under the field's panel, which holds only the field until
+                // something is typed.
+                .offset(y: Omnibox.Layout.top(in: geo.size.height) + Omnibox.Layout.header + 16)
             }
         }
     }

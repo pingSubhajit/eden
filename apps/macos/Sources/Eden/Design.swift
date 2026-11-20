@@ -196,7 +196,8 @@ enum Metrics {
     static let pinWidth: CGFloat = 30
     /// The square at the end of the row that opens a new page.
     static let plusWidth: CGFloat = 30
-    /// The address field, in both the places it shows up.
+    /// The address field raised over another app (Launcher.swift); over a
+    /// page it is as wide as Omnibox.Layout makes it.
     static let fieldWidth: CGFloat = 560
     /// A tab's line in the column, and what is drawn as one beside it (a
     /// group's heading, a split, the row that makes a new tab): how round
