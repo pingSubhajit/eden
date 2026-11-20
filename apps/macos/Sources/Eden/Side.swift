@@ -1984,13 +1984,12 @@ extension AnyTransition {
 }
 
 /// The face every small control on a line of the column wears, after Dia's:
-/// a symbol on a square with rounded corners, the square there all along
-/// for one that stays (`filled`: the speaker, the player's pause) and only
-/// under the pointer for one that comes with it (the cross). One face, so
+/// a symbol alone, on a square of grey with rounded corners only while the
+/// pointer is on it — the cross, the speaker and the player's buttons all
+/// the same, so none reads as heavier than the one beside it. One face, so
 /// a control restyled is restyled everywhere.
 struct RowSquare: View {
     let symbol: String
-    var filled = false
     let hovering: Bool
     /// The symbol's size: the cross a touch larger, for its thin strokes.
     var glyph: CGFloat = 10
@@ -2001,7 +2000,7 @@ struct RowSquare: View {
             .font(.system(size: glyph, weight: .medium))
             .foregroundStyle(Palette.ink.opacity(hovering ? 0.9 : 0.65))
             .frame(width: RowCross.size, height: RowCross.size)
-            .background(Palette.ink.opacity(filled ? (hovering ? 0.14 : 0.08) : (hovering ? 0.1 : 0)), in: shape)
+            .background(Palette.ink.opacity(hovering ? 0.1 : 0), in: shape)
             .contentShape(shape)
     }
 }
@@ -2091,10 +2090,9 @@ struct KeepLine: View {
 }
 
 /// A playing or muted tab's speaker, which mutes or unmutes it: as Dia's,
-/// just after the site's icon, a square of grey the size of the cross's
-/// (RowCross) that is there for as long as the page plays or is muted,
+/// just after the site's icon, for as long as the page plays or is muted,
 /// rather than a small circle at the row's end that stepped aside for the
-/// cross under the pointer.
+/// cross under the pointer. It wears the cross's face (RowSquare).
 struct Speaker: View {
     @ObservedObject var tab: Tab
     /// Across the top, where a tab is too short for the square: the small
@@ -2113,7 +2111,7 @@ struct Speaker: View {
                     .background(Palette.ink.opacity(hovering ? 0.07 : 0), in: Circle())
                     .contentShape(Circle())
             } else {
-                RowSquare(symbol: tab.muted ? "speaker.slash" : "speaker.wave.2", filled: true, hovering: hovering)
+                RowSquare(symbol: tab.muted ? "speaker.slash" : "speaker.wave.2", hovering: hovering)
             }
         }
         .buttonStyle(.plain)

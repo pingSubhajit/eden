@@ -108,10 +108,7 @@ struct PlayerRow: View {
                 PlayerButton(symbol: "xmark", help: "Put Away", glyph: 11) { tab.stilled = false }
                     .transition(.opacity)
             }
-            // Its pause or play, which stays: a filled square, as a tab's
-            // speaker is.
-            PlayerButton(symbol: tab.stilled ? "play.fill" : "pause.fill", help: tab.stilled ? "Play" : "Pause",
-                         filled: true) {
+            PlayerButton(symbol: tab.stilled ? "play.fill" : "pause.fill", help: tab.stilled ? "Play" : "Pause") {
                 if tab.stilled { tab.playAgain() } else { tab.still() }
             }
         }
@@ -143,7 +140,6 @@ struct PlayerRow: View {
 private struct PlayerButton: View {
     let symbol: String
     let help: String
-    var filled = false
     var glyph: CGFloat = 10
     let act: () -> Void
 
@@ -151,7 +147,7 @@ private struct PlayerButton: View {
 
     var body: some View {
         Button(action: act) {
-            RowSquare(symbol: symbol, filled: filled, hovering: hovering, glyph: glyph)
+            RowSquare(symbol: symbol, hovering: hovering, glyph: glyph)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
