@@ -215,5 +215,155 @@ final class ElsewhereTests: XCTestCase {
         retries.keep(["open:mac:2"])
         XCTAssertTrue(retries.ready("close:mac:1", now: now), "gone from the items: forgotten")
         XCTAssertFalse(retries.ready("open:mac:2", now: now))
+        XCTAssertEqual(retries.failed(["open:mac:2", "close:mac:3"], now: now), AskRetries.first * 2,
+                       "says the longest wait, for the log")
+    }
+
+    // MARK: - the newest ask for a page wins
+
+    /// Asks of the phone, by key, as they stand among the items.
+    private func asks(_ list: [(kind: String, page: String, at: Double, id: String)]) -> [String: String] {
+        var live: [String: String] = [:]
+        for ask in list {
+            let item = ask.kind == "close"
+                ? SyncItems.ask(close: page(ask.page).url, on: "phone", now: ask.at, id: ask.id)
+                : SyncItems.ask(open: page(ask.page), on: "phone", now: ask.at, id: ask.id)
+            live.merge(item) { a, _ in a }
+        }
+        return live
+    }
+
+    private func due(_ live: [String: String], answered: Set<String> = [], answering: Set<String> = [],
+                     ready: (String) -> Bool = { _ in true }) -> DueAsks {
+        SyncItems.dueAsks(live, on: "phone", now: now, answered: answered, answering: answering, ready: ready)
+    }
+
+    func testAnOpenThatWaitsKeepsTheAsksItOvertakesStanding() {
+        let live = asks([("close", "a", now - 20, "1"), ("open", "a", now - 10, "2"), ("close", "b", now - 5, "3")])
+        let due = due(live)
+        let older = SyncItems.closeKey("phone", id: "1"), other = SyncItems.closeKey("phone", id: "3")
+        XCTAssertEqual(due.done(opened: false), [other], "no window to open it in: the close it overtook waits with it")
+        XCTAssertEqual(due.done(opened: true), due.keys)
+        XCTAssertTrue(due.keys.contains(older))
+    }
+
+    func testAnAskIsTimedAfterTheNewestAboutItsPage() {
+        // A close from a device whose clock runs a minute ahead.
+        let ahead = asks([("close", "a", now + 60, "1"), ("close", "b", now + 120, "2")])
+        let at = SyncItems.askTime(for: identity("a"), of: "phone", among: ahead, now: now)
+        XCTAssertGreaterThan(at, now + 60)
+        XCTAssertLessThan(at, now + 61)
+        XCTAssertEqual(SyncItems.askTime(for: identity("c"), of: "phone", among: ahead, now: now), now)
+        XCTAssertEqual(SyncItems.askTime(for: identity("a"), of: "laptop", among: ahead, now: now), now,
+                       "another device's asks don't count")
+        let reopened = asks([("close", "a", now + 60, "1"), ("open", "a", at, "3")])
+        XCTAssertEqual(due(reopened).opening.keys.sorted(), [SyncItems.openKey("phone", id: "3")],
+                       "the later choice is the one done")
+    }
+
+    func testAPageSentAndThenClosedIsClosed() {
+        let due = due(asks([("open", "a", now - 20, "1"), ("close", "a", now - 10, "2")]))
+        XCTAssertEqual(due.closing.keys.sorted(), [SyncItems.closeKey("phone", id: "2")])
+        XCTAssertEqual(due.opening, [:], "the open it overtook isn't done")
+        XCTAssertEqual(due.overtaken, [SyncItems.openKey("phone", id: "1"): SyncItems.closeKey("phone", id: "2")],
+                       "but answered with the close")
+        XCTAssertEqual(due.pagesToClose, [identity("a")])
+    }
+
+    func testAPageClosedAndThenSentAgainIsOpen() {
+        let due = due(asks([("close", "a", now - 20, "1"), ("open", "a", now - 10, "2")]))
+        XCTAssertEqual(due.opening.keys.sorted(), [SyncItems.openKey("phone", id: "2")])
+        XCTAssertEqual(due.closing, [:])
+        XCTAssertEqual(due.overtaken, [SyncItems.closeKey("phone", id: "1"): SyncItems.openKey("phone", id: "2")])
+        XCTAssertEqual(due.pagesToOpen, [page("a")])
+    }
+
+    func testOfManyAsksForOnePageOnlyTheNewestIsDoneAndEachPageOnItsOwn() {
+        let live = asks([("open", "a", now - 50, "1"), ("close", "a", now - 40, "2"), ("close", "a", now - 30, "3"),
+                         ("open", "a", now - 20, "4"), ("close", "a", now - 10, "5"),
+                         ("open", "b", now - 45, "6"), ("close", "c", now - 5, "7")])
+        let due = due(live)
+        XCTAssertEqual(due.closing.keys.sorted(), [SyncItems.closeKey("phone", id: "5"), SyncItems.closeKey("phone", id: "7")])
+        XCTAssertEqual(due.opening.keys.sorted(), [SyncItems.openKey("phone", id: "6")], "another page's ask stands on its own")
+        let newest = SyncItems.closeKey("phone", id: "5")
+        XCTAssertEqual(due.overtaken, [SyncItems.openKey("phone", id: "1"): newest, SyncItems.closeKey("phone", id: "2"): newest,
+                                       SyncItems.closeKey("phone", id: "3"): newest, SyncItems.openKey("phone", id: "4"): newest])
+        XCTAssertEqual(due.keys.count, 7, "every ask answered in the one step")
+    }
+
+    func testTwoAsksOfOneMomentGoTheSameWayEverywhere() {
+        let live = asks([("open", "a", now, "1"), ("close", "a", now, "2")])
+        // "open:…" sorts after "close:…": the open wins, whichever order the
+        // items are read in.
+        XCTAssertEqual(due(live).opening.keys.sorted(), [SyncItems.openKey("phone", id: "1")])
+        let shuffled = Dictionary(uniqueKeysWithValues: live.reversed().map { ($0.key, $0.value) })
+        XCTAssertEqual(due(shuffled), due(live))
+    }
+
+    func testTheNewestAskBeingDoneOrWaitingHoldsItsPageBack() {
+        let live = asks([("open", "a", now - 20, "1"), ("close", "a", now - 10, "2")])
+        let close = SyncItems.closeKey("phone", id: "2"), open = SyncItems.openKey("phone", id: "1")
+        XCTAssertTrue(due(live, answering: [close]).isEmpty, "being done: the older one isn't done meanwhile")
+        XCTAssertTrue(due(live, ready: { $0 != close }).isEmpty, "waiting to be tried again: the older one waits with it")
+        // The older one a step of its own already took up, the newest alone.
+        let alone = due(live, answering: [open])
+        XCTAssertEqual(alone.closing.keys.sorted(), [close])
+        XCTAssertEqual(alone.overtaken, [:])
+        // The newest done already, and an older one heard of since: nothing
+        // to do, the older one answered with nothing more.
+        let late = due(live, answered: [close])
+        XCTAssertEqual(late.closing, [:])
+        XCTAssertEqual(late.opening, [:])
+        XCTAssertEqual(late.overtaken, [open: close])
+        XCTAssertEqual(late.done(opened: false), [open], "its winner done already, it goes even with no window")
+        XCTAssertTrue(due(live, answered: [close, open]).isEmpty)
+    }
+
+    func testTheNewestAskDecidesWhatTheListShows() {
+        let phone = device("phone", tabs: [page("a")])
+        func asked(_ list: [(String, Double, String, Bool)]) -> [Elsewhere.Asked] {
+            list.map { path, at, key, opening in
+                Elsewhere.Asked(device: "phone", page: identity(path), at: at, key: key, opening: opening ? page(path) : nil)
+            }
+        }
+        // Sent, then closed: gone, however many times the cross was pressed.
+        let closed = asked([("b", now - 30, "open:phone:1", true), ("b", now - 20, "close:phone:2", false),
+                            ("b", now - 10, "close:phone:3", false)])
+        let afterClose = Elsewhere.asAsked([phone], asked: closed, standing: Set(closed.map(\.key)), now: now)
+        XCTAssertEqual(afterClose.devices.first?.tabs.map(\.url), [page("a").url])
+        XCTAssertEqual(afterClose.waiting, closed, "each kept until it is gone")
+        // Closed, then sent again: there.
+        let sent = asked([("a", now - 20, "close:phone:4", false), ("a", now - 10, "open:phone:5", true)])
+        let afterSend = Elsewhere.asAsked([phone], asked: sent, standing: Set(sent.map(\.key)), now: now)
+        XCTAssertEqual(afterSend.devices.first?.tabs.map(\.url), [page("a").url], "still there, once")
+        // The newest gone from the items, answered: the one left decides.
+        let older = Elsewhere.asAsked([phone], asked: sent, standing: ["close:phone:4"], now: now)
+        XCTAssertEqual(older.devices.first?.tabs, [])
+    }
+
+    @MainActor
+    func testOnlyTheFilesRewrittenSayWhetherAnAskIsDone() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("answer-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let tabs = folder.appendingPathComponent("tabs.json")
+        // A file where a folder should be: a write under it can't land.
+        let blocker = folder.appendingPathComponent("pictures")
+        try Data().write(to: blocker)
+        let elsewhere = blocker.appendingPathComponent("closed.json")
+        let rewrite = { Disk.write(tabs) { Data("[]".utf8) } }
+        XCTAssertTrue(SyncItems.answer({ Disk.write(elsewhere) { Data("[]".utf8) } }, rewrite: rewrite),
+                      "something else's file failing as the tab closes has no say")
+        XCTAssertFalse(SyncItems.answer({}, rewrite: {
+            rewrite()
+            Disk.write(elsewhere, now: true) { Data("[]".utf8) }
+        }), "one the rewrite writes does")
+        XCTAssertEqual(Disk.recording { Disk.write(tabs) { Data("[]".utf8) } }, [tabs])
+        XCTAssertEqual(Disk.recording {}, [], "only what is written while it records")
+        var inner: Set<URL> = []
+        let outer = Disk.recording { inner = Disk.recording { Disk.write(tabs) { Data("[]".utf8) } } }
+        XCTAssertEqual(inner, [tabs])
+        XCTAssertEqual(outer, [tabs], "a recording inside another counts for both")
+        Disk.drain()
     }
 }

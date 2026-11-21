@@ -134,6 +134,34 @@ struct ElsewhereTests {
         withExtendedLifetime(syncing) {}
     }
 
+    /// What another device asked of this one, done: the main queue's turn
+    /// after the pass, where the asks are acted on.
+    private func answer(_ live: [String: String], with syncing: Syncing) async {
+        syncing.answerAsks(in: live)
+        await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+    }
+
+    @Test func theNewestAskForAPageDecidesAndTheOlderGoWithIt() async throws {
+        let (browser, syncing) = launch()
+        browser.active?.restore(url: a, title: "A")
+        let now = Date().timeIntervalSince1970
+        let pageA = DeviceTabs.Page(url: a.absoluteString, title: "A", space: Space.firstID)
+        let pageB = DeviceTabs.Page(url: b.absoluteString, title: "B", space: Space.firstID)
+        // B sent, then closed; A closed, then sent again.
+        var live = SyncItems.ask(open: pageB, on: syncing.device, now: now - 20, id: "1")
+        live.merge(SyncItems.ask(close: b.absoluteString, on: syncing.device, now: now - 10, id: "2")) { x, _ in x }
+        live.merge(SyncItems.ask(close: a.absoluteString, on: syncing.device, now: now - 20, id: "3")) { x, _ in x }
+        live.merge(SyncItems.ask(open: pageA, on: syncing.device, now: now - 10, id: "4")) { x, _ in x }
+        await answer(live, with: syncing)
+        #expect(browser.ordinaryTabs.map(\.url) == [a], "B never opened, A never closed")
+        #expect(syncing.answered == Set(live.keys), "the older asks answered with the newest")
+        let scope = AppScope(syncing: syncing, browser: browser)
+        #expect(scope.snapshot(agreed: live).keys.filter(SyncItems.isAsk).isEmpty, "all four go everywhere")
+        // Heard again before they are gone: nothing done twice.
+        await answer(live, with: syncing)
+        #expect(browser.ordinaryTabs.map(\.url) == [a])
+    }
+
     @Test func theAddressFieldOffersTheOtherDevicesPagesNotOpenHere() throws {
         let (browser, syncing) = launch()
         browser.active?.restore(url: a, title: "Alpha docs")

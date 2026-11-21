@@ -190,24 +190,24 @@ final class Syncing {
     /// What another device asked of this one, from its list of this
     /// device's tabs: pages closed, as the cross on a card closes them
     /// (the Mac's Sync.askToClose), and pages opened, behind the one in
-    /// front (Sync.askToOpen). Done after the pass; each ask counts as done
-    /// — and goes everywhere at the next pass — only once its tabs have
-    /// changed and are on disk (SyncItems.answer), so a quit or a crash in
-    /// between leaves it to be done at the next launch.
+    /// front (Sync.askToOpen); for each page only its newest ask, the older
+    /// ones answered with it (SyncItems.dueAsks). Done after the pass; each
+    /// ask counts as done — and goes everywhere at the next pass — only
+    /// once its tabs have changed and are on disk (SyncItems.answer), so a
+    /// quit or a crash in between leaves it to be done at the next launch.
     func answerAsks(in live: [String: String]) {
         let now = Date().timeIntervalSince1970
         let standing = Set(live.keys.filter(SyncItems.isAsk))
         answered.formIntersection(standing)
         retries.keep(standing)
-        let waiting = answered.union(answering)
-        let due = { (key: String) in !waiting.contains(key) && self.retries.ready(key, now: now) }
-        let closing = SyncItems.closeAsks(live, on: device, now: now).filter { due($0.key) }
-        let opening = SyncItems.openAsks(live, on: device, now: now).filter { due($0.key) }
-        guard !closing.isEmpty || !opening.isEmpty else { return }
-        let keys = Set(closing.keys).union(opening.keys)
+        let due = SyncItems.dueAsks(live, on: device, now: now, answered: answered, answering: answering,
+                                    ready: { self.retries.ready($0, now: now) })
+        guard !due.isEmpty else { return }
+        Syncing.log.notice("asks due: \(due.closing.count, privacy: .public) to close, \(due.opening.count, privacy: .public) to open, \(due.overtaken.count, privacy: .public) overtaken")
+        let keys = due.keys
         answering.formUnion(keys)
-        let pages = Set(closing.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
-        let sent = opening.values.sorted { $0.at < $1.at }.map(\.page)
+        let pages = due.pagesToClose
+        let sent = due.pagesToOpen
         DispatchQueue.main.async { [weak self, browser] in
             let asked = browser.ordinaryTabs.filter { tab in
                 guard let url = Continuity.page(tab.url), pages.contains(History.identity(for: url)) else { return false }
@@ -221,9 +221,11 @@ final class Syncing {
             guard let self else { return }
             self.answering.subtract(keys)
             guard landed else {
-                self.retries.failed(keys, now: Date().timeIntervalSince1970)
+                let wait = self.retries.failed(keys, now: Date().timeIntervalSince1970)
+                Syncing.log.notice("asks' tabs didn't reach disk, tried again in \(Int(wait), privacy: .public)s: \(SyncItems.askLabels(keys), privacy: .public)")
                 return
             }
+            Syncing.log.notice("asks answered, tabs on disk: \(SyncItems.askLabels(keys), privacy: .public)")
             self.retries.forget(keys)
             self.answered.formUnion(keys)
             self.cloud?.localChange()
@@ -282,6 +284,10 @@ final class AppScope: SyncScope {
         // What other devices asked of this one and it hasn't done yet.
         items.merge(SyncItems.standingAsks(agreed, of: syncing.device, answered: syncing.answered,
                                            now: Date().timeIntervalSince1970)) { mine, _ in mine }
+        let leaving = SyncItems.answeredAsks(agreed, of: syncing.device, answered: syncing.answered)
+        if !leaving.isEmpty {
+            Syncing.log.notice("asks left out as answered: \(SyncItems.askLabels(leaving), privacy: .public)")
+        }
         return items
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Where everything Eden keeps is kept, on the Mac and on iPhone and iPad.
 //
@@ -146,6 +147,28 @@ public enum Disk {
     /// The turn of the newest write that didn't land, by file: cleared when
     /// a later write of it does.
     nonisolated(unsafe) private static var failed: [URL: Int] = [:]
+    /// A write that failed, for Console (subsystem com.subhajit.eden.beta,
+    /// category Disk): the file's name and why, never where it is.
+    private static let log = Logger(subsystem: "com.subhajit.eden.beta", category: "Disk")
+    /// The files asked written while `recording` runs, where it runs.
+    @TaskLocal private static var recorder: Recorder?
+
+    private final class Recorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var files: Set<URL> = []
+
+        func add(_ file: URL) {
+            lock.lock()
+            files.insert(file)
+            lock.unlock()
+        }
+
+        var all: Set<URL> {
+            lock.lock()
+            defer { lock.unlock() }
+            return files
+        }
+    }
 
     /// `encode` runs where the write does. `now` writes on the calling
     /// thread: quitting doesn't wait for a queue.
@@ -155,6 +178,7 @@ public enum Disk {
         let turn = count
         newest[file] = turn
         lock.unlock()
+        recorder?.add(file)
         // Overtaken: something newer of this file was asked for since.
         let current: @Sendable () -> Bool = {
             lock.lock()
@@ -170,7 +194,10 @@ public enum Disk {
             let folder = file.deletingLastPathComponent()
             let aside = folder.appendingPathComponent(".\(file.lastPathComponent).\(turn).writing")
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            guard (try? data.write(to: aside)) != nil else {
+            do {
+                try data.write(to: aside)
+            } catch {
+                log.error("couldn't write \(file.lastPathComponent, privacy: .public): \(Disk.reason(error), privacy: .public)")
                 lock.lock()
                 if newest[file] == turn { failed[file] = turn }
                 lock.unlock()
@@ -183,6 +210,8 @@ public enum Disk {
                     failed[file] = nil
                     return
                 }
+                let code = errno
+                log.error("couldn't put \(file.lastPathComponent, privacy: .public) in place: \(String(cString: strerror(code)), privacy: .public) (\(code, privacy: .public))")
                 failed[file] = turn
             }
             try? FileManager.default.removeItem(at: aside)
@@ -226,5 +255,38 @@ public enum Disk {
         lock.lock()
         defer { lock.unlock() }
         return !failed.values.contains { $0 > mark }
+    }
+
+    /// The same for `files` alone: a write of any other file that failed
+    /// meanwhile — another part of the app's, on its own business — has no
+    /// say.
+    public static func drain(since mark: Int, only files: Set<URL>) -> Bool {
+        queue.sync {}
+        lock.lock()
+        defer { lock.unlock() }
+        return !failed.contains { files.contains($0.key) && $0.value > mark }
+    }
+
+    /// The files `body` asks written, as it runs: for asking whether those
+    /// landed (`drain(since:only:)`). Recorded inside another recording,
+    /// they count for the outer one too, so its check covers them.
+    public static func recording(_ body: () -> Void) -> Set<URL> {
+        let outer = recorder
+        let made = Recorder()
+        $recorder.withValue(made) { body() }
+        let files = made.all
+        for file in files { outer?.add(file) }
+        return files
+    }
+
+    /// Why a write failed, without the path the error's own sentence may
+    /// carry: its domain and code, and the system's word underneath.
+    private static func reason(_ error: Error) -> String {
+        let error = error as NSError
+        var out = "\(error.domain) \(error.code)"
+        if let under = error.userInfo[NSUnderlyingErrorKey] as? NSError, under.domain == NSPOSIXErrorDomain {
+            out += ": " + String(cString: strerror(Int32(under.code)))
+        }
+        return out
     }
 }
