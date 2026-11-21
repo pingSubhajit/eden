@@ -97,6 +97,7 @@ enum Spaces {
         let home = profile == Profile.personalID ? Space.firstID : Profiles.shared.profile(profile).home
         if case .profile(let owner) = space.storeKey(profileHome: home) { return Profiles.store(owner) }
         if let made = stores[id] { return made }
+        Store.madeStore(id)
         let made = WKWebsiteDataStore(forIdentifier: id)
         if Store.keepsSignIns { Store.followSignIns(made) } else { Store.followCookies(made) }
         BrowserProxy.shared.attach(made)

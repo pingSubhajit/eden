@@ -10,6 +10,7 @@ the paragraph in `NOTES.md`. What is planned but not done yet lives in
 
 ## Unreleased
 
+- Test runs on the Mac no longer leave a WebKit store behind for each space and profile they make: each run writes down the stores it makes, and a later run takes them away once that run has ended and its stores are quiet (#20).
 - Tests that passed alone no longer fail when run with others: the download tests let go of their window and its browser, which, left alive, broke the column's drag tests run after them; a pinned square's test waits for its carry to be called off rather than a fixed moment; and on iPhone, each way of closing a pin is tested over a folder of its own (#16).
 - A page closed on another device from its row, or sent there, stays as it was last asked, on Mac and iPhone: an ask from a Mac that was offline meanwhile, arriving after a newer one was done, no longer undoes it, and which ask is newer no longer depends on whose clock runs ahead. Each ask now says which of the other device's tabs it was made from, by that device's own clock (#13).
 - Test runs on the Mac no longer leave their throwaway folders and settings piling up in Library: each run's go when it ends, and whatever an earlier run left, one that crashed included or settings written on its way out, goes when the next one starts (#7).
