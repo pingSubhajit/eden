@@ -503,6 +503,72 @@ final class PinFolderColumnTests: XCTestCase {
 
     // MARK: - helpers
 
+    /// A pinned row put down, taken out by its ×, comes back with ⇧⌘T a
+    /// pin: its letter, its id and its page, at its place in its folder,
+    /// asleep, and you left where you were.
+    func testAPinTakenOutComesBackAPinWhereItWas() throws {
+        let browser = makeBrowser()
+        let (_, two, three, _) = try pinned(browser)
+        let work = try XCTUnwrap(browser.newKeptGroup(named: "Work", holding: two, rename: false))
+        browser.move(three, to: ColumnPlace(area: .kept, group: work))
+        XCTAssertEqual(described(browser), ["folder 0 Work", "pin 1 two", "pin 1 three", "pin 0 one", "pin 0 four"])
+        let front = browser.activeID
+        let (letter, id, home) = (two.pin, two.pinID, two.home)
+        browser.close(two)
+        XCTAssertTrue(two.asleep, "put down first")
+        Pins.retitle(try XCTUnwrap(id), "Inbox", from: browser)
+
+        browser.deletePin(two)
+        XCTAssertFalse(browser.tabs.contains { $0.id == two.id }, "out of the window")
+        XCTAssertEqual(described(browser), ["folder 0 Work", "pin 1 three", "pin 0 one", "pin 0 four"])
+        XCTAssertFalse(Pins.defs(browser.spaceID).contains { $0.id == id }, "and out of the pins")
+
+        browser.reopen()
+        let back = try XCTUnwrap(browser.tabs.first { $0.pinID == id })
+        XCTAssertEqual(described(browser), ["folder 0 Work", "pin 1 two", "pin 1 three", "pin 0 one", "pin 0 four"],
+                       "at its place, in its folder")
+        XCTAssertEqual(back.pin, letter)
+        XCTAssertEqual(back.home, home)
+        XCTAssertTrue(back.listed)
+        XCTAssertTrue(back.asleep, "asleep, as it was")
+        XCTAssertEqual(browser.activeID, front, "you stay where you were")
+        XCTAssertTrue(Pins.defs(browser.spaceID).contains { $0.id == id && $0.group == work }, "kept with the pins again")
+        XCTAssertEqual(back.homeTitle, "Inbox", "with the title kept for it")
+    }
+
+    /// One of the pins every space shows comes back to its place among
+    /// them, not after them.
+    func testASharedPinTakenOutComesBackToItsPlace() throws {
+        let browser = makeBrowser()
+        browser.prefs.usesSpaces = true
+        browser.prefs.sharesPins = true
+        let (one, two, three, _) = try pinned(browser)
+        for tab in [one, two, three] { browser.shareEverywhere(tab) }
+        let shared = { Pins.shared(browser.profileID).map(\.title) }
+        XCTAssertEqual(shared(), ["one", "two", "three"])
+        browser.close(one)
+        browser.deletePin(one)
+        XCTAssertEqual(shared(), ["two", "three"])
+        browser.reopen()
+        XCTAssertEqual(shared(), ["one", "two", "three"], "first again, in every space")
+        XCTAssertEqual(browser.listedPins.map(\.title), ["one", "two", "three", "four"])
+        for tab in browser.tabs where tab.everywhere { browser.keepHere(tab) }
+    }
+
+    /// Delete in a pin's menu, on the pin you're on: back in front.
+    func testAPinDeletedAwakeComesBackInFront() throws {
+        let browser = makeBrowser()
+        let (one, _, _, _) = try pinned(browser)
+        browser.select(one)
+        let id = one.pinID
+        browser.deletePin(one)
+        XCTAssertNotEqual(browser.activeID, one.id)
+        browser.reopen()
+        let back = try XCTUnwrap(browser.tabs.first { $0.pinID == id })
+        XCTAssertEqual(browser.listedPins.map(\.title), ["one", "two", "three", "four"])
+        XCTAssertEqual(browser.activeID, back.id)
+    }
+
     private func described(_ browser: Browser) -> [String] {
         browser.keptLines().map { line in
             switch line {
