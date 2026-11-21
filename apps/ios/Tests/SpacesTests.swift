@@ -203,19 +203,21 @@ struct SpacesTests {
         #expect(browser.pins.catalog == PinCatalog())
     }
 
-    @Test func closingAPinRestsItAtHomeOrWhereItWas() throws {
-        for goesHome in [true, false] {
-            let (browser, tab) = try opened(a, pinsGoHome: goesHome)
-            browser.pin(tab)
-            tab.restore(url: b, title: "Elsewhere")
-            let other = browser.newTab(url: c)
-            browser.select(tab)
-            browser.close(tab)
-            let pin = try #require(browser.shownPins.first)
-            #expect(pin.tab !== tab, "its page let go")
-            #expect(pin.tab.url == (goesHome ? a : b))
-            #expect(browser.active === other, "the tab beside it in front")
-        }
+    /// Each way in a test of its own, so each over a folder of its own: run
+    /// one after the other over the same folder, the first one's pin, its
+    /// file written in the background, could be what the second found (#16).
+    @Test(arguments: [true, false])
+    func closingAPinRestsItAtHomeOrWhereItWas(goesHome: Bool) throws {
+        let (browser, tab) = try opened(a, pinsGoHome: goesHome)
+        browser.pin(tab)
+        tab.restore(url: b, title: "Elsewhere")
+        let other = browser.newTab(url: c)
+        browser.select(tab)
+        browser.close(tab)
+        let pin = try #require(browser.shownPins.first)
+        #expect(pin.tab !== tab, "its page let go")
+        #expect(pin.tab.url == (goesHome ? a : b))
+        #expect(browser.active === other, "the tab beside it in front")
     }
 
     @Test func aPinComesBackAtHomeOrWhereItWasLeft() throws {
