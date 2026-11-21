@@ -87,9 +87,11 @@ def after(page, n):
 
 
 def world(on=True, place="next", **prefs):
-    sv.setup(sidebar=True, **{"tabs.groups": True, "splitView": True, "tabs.frontBeside": on, "pins.peek": False, **prefs})
-    if place != "next":
-        subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", place], check=True)
+    sv.setup(sidebar=True, **{"tabs.groups": True, "splitView": True, "tabs.frontBeside": on, **prefs})
+    # Written whatever it is: After current is no longer what a world
+    # without it gets (new tabs go to the top unless told otherwise), and
+    # every check here but the last is about After current.
+    subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", place], check=True)
     sv.launch()
     sv.page("left")
     s = sv.page("links")
@@ -175,12 +177,12 @@ def run_on(t):
 
     s = world()
     try:
+        # A plain click in a pin opens in the peek (see Peek.swift), so a
+        # ⇧⌘-click, which never does, opens the page in front from it.
         sv.cmd({"do": "pin", "id": s}); time.sleep(0.6)
-        click(s, "b1")
-        st = state()
-        pins = st.get("pinnedCount")
-        p = paths(st)
-        t.ok("on: from a pin (peek off), first after the pins", p.index("/front-1") == p.index("/links") + 1, p)
+        click(s, "p1", mods=["cmd", "shift"])
+        p = paths()
+        t.ok("on: from a pin, first after the pins", p.index("/plain-1") == p.index("/links") + 1, p)
     finally:
         sv.finish()
 

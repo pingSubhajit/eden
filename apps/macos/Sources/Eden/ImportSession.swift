@@ -221,7 +221,8 @@ enum SessionImport {
                     guard let at, let entry = navs[at], let url = URL(string: entry.url),
                           url.scheme == "http" || url.scheme == "https"
                     else { return nil }
-                    // A pin is never in a group.
+                    // A pin is never in a window's tab group: it comes in
+                    // pinned, in none.
                     let pin = pinned.contains(tab)
                     return Tab(url: url, title: titled(entry.title, for: url), pinned: pin,
                                group: pin ? nil : tabGroup[tab])

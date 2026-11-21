@@ -15,6 +15,10 @@ import Foundation
 // Tabs › Pins in every space is on: Arc's favourites, above every space.
 // The file, and how the two lists make a row, are EdenCore's (PinsFile,
 // PinLists), the same on iPhone and iPad.
+//
+// The kept area's groups are kept here too, with the pins they hold (see
+// Column.swift, KeptGroups.swift): per space, shared by every window, and
+// passed on with Pins.changed as the pins are.
 
 @MainActor
 enum Pins {
@@ -24,11 +28,18 @@ enum Pins {
     /// Browser.reconcilePins), by profile.
     private static var sharedBy: [UUID: [PinDef]] = [:]
     private static var loaded = false
+    /// Each space's kept groups, in order (KeptGroups.swift).
+    private(set) static var groupsBySpace: [UUID: [TabGroup]] = [:]
+    /// By space, the group each folder flattened on its way in went into,
+    /// while the rows in it may not be on disk there yet (see readGroups).
+    private(set) static var moved: [UUID: [UUID: UUID]] = [:]
 
     /// A space's pins changed in one window; the others follow.
     static let changed = Notification.Name("EdenPinsChanged")
 
     private static var file: URL { Store.file("pins.json") }
+    private static var groupsFile: URL { Store.file(KeptGroupsFile.name) }
+    private static var legacyGroupsFile: URL { Store.file(LegacyPinFolders.name) }
 
     static func defs(_ space: UUID) -> [PinDef] {
         load()
@@ -42,10 +53,13 @@ enum Pins {
     }
 
     /// Read once. Before there is a pins.json, the pins are the oldest
-    /// window's, from its session files — every space's.
+    /// window's, from its session files — every space's. The kept groups
+    /// are read with them, before any window makes its rows, as taking in
+    /// the folders of before may move a pin (readGroups).
     static func load() {
         guard !loaded else { return }
         loaded = true
+        defer { readGroups() }
         if let data = try? Data(contentsOf: file), let saved = try? PinsFile.decode(data) {
             bySpace = saved.bySpace
             sharedBy = saved.sharedByProfile
@@ -70,6 +84,98 @@ enum Pins {
         bySpace[space] = defs.isEmpty ? nil : defs
         save()
         NotificationCenter.default.post(name: changed, object: browser, userInfo: ["space": space])
+    }
+
+    /// A space's pins in the groups `into` names for theirs, as the folders
+    /// of before are taken in (readGroups): kept, with no window to tell,
+    /// none having made its rows from them yet.
+    static func refile(_ space: UUID, into: [UUID: UUID]) {
+        load()
+        guard let defs = bySpace[space] else { return }
+        let refiled = LegacyPinFolders.refiled(defs, into: into)
+        guard refiled != defs else { return }
+        bySpace[space] = refiled
+        save()
+    }
+
+    // MARK: - the kept groups
+
+    /// A space's kept groups, in order.
+    static func groups(_ space: UUID) -> [TabGroup] {
+        load()
+        return groupsBySpace[space] ?? []
+    }
+
+    /// The kept group of that id, and the space it is kept in: nil for any
+    /// other, a window's own open group among them. Which area a group is
+    /// in comes from here alone (Browser.area(ofGroup:)).
+    static func keptGroup(_ id: UUID) -> (space: UUID, group: TabGroup)? {
+        load()
+        for (space, groups) in groupsBySpace {
+            if let group = groups.first(where: { $0.id == id }) { return (space, group) }
+        }
+        return nil
+    }
+
+    /// A space's kept groups as they now are, kept and passed to the other
+    /// windows when they changed. The groups first when rows go into a new
+    /// one, so the rows rebuilt for the pins find theirs.
+    static func setGroups(_ space: UUID, _ groups: [TabGroup], from browser: Browser?) {
+        load()
+        var seen = Set<UUID>()
+        let groups = groups.filter { seen.insert($0.id).inserted }
+        guard (groupsBySpace[space] ?? []) != groups else { return }
+        groupsBySpace[space] = groups.isEmpty ? nil : groups
+        saveGroups()
+        NotificationCenter.default.post(name: changed, object: browser, userInfo: ["space": space])
+    }
+
+    /// The kept groups read from disk, as the pins are first read and again
+    /// whenever a test asks. kept-groups.json when it is there; before it
+    /// ever was, the folders of pin-folders.json taken in once, whole: each
+    /// the group of its id, so every row (PinDef.group) stays in it, its
+    /// name, colour, icon and fold kept, folders once inside others
+    /// flattened (LegacyPinFolders), and the moves that flattening was
+    /// still waiting on honoured.
+    ///
+    /// Those moves are kept, in the new file, until the rows are on disk in
+    /// their new groups: dropped sooner, a pins file that failed to write
+    /// would leave its rows pointing at folders gone for good. Kept, the
+    /// next read makes them again. The old file goes only once the new one
+    /// is known to be on disk (Disk.drain(since:)); till then it is read
+    /// again next time, and nothing is lost either way. A file that isn't
+    /// one at all is set aside, never written over.
+    static func readGroups() {
+        let files = FileManager.default
+        var read: KeptGroupsFile.Read?
+        var migrating = false
+        if let data = try? Data(contentsOf: groupsFile) {
+            read = KeptGroupsFile.decode(data)
+            if read == nil { Store.quarantine(groupsFile) }
+        }
+        if read == nil, let data = try? Data(contentsOf: legacyGroupsFile) {
+            read = LegacyPinFolders.decode(data)
+            if read == nil { Store.quarantine(legacyGroupsFile) } else { migrating = true }
+        }
+        groupsBySpace = read?.bySpace ?? [:]
+        moved = read?.moved ?? [:]
+        let leftOver = !migrating && read != nil && files.fileExists(atPath: legacyGroupsFile.path)
+        guard migrating || !moved.isEmpty || leftOver else { return }
+        let mark = Disk.mark()
+        for (space, into) in moved { refile(space, into: into) }
+        if migrating || !moved.isEmpty { saveGroups() }
+        guard Disk.drain(since: mark) else { return }
+        // On disk, the rows in their groups and the groups with them.
+        if !moved.isEmpty {
+            moved = [:]
+            saveGroups()
+        }
+        if files.fileExists(atPath: legacyGroupsFile.path) { Disk.remove(legacyGroupsFile) }
+    }
+
+    private static func saveGroups() {
+        let read = KeptGroupsFile.Read(bySpace: groupsBySpace, moved: moved)
+        Disk.write(groupsFile) { KeptGroupsFile.encode(read) }
     }
 
     /// The shared pins as they now are, passed to the other windows, which
@@ -114,10 +220,23 @@ enum Pins {
         save()
     }
 
-    /// A space deleted: its pins go with it.
+    /// A space deleted: its pins go with it, and its kept groups.
     static func forget(_ space: UUID) {
-        PinFolders.forget(space)
+        load()
+        let hadGroups = groupsBySpace.removeValue(forKey: space) != nil
+        let hadMoves = moved.removeValue(forKey: space) != nil
+        if hadGroups || hadMoves { saveGroups() }
         guard bySpace.removeValue(forKey: space) != nil else { return }
+        save()
+    }
+
+    /// The pins and the kept groups written again as they now are, changed
+    /// or not: for something that is recorded as done only once it is on
+    /// disk (PinShelf.bringBookmarks), so a write that failed before is
+    /// tried again rather than taken as landed because nothing changed.
+    static func write() {
+        load()
+        saveGroups()
         save()
     }
 

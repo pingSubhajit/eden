@@ -291,18 +291,13 @@ struct Fold: View {
         .onChange(of: browser.editingTab) { _, editing in
             if editing == nil, !inside, browser.peeking { peek(false) }
         }
-        // The bookmarks list closed with the pointer elsewhere: the same.
-        .onChange(of: browser.bookmarksOpen) { _, open in
-            if !open, !inside, browser.peeking { peek(false) }
-        }
     }
 
     /// A popover opened from a button in the column, still open: the
-    /// bookmarks list or the extensions menu. Folding the column would take
-    /// it along, so it holds the column out wherever the pointer has gone,
-    /// on the way to a bookmark over the page included (#88).
+    /// extensions menu. Folding the column would take it along, so it holds
+    /// the column out wherever the pointer has gone, over the page included
+    /// (#88).
     private var holding: Bool {
-        if browser.bookmarksOpen { return true }
         if #available(macOS 15.4, *), Extensions.shared.menuOpen { return true }
         return false
     }

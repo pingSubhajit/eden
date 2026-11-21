@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Settings, History, Downloads, Bookmarks, Passwords, Bring Things Over and
+"""Settings, History, Downloads, Passwords, Bring Things Over and
 the release notes are tabs of their own (InternalPages.swift), checked in a
 hidden probe.
 
@@ -58,7 +58,7 @@ def case_open_focus(t):
     press(J, "j", "cmd", "shift")
     d = of("downloads")
     t.ok("⇧⌘J opens Downloads in a tab", len(d) == 1 and active() == d[0]["id"])
-    for k in ["bookmarks", "passwords"]:
+    for k in ["passwords"]:
         sv.cmd({"do": "ui", k: True}); time.sleep(0.5)
         t.ok(f"{k} opens in a tab of its own", len(of(k)) == 1 and active() == of(k)[0]["id"], [x["internal"] for x in tabs()])
     sv.cmd({"do": "ui", "import": "on"}); time.sleep(0.5)

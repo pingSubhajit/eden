@@ -22,18 +22,16 @@ def pf(**f): return sv.cmd({"do": "pinfolder", **f})
 try:
     sv.setup(sidebar=True); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); sv.page("front")
-    st = pf(action="state")
-    t.ok("off by default", st.get("setting") is False, st.get("setting"))
-    pf(action="on")
     for id in (a, b, c): pf(action="pin", id=id)
     pf(action="new", name="Work", id=a)
-    pf(action="new", name="Docs", **{"in": "Work"})
+    pf(action="new", name="Docs")
     pf(action="move", id=b, folder="Docs")
     st = pf(action="state")
     drawn = st.get("lines") or []
     flat = [str(x) for x in drawn]
     print("  drawn:", flat)
-    t.ok("Work is drawn, Docs inside it", any("Work" in x for x in flat) and any("Docs" in x for x in flat), flat)
+    t.ok("Work and Docs are drawn, side by side", any("Work" in x for x in flat) and any("Docs" in x for x in flat), flat)
+    t.ok("one level: every folder at the top", all(x[1] == 0 for x in drawn if x[0] == "folder"), drawn)
     saved = st.get("saved") or []
     t.ok("pins.json keeps each pin's folder", ["a", "Work"] in saved and ["b", "Docs"] in saved, saved)
     pf(action="fold", name="Work")
@@ -46,10 +44,7 @@ try:
     t.ok("relaunch: folders kept", "Work" in names and "Docs" in names, names)
     pf(action="delete", name="Docs")
     st = pf(action="state")
-    t.ok("delete Docs: b goes up into Work", ["b", "Work"] in (st.get("saved") or []), st.get("saved"))
-    pf(action="off")
-    st = pf(action="state")
-    t.ok("off: the setting is off (the column draws flat rows)", st.get("setting") is False, st.get("setting"))
+    t.ok("delete Docs: b stays pinned, at the top", ["b", None] in (st.get("saved") or []), st.get("saved"))
 finally:
     t.done(); sv.finish()
 sys.exit(1 if t.failed else 0)

@@ -18,7 +18,7 @@ def cmd_w(): sv.cmd({"do": "press", "code": 13, "chars": "w", "mods": ["cmd"]});
 try:
     sv.setup(); sv.launch()
     sv.page("a"); sv.page("b")
-    for panel, key in [("settings", "settings"), ("history", "history"), ("downloads", "downloads"), ("bookmarks", "bookmarks")]:
+    for panel, key in [("settings", "settings"), ("history", "history"), ("downloads", "downloads")]:
         before = ids()
         sv.cmd({"do": "ui", panel: True}); time.sleep(0.5)
         cmd_w()

@@ -2,202 +2,249 @@ import EdenCore
 import XCTest
 @testable import Eden
 
-/// Folders among the pinned rows (PinFolders.swift): the files staying
-/// readable both ways, what is drawn, what may go where, and Arc's nested
-/// folders coming in nested. In memory only.
+/// The column's one model (Column.swift) and the kept groups' files
+/// (KeptGroups.swift): a pin's group written as its folder always was, the
+/// kept groups' file and pin-folders.json read both ways, folders an Eden
+/// from before kept inside others flattened as they are taken in, what an
+/// area draws — the same for both areas — where a row let go goes, and
+/// Arc's nested folders coming in one level deep. In memory only.
 final class PinFoldersTests: XCTestCase {
-    private func def(_ letter: String, folder: UUID? = nil) -> PinDef {
+    private func def(_ letter: String, group: UUID? = nil) -> PinDef {
         PinDef(id: UUID(), letter: letter, home: "https://\(letter.lowercased()).example/",
-               title: letter, name: nil, listed: true, folder: folder)
+               title: letter, name: nil, listed: true, group: group)
     }
 
-    private func folder(_ name: String, in parent: UUID? = nil, collapsed: Bool = false) -> PinFolder {
-        PinFolder(id: UUID(), name: name, parent: parent, collapsed: collapsed)
+    private func group(_ name: String, collapsed: Bool = false) -> TabGroup {
+        TabGroup(id: UUID(), name: name, collapsed: collapsed)
+    }
+
+    private func items(_ pins: [PinDef], _ groups: [TabGroup], keepingEmpty: Bool = true) -> [ColumnItem<UUID>] {
+        ColumnTree.items(pins, group: \.group, groups: groups, keepingEmpty: keepingEmpty).map { item in
+            switch item {
+            case .tab(let pin): .tab(pin.id)
+            case .group(let group, let pins): .group(group, pins.map(\.id))
+            }
+        }
     }
 
     // MARK: - the files
 
-    func testAPinInNoFolderIsWrittenAsItAlwaysWas() throws {
+    func testAPinInNoGroupIsWrittenAsItAlwaysWas() throws {
         let data = try JSONEncoder().encode(def("A"))
         let keys = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any]).keys
         XCTAssertFalse(keys.contains("folder"))
+        XCTAssertFalse(keys.contains("group"))
     }
 
-    func testAPinsFolderRoundTripsAndAnOldPinReadsAsInNone() throws {
-        let f = UUID()
-        let a = def("A", folder: f)
-        XCTAssertEqual(try JSONDecoder().decode(PinDef.self, from: JSONEncoder().encode(a)), a)
+    func testAPinsGroupRoundTripsAsItsFolderAndAnOldPinReadsAsInNone() throws {
+        let g = UUID()
+        let a = def("A", group: g)
+        let data = try JSONEncoder().encode(a)
+        XCTAssertEqual(try JSONDecoder().decode(PinDef.self, from: data), a)
+        let keys = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(keys["folder"] as? String, g.uuidString, "the name it has always had on disk")
         let old = #"{"id":"\#(UUID().uuidString)","letter":"G","home":"https://g.example/","title":"G"}"#
-        XCTAssertNil(try JSONDecoder().decode(PinDef.self, from: Data(old.utf8)).folder)
+        XCTAssertNil(try JSONDecoder().decode(PinDef.self, from: Data(old.utf8)).group)
     }
 
-    func testAPinsFileWithFoldersStillReadsAsPins() throws {
+    func testAPinsFileWithGroupsStillReadsAsPins() throws {
         let space = UUID()
-        let a = def("A", folder: UUID())
+        let a = def("A", group: UUID())
         let data = try PinsFile.encode(PinCatalog(bySpace: [space: [a]]))
         XCTAssertEqual(try PinsFile.decode(data).bySpace[space], [a])
     }
 
-    func testAFolderSavedWithoutItsStateIsOpenAtTheTop() throws {
-        let id = UUID()
-        let json = #"{"id":"\#(id.uuidString)","name":"Work","parent":"not an id"}"#
-        let read = try JSONDecoder().decode(PinFolder.self, from: Data(json.utf8))
-        XCTAssertEqual(read, PinFolder(id: id, name: "Work", parent: nil, collapsed: false))
+    func testAFolderFromBeforeReadsAsAnOpenStoneGroupWithNoIcon() throws {
+        let space = UUID(), id = UUID()
+        let json = #"{"\#(space.uuidString)":[{"id":"\#(id.uuidString)","name":"Work","parent":"not an id"}]}"#
+        let read = try XCTUnwrap(LegacyPinFolders.decode(Data(json.utf8)))
+        XCTAssertEqual(read.bySpace[space], [TabGroup(id: id, name: "Work", collapsed: false, colour: .stone, icon: nil)])
+        // Written into the new file with no look an older Eden would meet,
+        // and no parent.
+        let file = try XCTUnwrap(KeptGroupsFile.encode(read))
+        let top = try XCTUnwrap(JSONSerialization.jsonObject(with: file) as? [String: [[String: Any]]])
+        XCTAssertEqual(Set(try XCTUnwrap(top[space.uuidString]?.first).keys), ["id", "name", "collapsed"])
     }
 
-    func testASpaceWhoseFoldersDontReadLosesNoOtherSpace() throws {
+    /// Everything a folder had comes over: its id (the rows' group), its
+    /// name, its fold, its colour and its icon.
+    func testAFoldersEveryFieldComesOverIntoItsGroup() throws {
+        let space = UUID(), id = UUID()
+        let json = #"{"\#(space.uuidString)":[{"id":"\#(id.uuidString)","name":"Reading","collapsed":true,"colour":"madder","icon":"emoji:📚"}]}"#
+        let read = try XCTUnwrap(LegacyPinFolders.decode(Data(json.utf8)))
+        XCTAssertEqual(read.bySpace[space], [TabGroup(id: id, name: "Reading", collapsed: true, colour: .madder, icon: .emoji("📚"))])
+        XCTAssertTrue(read.moved.isEmpty)
+    }
+
+    func testAGroupsColourAndIconGoAndComeBackTheSame() throws {
+        var work = TabGroup(id: UUID(), name: "Work", collapsed: true, colour: .sage, icon: .emoji("🌿"))
+        XCTAssertEqual(try JSONDecoder().decode(TabGroup.self, from: JSONEncoder().encode(work)), work)
+        work.icon = .symbol("leaf.fill")
+        let file = try XCTUnwrap(KeptGroupsFile.encode(KeptGroupsFile.Read(bySpace: [UUID(): [work]])))
+        XCTAssertEqual(KeptGroupsFile.decode(file)?.bySpace.values.first, [work])
+    }
+
+    /// Where the folders that were inside others went is kept in the new
+    /// file until the rows are known to be on disk in them; once they are,
+    /// nothing of it is written.
+    func testMovesWaitingForTheRowsAreKeptInTheFile() throws {
+        let space = UUID()
+        let work = group("Work")
+        let child = UUID()
+        let file = try XCTUnwrap(KeptGroupsFile.encode(KeptGroupsFile.Read(bySpace: [space: [work]], moved: [space: [child: work.id]])))
+        let read = try XCTUnwrap(KeptGroupsFile.decode(file))
+        XCTAssertEqual(read.bySpace[space], [work])
+        XCTAssertEqual(read.moved[space], [child: work.id])
+
+        let settled = try XCTUnwrap(KeptGroupsFile.encode(KeptGroupsFile.Read(bySpace: [space: [work]])))
+        XCTAssertEqual(KeptGroupsFile.decode(settled)?.moved.isEmpty, true, "nothing kept once the rows landed")
+        let top = try XCTUnwrap(JSONSerialization.jsonObject(with: settled) as? [String: Any])
+        XCTAssertNil(top[KeptGroupsFile.movedKey])
+    }
+
+    /// pin-folders.json's own waiting moves come over with it.
+    func testTheOldFilesWaitingMovesComeOver() throws {
+        let space = UUID(), work = UUID(), gone = UUID()
+        let json = #"{"\#(space.uuidString)":[{"id":"\#(work.uuidString)","name":"Work"}],"moved":{"\#(space.uuidString)":{"\#(gone.uuidString)":"\#(work.uuidString)"}}}"#
+        let read = try XCTUnwrap(LegacyPinFolders.decode(Data(json.utf8)))
+        XCTAssertEqual(read.moved[space], [gone: work])
+    }
+
+    func testAnEmptyFileIsStillAFile() throws {
+        // That it is there says pin-folders.json was taken in.
+        let file = try XCTUnwrap(KeptGroupsFile.encode(KeptGroupsFile.Read()))
+        XCTAssertEqual(KeptGroupsFile.decode(file), KeptGroupsFile.Read())
+        XCTAssertNil(KeptGroupsFile.decode(Data("not json".utf8)), "a file that isn't one is said so, to be set aside")
+        XCTAssertNil(LegacyPinFolders.decode(Data("[".utf8)))
+    }
+
+    func testAColourOrIconANewerEdenAddedReadsAsNone() throws {
+        let json = #"{"id":"\#(UUID().uuidString)","name":"Work","colour":"teal","icon":"sticker:🦊"}"#
+        let read = try JSONDecoder().decode(TabGroup.self, from: Data(json.utf8))
+        XCTAssertEqual(read.colour, .stone)
+        XCTAssertNil(read.icon)
+    }
+
+    func testASpaceWhoseGroupsDontReadLosesNoOtherSpace() throws {
         let good = UUID(), bad = UUID()
-        let work = folder("Work")
-        let encoded = try XCTUnwrap(PinFolders.encode([good: [work]]))
+        let work = group("Work")
+        let encoded = try XCTUnwrap(KeptGroupsFile.encode(KeptGroupsFile.Read(bySpace: [good: [work]])))
         var top = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         top[bad.uuidString] = [["name": 3]]
         top["not a space"] = []
-        let read = PinFolders.decode(try JSONSerialization.data(withJSONObject: top))
-        XCTAssertEqual(read, [good: [work]])
+        let data = try JSONSerialization.data(withJSONObject: top)
+        XCTAssertEqual(KeptGroupsFile.decode(data), KeptGroupsFile.Read(bySpace: [good: [work]]))
+        XCTAssertEqual(LegacyPinFolders.decode(data), KeptGroupsFile.Read(bySpace: [good: [work]]))
     }
 
-    func testSharingAPinTakesItOutOfItsFolder() {
-        let a = def("A", folder: UUID())
+    func testSharingAPinTakesItOutOfItsGroup() {
+        let a = def("A", group: UUID())
         let moved = PinLists.share(a.id, own: [a], shared: [])
-        XCTAssertNil(moved.shared.first?.folder)
+        XCTAssertNil(moved.shared.first?.group)
     }
 
-    // MARK: - what is drawn
+    // MARK: - folders inside folders, from before
 
-    func testFoldersComeFirstThenPinsEachFolderFollowedByWhatItHolds() {
-        let work = folder("Work"), docs = folder("Docs", in: work.id)
-        let a = def("A"), b = def("B", folder: work.id), c = def("C", folder: docs.id)
-        let lines = PinTree.lines(pins: [a, b, c].map { ($0.id, $0.folder) }, folders: [work, docs])
-        XCTAssertEqual(lines, [
-            .folder(work, depth: 0),
-            .folder(docs, depth: 1),
-            .pin(c.id, depth: 2),
-            .pin(b.id, depth: 1),
-            .pin(a.id, depth: 0),
+    /// Work holding Docs holding Old, Home, X and Y holding each other, and
+    /// Lost inside a folder that is gone, as an Eden from before wrote them.
+    func testFoldersInsideFoldersAreFlattenedAsTheyAreTakenIn() throws {
+        let space = UUID()
+        let work = group("Work"), docs = group("Docs"), old = group("Old", collapsed: true)
+        let home = group("Home"), x = group("X"), y = group("Y"), lost = group("Lost")
+        func entry(_ group: TabGroup, in parent: UUID?) -> [String: Any] {
+            var out: [String: Any] = ["id": group.id.uuidString, "name": group.name, "collapsed": group.collapsed]
+            if let parent { out["parent"] = parent.uuidString }
+            return out
+        }
+        let file = try JSONSerialization.data(withJSONObject: [space.uuidString: [
+            entry(work, in: nil), entry(docs, in: work.id), entry(old, in: docs.id), entry(home, in: nil),
+            entry(x, in: y.id), entry(y, in: x.id), entry(lost, in: UUID()),
+        ]])
+        let read = try XCTUnwrap(LegacyPinFolders.decode(file))
+        XCTAssertEqual(read.bySpace[space]?.map(\.name), ["Work", "Home", "X", "Lost"],
+                       "one level, in their order; of two holding each other, the first listed")
+        XCTAssertEqual(read.moved[space], [docs.id: work.id, old.id: work.id, y.id: x.id])
+
+        let a = def("A", group: old.id), b = def("B", group: docs.id), c = def("C", group: home.id)
+        let d = def("D", group: y.id), e = def("E")
+        let refiled = LegacyPinFolders.refiled([a, b, c, d, e], into: read.moved[space] ?? [:])
+        XCTAssertEqual(refiled.map(\.group), [work.id, work.id, home.id, x.id, nil],
+                       "each row in the group at the top it was in")
+        XCTAssertEqual(refiled.map(\.id), [a, b, c, d, e].map(\.id))
+    }
+
+    func testAFolderWithNothingAboveItIsLeftAsItIs() {
+        let work = group("Work"), home = group("Home")
+        let flat = LegacyPinFolders.flattened([work, home], parents: [:])
+        XCTAssertEqual(flat.groups, [work, home])
+        XCTAssertTrue(flat.into.isEmpty)
+        XCTAssertEqual(LegacyPinFolders.flattened([work], parents: [work.id: work.id]).groups, [work], "nor one holding itself")
+    }
+
+    // MARK: - what an area draws
+
+    /// A group stands where its first tab stands, its tabs together, among
+    /// the tabs in no group: the same in both areas.
+    func testAGroupStandsWhereItsFirstTabStands() {
+        let work = group("Work"), docs = group("Docs")
+        let a = def("A"), b = def("B", group: work.id), c = def("C", group: docs.id), d = def("D", group: work.id)
+        XCTAssertEqual(items([a, b, c, d], [work, docs]), [
+            .tab(a.id),
+            .group(work, [b.id, d.id]),
+            .group(docs, [c.id]),
+        ])
+        XCTAssertEqual(items([b, a, d, c], [docs, work], keepingEmpty: false), [
+            .group(work, [b.id, d.id]),
+            .tab(a.id),
+            .group(docs, [c.id]),
+        ], "the groups' own order says nothing while they hold tabs")
+        XCTAssertEqual(ColumnTree.ordered([a, b, c, d], group: \.group, groups: [work, docs]).map(\.id),
+                       [a, b, d, c].map(\.id), "laid flat, each group's tabs together")
+    }
+
+    /// An empty group, kept above the line, stands after the group before
+    /// it in their own order, or first; under the line there is none.
+    func testAnEmptyGroupStandsAfterTheGroupBeforeIt() {
+        let work = group("Work"), empty = group("Empty"), first = group("First")
+        let a = def("A"), b = def("B", group: work.id), c = def("C")
+        XCTAssertEqual(items([a, b, c], [first, work, empty]), [
+            .group(first, []), .tab(a.id), .group(work, [b.id]), .group(empty, []), .tab(c.id),
+        ])
+        XCTAssertEqual(items([a, b, c], [first, work, empty], keepingEmpty: false), [
+            .tab(a.id), .group(work, [b.id]), .tab(c.id),
         ])
     }
 
-    func testAFoldedFolderHidesWhatItHoldsButThePageYouAreOn() {
-        let work = folder("Work", collapsed: true), docs = folder("Docs", in: work.id)
-        let b = def("B", folder: work.id), c = def("C", folder: docs.id)
-        let pins = [b, c].map { ($0.id, $0.folder) }
-        XCTAssertEqual(PinTree.lines(pins: pins, folders: [work, docs]), [.folder(work, depth: 0)])
-        XCTAssertEqual(PinTree.lines(pins: pins, folders: [work, docs], showing: c.id),
-                       [.folder(work, depth: 0), .pin(c.id, depth: 2)])
+    func testFlatteningTheItemsGivesBackTheTabsAndTheGroupsInOrder() {
+        let work = group("Work"), empty = group("Empty")
+        let a = def("A"), b = def("B", group: work.id)
+        let flat = ColumnTree.flattened(ColumnTree.items([a, b], group: \.group, groups: [empty, work], keepingEmpty: true))
+        XCTAssertEqual(flat.members.map(\.member.id), [a.id, b.id])
+        XCTAssertEqual(flat.members.map(\.group), [nil, work.id])
+        XCTAssertEqual(flat.groups.map(\.id), [empty.id, work.id])
+        // Read again, the same: the order is its own fixed point.
+        let again = ColumnTree.items(flat.members.map(\.member), group: \.group, groups: flat.groups, keepingEmpty: true)
+        XCTAssertEqual(again.map { $0.group?.id }, [empty.id, nil, work.id])
     }
 
-    func testAPinWhoseFolderIsGoneIsAtTheTop() {
-        let a = def("A", folder: UUID())
-        XCTAssertEqual(PinTree.lines(pins: [(a.id, a.folder)], folders: []), [.pin(a.id, depth: 0)])
+    func testAFoldedGroupHidesItsTabsButThePageYouAreOn() {
+        let work = group("Work", collapsed: true)
+        let b = def("B", group: work.id), c = def("C", group: work.id)
+        let drawn = ColumnTree.items([b.id, c.id], group: { _ in work.id }, groups: [work], keepingEmpty: true)
+        XCTAssertEqual(ColumnTree.lines(drawn), [.heading(work)])
+        XCTAssertEqual(ColumnTree.lines(drawn, showing: { $0 == c.id }), [.heading(work), .tab(c.id, group: work.id)])
     }
 
-    func testOrderedPutsThePinsInTheOrderTheyAreDrawn() {
-        let work = folder("Work")
-        let a = def("A"), b = def("B", folder: work.id)
-        XCTAssertEqual(PinTree.ordered([a, b], folders: [work]), [b, a])
+    func testATabWhoseGroupIsGoneIsInNone() {
+        let a = def("A", group: UUID())
+        XCTAssertEqual(items([a], []), [.tab(a.id)])
     }
 
-    // MARK: - what may go where
-
-    func testAFolderThatWouldHoldItselfOrHasNoParentGoesToTheTop() {
-        var x = folder("X"), y = folder("Y")
-        x.parent = y.id
-        y.parent = x.id
-        let lost = folder("Lost", in: UUID())
-        let clean = PinTree.sanitized([x, y, lost])
-        XCTAssertTrue(clean.contains { $0.parent == nil && ($0.id == x.id || $0.id == y.id) })
-        XCTAssertNil(clean.first { $0.id == lost.id }?.parent)
-        XCTAssertEqual(PinTree.lines(pins: [], folders: [x, y, lost]).count, 3)
-    }
-
-    func testAFolderTooDeepGoesUpToTheDeepestThatMayHoldIt() {
-        let one = folder("1"), two = folder("2", in: one.id), three = folder("3", in: two.id)
-        let four = folder("4", in: three.id)
-        let clean = PinTree.sanitized([one, two, three, four])
-        XCTAssertEqual(clean.first { $0.id == four.id }?.parent, two.id)
-        XCTAssertTrue(clean.allSatisfy { PinTree.depth(of: $0.id, in: clean) <= PinTree.maxDepth })
-    }
-
-    func testNestingStaysWithinTheLimitAndNeverInsideItself() {
-        let one = folder("1"), two = folder("2", in: one.id), three = folder("3", in: two.id)
-        let other = folder("Other"), inner = folder("Inner", in: other.id)
-        let all = [one, two, three, other, inner]
-        XCTAssertTrue(PinTree.canMake(in: two.id, in: all))
-        XCTAssertFalse(PinTree.canMake(in: three.id, in: all))
-        XCTAssertFalse(PinTree.canMove(one.id, into: three.id, in: all))
-        XCTAssertFalse(PinTree.canMove(one.id, into: one.id, in: all))
-        XCTAssertTrue(PinTree.canMove(other.id, into: one.id, in: all))
-        XCTAssertFalse(PinTree.canMove(other.id, into: two.id, in: all))
-        XCTAssertTrue(PinTree.canMove(three.id, into: nil, in: all))
-    }
-
-    func testRemovingAFolderHandsWhatItHeldToItsParent() {
-        let work = folder("Work"), docs = folder("Docs", in: work.id), old = folder("Old", in: docs.id)
-        let a = def("A", folder: docs.id), b = def("B", folder: work.id)
-        let after = PinTree.removing(docs.id, folders: [work, docs, old], pins: [a, b])
-        XCTAssertEqual(after.folders.map(\.id), [work.id, old.id])
-        XCTAssertEqual(after.folders.last?.parent, work.id)
-        XCTAssertEqual(after.pins.map(\.folder), [work.id, work.id])
-    }
-
-    func testAnImportMakesNoEmptyFolder() {
-        let mine = folder("Mine"), work = folder("Work"), docs = folder("Docs", in: work.id), empty = folder("Empty")
-        let a = def("A", folder: docs.id)
-        let kept = PinTree.withoutEmpty([mine, work, docs, empty], keeping: [mine.id], pins: [a])
-        XCTAssertEqual(kept.map(\.id), [mine.id, work.id, docs.id])
-    }
-
-    // MARK: - a pin let go among the rows
-
-    /// Work (a heading) at 0–24, its pin B at 30–62, then A at 68–100.
-    private func measured(_ work: PinFolder, _ b: PinDef, _ a: PinDef) -> [(line: PinTree.Line, frame: CGRect)] {
-        [(.folder(work, depth: 0), CGRect(x: 0, y: 0, width: 200, height: 24)),
-         (.pin(b.id, depth: 1), CGRect(x: 0, y: 30, width: 200, height: 32)),
-         (.pin(a.id, depth: 0), CGRect(x: 0, y: 68, width: 200, height: 32))]
-    }
-
-    func testLetGoOverAFoldersHeadingGoesIntoIt() {
-        let work = folder("Work"), b = def("B", folder: work.id), a = def("A")
-        let place = PinTree.place(y: 10, lines: measured(work, b, a), folders: [b.id: work.id, a.id: nil], carrying: a.id)
-        XCTAssertEqual(place, PinTree.Place(folder: work.id))
-    }
-
-    func testLetGoOverAPinGoesBesideItInItsFolder() {
-        let work = folder("Work"), b = def("B", folder: work.id), a = def("A")
-        let lines = measured(work, b, a)
-        let folders: [UUID: UUID?] = [b.id: work.id, a.id: nil]
-        XCTAssertEqual(PinTree.place(y: 35, lines: lines, folders: folders, carrying: a.id),
-                       PinTree.Place(folder: work.id, anchor: b.id, after: false))
-        XCTAssertEqual(PinTree.place(y: 60, lines: lines, folders: folders, carrying: a.id),
-                       PinTree.Place(folder: work.id, anchor: b.id, after: true))
-    }
-
-    func testLetGoOnItselfOrBetweenLinesMovesNothing() {
-        let work = folder("Work"), b = def("B", folder: work.id), a = def("A")
-        let lines = measured(work, b, a)
-        let folders: [UUID: UUID?] = [b.id: work.id, a.id: nil]
-        XCTAssertNil(PinTree.place(y: 80, lines: lines, folders: folders, carrying: a.id))
-        XCTAssertNil(PinTree.place(y: 27, lines: lines, folders: folders, carrying: a.id))
-    }
-
-    func testLetGoPastEitherEndGoesToTheTop() {
-        let work = folder("Work"), b = def("B", folder: work.id), a = def("A")
-        let lines = measured(work, b, a)
-        let folders: [UUID: UUID?] = [b.id: work.id, a.id: nil]
-        XCTAssertEqual(PinTree.place(y: 400, lines: lines, folders: folders, carrying: b.id), PinTree.Place(folder: nil))
-        XCTAssertEqual(PinTree.place(y: -10, lines: lines, folders: folders, carrying: b.id),
-                       PinTree.Place(folder: nil, anchor: a.id))
-    }
-
-    func testOrderedIDsOpenFoldedFolders() {
-        let work = folder("Work", collapsed: true)
-        let a = def("A"), b = def("B", folder: work.id)
-        XCTAssertEqual(PinTree.orderedIDs([(a.id, a.folder), (b.id, b.folder)], folders: [work]), [b.id, a.id])
-    }
-
-    func testTheMenuListsFoldersSetInUnderTheirParents() {
-        let work = folder("Work"), docs = folder("Docs", in: work.id), home = folder("Home")
-        XCTAssertEqual(PinFolderMenu.entries([work, docs, home]).map(\.title), ["Work", "    Docs", "Home"])
+    func testAnImportMakesNoEmptyGroup() {
+        let mine = group("Mine"), work = group("Work"), empty = group("Empty")
+        let a = def("A", group: work.id)
+        let kept = ColumnTree.withoutEmpty([mine, work, empty], keeping: [mine.id], pins: [a])
+        XCTAssertEqual(kept.map(\.id), [mine.id, work.id])
     }
 
     // MARK: - Arc
@@ -238,41 +285,25 @@ final class PinFoldersTests: XCTestCase {
         XCTAssertEqual(sidebar.pinnedCount, 5)
     }
 
-    func testArcsFoldersComeInNestedToTheLimit() throws {
+    func testArcsFoldersComeInOneLevelDeep() throws {
         let sidebar = try XCTUnwrap(Arc.parse(arcFile(), profile: nil))
-        let filed = PinTree.fromArc(try XCTUnwrap(sidebar.spaces.first?.pinned), into: [])
-        // L1 › L2 › L3; L4 is one too deep, its page goes into L3.
-        XCTAssertEqual(filed.folders.map(\.name), ["L1", "L2", "L3"])
-        let byName = Dictionary(uniqueKeysWithValues: filed.folders.map { ($0.name, $0) })
-        XCTAssertNil(byName["L1"]?.parent)
-        XCTAssertEqual(byName["L2"]?.parent, byName["L1"]?.id)
-        XCTAssertEqual(byName["L3"]?.parent, byName["L2"]?.id)
-        let where_ = Dictionary(uniqueKeysWithValues: filed.pages.map { ($0.item.url.host() ?? "", $0.folder) })
-        XCTAssertEqual(where_["top.example"], .some(nil))
-        XCTAssertEqual(where_["one.example"], byName["L1"]?.id)
-        XCTAssertEqual(where_["two.example"], byName["L2"]?.id)
-        XCTAssertEqual(where_["three.example"], byName["L3"]?.id)
-        XCTAssertEqual(where_["four.example"], byName["L3"]?.id)
-        XCTAssertEqual(filed.pages.map(\.item.url.absoluteString).first, "https://top.example/")
+        let filed = ColumnTree.fromArc(try XCTUnwrap(sidebar.spaces.first?.pinned), into: [])
+        // L1 at the top; the pages of L2, L3 and L4 inside it go into it.
+        XCTAssertEqual(filed.groups.map(\.name), ["L1"])
+        let l1 = try XCTUnwrap(filed.groups.first).id
+        XCTAssertEqual(filed.pages.map(\.item.url.absoluteString), [
+            "https://top.example/", "https://one.example/", "https://two.example/",
+            "https://three.example/", "https://four.example/",
+        ], "in the order they come")
+        XCTAssertEqual(filed.pages.map(\.group), [nil, l1, l1, l1, l1])
     }
 
-    func testBringingArcInAgainFillsTheFoldersThereAre() throws {
+    func testBringingArcInAgainFillsTheGroupsThereAre() throws {
         let sidebar = try XCTUnwrap(Arc.parse(arcFile(), profile: nil))
         let pinned = try XCTUnwrap(sidebar.spaces.first?.pinned)
-        let first = PinTree.fromArc(pinned, into: [])
-        let again = PinTree.fromArc(pinned, into: first.folders)
-        XCTAssertEqual(again.folders, first.folders)
-        XCTAssertEqual(again.pages.map(\.folder), first.pages.map(\.folder))
-    }
-
-    func testArcsFoldersInsideAFolderCountItsDepth() {
-        let deep = folder("Deep"), deeper = folder("Deeper", in: deep.id)
-        let nodes: [ArcSidebar.Node] = [.folder(.init(title: "Arc", items: [
-            .item(.init(title: "x", url: URL(string: "https://x.example/")!)),
-        ]))]
-        let filed = PinTree.fromArc(nodes, into: [deep, deeper], parent: deeper.id)
-        // Deeper is at depth 2: Arc's folder can go in at 3, no further.
-        XCTAssertEqual(filed.folders.last?.parent, deeper.id)
-        XCTAssertEqual(filed.pages.first?.folder, filed.folders.last?.id)
+        let first = ColumnTree.fromArc(pinned, into: [])
+        let again = ColumnTree.fromArc(pinned, into: first.groups)
+        XCTAssertEqual(again.groups, first.groups)
+        XCTAssertEqual(again.pages.map(\.group), first.pages.map(\.group))
     }
 }

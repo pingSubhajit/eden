@@ -322,14 +322,14 @@ public enum SyncItems {
     /// own pin of a page every space already shows gives way to that one.
     /// The one given up goes from the device that made it at its next pass,
     /// its tab carrying on as the other's (handedOver). Titles: the one agreed, else the
-    /// one this Mac had, else the page's address. Which folder holds a row is
-    /// this Mac's alone and never syncs: a pin still a row in the same space
-    /// keeps the one it had here; shared, moved or made a square, it is in
+    /// one this Mac had, else the page's address. Which kept group holds a row
+    /// is this Mac's alone and never syncs (#8): a pin still a row in the same
+    /// space keeps the one it had here; shared, moved or made a square, it is in
     /// none, as only a space's own rows ever are.
     public static func applyPins(_ live: [String: String], spaces: [UUID], local: [UUID: [PinDef]], localShared: [PinDef])
         -> (bySpace: [UUID: [PinDef]], shared: [PinDef]) {
         let known = (Array(local.values).flatMap { $0 } + localShared)
-        func defs(_ space: String, fallback: [PinDef], folders: [UUID: UUID] = [:]) -> [PinDef] {
+        func defs(_ space: String, fallback: [PinDef], groups: [UUID: UUID] = [:]) -> [PinDef] {
             let prefix = "pin:\(space):"
             var found: [String: SyncedPin] = [:]
             for (key, text) in live where key.hasPrefix(prefix) {
@@ -343,7 +343,7 @@ public enum SyncItems {
                 let title = live[pinTitle(id)].flatMap { SyncMerge.value(String.self, $0) }
                     ?? known.first { $0.id == id }?.title ?? pin.home
                 return PinDef(id: id, letter: pin.letter, home: pin.home, title: title, name: pin.name, listed: pin.listed,
-                              folder: pin.listed == true ? folders[id] : nil)
+                              group: pin.listed == true ? groups[id] : nil)
             }
         }
         let everyShared = defs(sharedSpace, fallback: localShared)
@@ -352,8 +352,8 @@ public enum SyncItems {
         var bySpace: [UUID: [PinDef]] = [:]
         for space in spaces {
             let here = local[space] ?? []
-            let folders = Dictionary(here.compactMap { def in def.folder.map { (def.id, $0) } }) { first, _ in first }
-            let own = onePerPage(defs(space.uuidString, fallback: here, folders: folders).filter { !sharedIDs.contains($0.id) },
+            let groups = Dictionary(here.compactMap { def in def.group.map { (def.id, $0) } }) { first, _ in first }
+            let own = onePerPage(defs(space.uuidString, fallback: here, groups: groups).filter { !sharedIDs.contains($0.id) },
                                  besides: shared)
             if !own.isEmpty { bySpace[space] = own }
         }

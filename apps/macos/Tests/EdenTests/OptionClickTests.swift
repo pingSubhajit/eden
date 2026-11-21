@@ -165,16 +165,15 @@ final class OptionClickTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs, prefs.newTabPlace)
+        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs, prefs.newTabPlace) = previous
+            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
         browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = true
-        browser.prefs.listsPins = false
         browser.prefs.roomyTabs = false
         // Each new tab after the last, so they stand in the order made.
         browser.prefs.newTabPlace = .next

@@ -4379,67 +4379,89 @@ enum ExtensionShims {
 
         switch api {
         // MARK: bookmarks
+        // The pinned rows of the space in front and their kept groups,
+        // which are where the Mac keeps pages (see PinShelf), in Chrome's shapes:
+        // "0" the root, "1" the bar, holding them.
         case "bookmarks.getTree":
-            return [root(browser.bookmarks.roots)]
+            return [root(browser.pinShelf.roots)]
         case "bookmarks.getSubTree":
             guard let key = first as? String else { return [] }
-            if key == "0" { return [root(browser.bookmarks.roots)] }
-            if key == "1" { return [bar(browser.bookmarks.roots)] }
-            return find(key, in: browser.bookmarks.roots).map { [node($0.node, parent: $0.parent, index: $0.index, deep: true)] } ?? []
+            let roots = browser.pinShelf.roots
+            if key == "0" { return [root(roots)] }
+            if key == "1" { return [bar(roots)] }
+            return find(key, in: roots).map { [node($0.node, parent: $0.parent, index: $0.index, deep: true)] } ?? []
         case "bookmarks.getChildren":
             let key = first as? String ?? "1"
-            if key == "0" { return [bar(browser.bookmarks.roots, deep: false)] }
-            let kids = key == "1" ? browser.bookmarks.roots : (find(key, in: browser.bookmarks.roots)?.node.children ?? [])
+            let roots = browser.pinShelf.roots
+            if key == "0" { return [bar(roots, deep: false)] }
+            let kids = key == "1" ? roots : (find(key, in: roots)?.node.children ?? [])
             return kids.enumerated().map { node($1, parent: key, index: $0, deep: false) }
         case "bookmarks.get":
             let keys = (first as? [String]) ?? (first as? String).map { [$0] } ?? []
+            let roots = browser.pinShelf.roots
             return keys.compactMap { key in
-                find(key, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
+                find(key, in: roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
             }
         case "bookmarks.getRecent":
             let count = (first as? Int) ?? 10
-            return flat(browser.bookmarks.roots).filter { !$0.node.isFolder }.suffix(count).reversed()
+            return flat(browser.pinShelf.roots).filter { !$0.node.isFolder }.suffix(count).reversed()
                 .map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.search":
             let query = (first as? String) ?? ((first as? [String: Any])?["query"] as? String) ?? ""
             let wantURL = (first as? [String: Any])?["url"] as? String
             let wantTitle = (first as? [String: Any])?["title"] as? String
             let words = query.lowercased().split(separator: " ").map(String.init)
-            return flat(browser.bookmarks.roots).filter { hit in
+            return flat(browser.pinShelf.roots).filter { hit in
                 let n = hit.node
                 if let wantURL, n.url != wantURL { return false }
                 if let wantTitle, n.title != wantTitle { return false }
                 let hay = (n.title + " " + (n.url ?? "")).lowercased()
                 return words.allSatisfy { hay.contains($0) }
             }.map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
+        // An index is Chrome's, counted over a level as it reads: the kept
+        // area's groups stand among its rows (Column.swift), so it is the
+        // place itself, give or take an empty group (PinShelf).
         case "bookmarks.create":
             let spec = first as? [String: Any] ?? [:]
             let title = spec["title"] as? String ?? ""
             let parent = (spec["parentId"] as? String).flatMap(UUID.init(uuidString:))
             let index = spec["index"] as? Int
-            let made: Bookmark
-            if let url = (spec["url"] as? String).flatMap(URL.init(string:)) {
-                made = browser.bookmarks.insert(.site(title, url), into: parent, at: index)
+            let shelf = browser.pinShelf
+            let made: Bookmark?
+            if let url = spec["url"] as? String {
+                made = shelf.insert(Bookmark(title: title, url: url, children: nil), into: parent, at: index)
+                // A page pinned here already answers as its row (see insert).
+                guard made != nil else { throw Unsupported(what: "Only a web page, not pinned here as a square or in every space, can be pinned as a row") }
             } else {
-                made = browser.bookmarks.insert(.folder(title, []), into: parent, at: index)
+                made = shelf.insert(.folder(title, []), into: parent, at: index)
+                // Pinned folders are one level deep, as tab groups are.
+                guard made != nil else { throw Unsupported(what: "A pinned folder can't go inside another folder") }
             }
-            return find(made.id.uuidString, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
+            return made.flatMap { find($0.id.uuidString, in: shelf.roots) }
+                .map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.update":
             guard let key = first as? String, let uuid = UUID(uuidString: key) else { throw Unsupported(what: "No such bookmark") }
             let changes = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
-            browser.bookmarks.update(uuid, title: changes["title"] as? String, url: changes["url"] as? String)
-            return find(key, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
+            let shelf = browser.pinShelf
+            // A space keeps one pin of a page: not another pin's (see update).
+            guard shelf.update(uuid, title: changes["title"] as? String, url: changes["url"] as? String) else {
+                throw Unsupported(what: "That address isn't a web page, or another pin here has it")
+            }
+            return find(key, in: shelf.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.move":
             guard let key = first as? String, let uuid = UUID(uuidString: key) else { throw Unsupported(what: "No such bookmark") }
             let spec = (args.count > 1 ? args[1] as? [String: Any] : nil) ?? [:]
+            let shelf = browser.pinShelf
             // No parent named keeps it in the folder it is in, as in Chrome;
             // "1", the bar, is the top level.
-            let target = (spec["parentId"] as? String).map(UUID.init(uuidString:)) ?? browser.bookmarks.parent(of: uuid)
-            browser.bookmarks.move(uuid, into: target, at: spec["index"] as? Int)
-            return find(key, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
+            let target = (spec["parentId"] as? String).map(UUID.init(uuidString:)) ?? shelf.parent(of: uuid)
+            guard shelf.move(uuid, into: target, at: spec["index"] as? Int) else {
+                throw Unsupported(what: "A pinned folder can't go inside another folder")
+            }
+            return find(key, in: shelf.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.remove", "bookmarks.removeTree":
             guard let key = first as? String, let uuid = UUID(uuidString: key) else { throw Unsupported(what: "No such bookmark") }
-            browser.bookmarks.remove(uuid)
+            browser.pinShelf.remove(uuid)
             return nil
 
         // MARK: history
@@ -5138,7 +5160,9 @@ enum ExtensionShims {
             guard let browser = owner.browser(of: tabs[0]), tabs.allSatisfy({ owner.browser(of: $0) === browser }) else {
                 throw Unsupported(what: "Tabs from different windows can't share a group")
             }
-            // Pins and private tabs are never in a group in Eden.
+            // Pins and private tabs are never in a window's tab group in
+            // Eden, which is what an extension's groups are; a pinned row's
+            // kept group above the line (Column.swift) is the pins' own.
             guard tabs.allSatisfy({ $0.pin == nil && !$0.shy }) else {
                 throw Unsupported(what: "Pinned and private tabs can't be grouped")
             }

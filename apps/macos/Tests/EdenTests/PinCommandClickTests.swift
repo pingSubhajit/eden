@@ -132,10 +132,10 @@ final class PinCommandClickTests: XCTestCase {
         XCTAssertEqual(movedTab.address, article)
     }
 
-    func testCommandClickWanderedPinCarriesPinFolderAndClearsOnMovedTab() {
+    func testCommandClickWanderedPinCarriesKeptGroupAndClearsOnMovedTab() {
         let tab = pin(home: home, current: article, listed: true)
         let folderID = UUID()
-        tab.pinFolder = folderID
+        tab.keptGroupID = folderID
         tab.name = "Custom Name"
         browser.select(tab)
 
@@ -144,14 +144,14 @@ final class PinCommandClickTests: XCTestCase {
         XCTAssertEqual(browser.pinnedCount, 1)
         XCTAssertEqual(browser.tabs.count, 2)
 
-        // The fresh pin gets the pinFolder and keeps the pin's custom name.
+        // The fresh pin gets the kept group and keeps the pin's custom name.
         let freshPin = browser.tabs[0]
-        XCTAssertEqual(freshPin.pinFolder, folderID)
+        XCTAssertEqual(freshPin.keptGroupID, folderID)
         XCTAssertEqual(freshPin.name, "Custom Name")
 
-        // The moved loose tab clears pinFolder and custom name.
+        // The moved loose tab clears its kept group and custom name.
         let looseTab = browser.tabs[1]
-        XCTAssertNil(looseTab.pinFolder)
+        XCTAssertNil(looseTab.keptGroupID)
         XCTAssertNil(looseTab.name)
     }
 

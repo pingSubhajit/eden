@@ -158,7 +158,7 @@ final class SessionImportTests: XCTestCase {
         XCTAssertEqual(tabs[0].title, "A")
         XCTAssertFalse(tabs[0].pinned)
         XCTAssertTrue(tabs[2].pinned)
-        // Pins are never in a group, even a grouped one.
+        // Pins are never in a window's tab group, even a grouped one.
         XCTAssertEqual(read.groups.count, 1)
         let token = SessionImport.Token(high: 1, low: 2)
         XCTAssertEqual(read.groups[token]?.title, "Work")

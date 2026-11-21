@@ -69,13 +69,12 @@ extension Browser {
         }
     }
 
-    /// A plain click in a pin, on a link to another site, with Settings ›
-    /// Tabs › Open links from pins in a peek on: Arc's way, the link opens
-    /// in a peek and the pin stays the page it was pinned for. Links within
+    /// A plain click in a pin, on a link to another site: Arc's way, the
+    /// link opens in a peek and the pin stays the page it was pinned for. Links within
     /// the site go as they always have, so moving about Gmail or Notion
     /// stays in the pin.
     func peeksFromPin(_ url: URL, in tab: Tab, on page: URL?) -> Bool {
-        guard prefs.pinsPeek, tab.pin != nil, !peekInFront, Browser.peekable(url),
+        guard tab.pin != nil, !peekInFront, Browser.peekable(url),
               let there = url.host()?.lowercased(),
               let here = page?.host()?.lowercased()
         else { return false }
@@ -111,7 +110,7 @@ extension Browser {
     /// results do, when the click didn't take the page away by itself. The
     /// peek already has it, and the pin stays.
     func followsPeek(_ url: URL, in tab: Tab) -> Bool {
-        guard prefs.pinsPeek, tab.pin != nil, let peeked = tab.peeked,
+        guard tab.pin != nil, let peeked = tab.peeked,
               Date().timeIntervalSince(peeked.at) < 3,
               let host = url.host()?.lowercased()
         else { return false }

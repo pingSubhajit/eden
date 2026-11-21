@@ -306,8 +306,11 @@ def main():
         rc = next((x for x in p["profiles"] if x["name"] == "Arc Raycast"), None)
         spaces_file = json.load(open(f"{sv.SUPPORT}/spaces.json"))
         work = next((s for s in spaces_file if s["name"] == "Arc Work"), {})
-        session = json.load(open(f"{sv.SUPPORT}/session-{work.get('id', 'x')}.json")) if work else {"tabs": []}
-        t.ok("its pinned page waits in its own session file", [x["url"] for x in session["tabs"]] == [f"{SITE}/arc-raycast"], session)
+        # Arc's pinned list comes in as pinned rows (#6), kept in pins.json
+        # under the space, not as tabs waiting in its session file.
+        kept = json.load(open(f"{sv.SUPPORT}/pins.json"))
+        rows = next((v for k, v in kept.items() if k.lower() == work.get("id", "x").lower()), [])
+        t.ok("its pinned page is a pinned row of its own space", [x["home"] for x in rows if x.get("listed")] == [f"{SITE}/arc-raycast"], rows)
         t.ok("signed in with the profile's own cookies", work.get("sharesSignIns") is True and rc and work.get("profile", "").lower() == rc["id"].lower(), work)
         t.ok("the import counted both spaces", (out.get("arc") or {}).get("spaces") == 2, out)
     except Exception as error:

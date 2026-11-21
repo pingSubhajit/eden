@@ -22,8 +22,8 @@ enum Palette {
     /// you are on stands out from them as a live row does from the white.
     static let pinLive = Color(nsColor: NS.pinLive)
     static let hover = Color(nsColor: NS.hover)         // the one under the pointer
-    /// Around the page's card, with the tabs down the side: the column, the
-    /// bookmarks bar and the gaps share it, a touch off the page's white, so
+    /// Around the page's card, with the tabs down the side: the column and
+    /// the gaps share it, a touch off the page's white, so
     /// the card reads as one (see CardEdge).
     static let frame = Color(nsColor: NS.frame)
     /// The column's own greys, on that ground: the live tab, the one under the
@@ -165,8 +165,8 @@ enum Metrics {
     /// measured, not guessed — so this leaves them the same air on their right
     /// that the window gives them on their left.
     static let lights: CGFloat = 100
-    /// Back, forward and reload, at the far end of the row beside the
-    /// bookmarks: three doors and the air before the next one.
+    /// Back, forward and reload, at the far end of the row: three doors and
+    /// the air before the next one.
     static let helm: CGFloat = 3 * 26 + 2 * 2 + 8
     /// The same three doors again, in the sidebar, where they sit right of
     /// the lights instead. The column already has 10 of horizontal padding

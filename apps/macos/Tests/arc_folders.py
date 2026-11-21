@@ -1,14 +1,13 @@
-"""Arc's folders survive an import made with tab groups off (#478).
+"""Arc's folders survive an import, as folders of pinned rows (#478).
 
 Build first (`./build.sh`), then `python3 Tests/arc_folders.py`. A made-up Arc
 profile is written into the world's own Import folder, with two folders of
-pinned pages, and the import is asked for its spaces with tab groups off. The
-names have to be in the session all the same, so that turning groups on later
-shows them rather than finding nothing left.
+pinned pages, and the import is asked for its spaces. The folders have to come
+in as folders of rows, every page a row in its own, and still be there when
+Eden opens again.
 """
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -54,43 +53,60 @@ def arc():
     Path(f"{profile}/History").write_bytes(b"")
 
 
-def session():
-    return json.load(open(f"{sv.SUPPORT}/session.json"))
+def load(name):
+    path = f"{sv.SUPPORT}/{name}"
+    if not os.path.exists(path): return {}
+    return json.load(open(path))
 
 
-def names(shape):
-    return sorted(g["name"] for g in (shape.get("groups") or []))
+def groups():
+    """Every space's kept groups (kept-groups.json), passing by the moves a
+    file may keep beside them."""
+    return [f for row in load("kept-groups.json").values() if isinstance(row, list) for f in row]
 
 
-def grouped(shape):
-    return sum(1 for t in shape["tabs"] if t.get("groupID"))
+def names():
+    """The folders of rows, kept groups now, by name, from every space."""
+    return sorted(f["name"] for f in groups())
+
+
+def filed():
+    """Each row's page, with the name of the group it is in (its "folder"
+    in pins.json, as it always was)."""
+    folders = {f["id"]: f["name"] for f in groups()}
+    return sorted((p["home"], folders.get(p.get("folder")))
+                  for row in load("pins.json").values() for p in row if p.get("listed"))
+
+
+WANT = sorted((url, folder) for folder, pages in FOLDERS.items() for _, url in pages)
 
 
 def main():
     t = sv.T()
     try:
-        sv.setup()                      # tab groups are off, as they are by default
+        sv.setup()
         arc()
         sv.launch()
         out = sv.cmd({"do": "import", "from": "Arc", "what": ["spaces"]})
-        count = (out.get("arc") or {}).get("tabs")
-        t.ok("the pages came in", count == 3, out)
+        count = (out.get("arc") or {}).get("pins")
+        t.ok("the pages came in as pins", count == 3, out)
         for _ in range(25):
-            if names(session()): break
+            if names() and len(filed()) == 3: break
             time.sleep(0.2)
-        shape = session()
-        t.ok("their folders are in the session, with groups off",
-             names(shape) == ["Basics", "SRE"], shape.get("groups"))
-        t.ok("and every page is in one", grouped(shape) == 3, grouped(shape))
+        t.ok("their folders are folders of rows", names() == ["Basics", "SRE"], names())
+        t.ok("and every page is a row in its own", filed() == WANT, filed())
+        tabs = sv.cmd({"do": "tabs"}).get("tabs", [])
+        t.ok("nothing went into a tab group", not [x for x in tabs if x.get("group")],
+             [(x["url"], x["group"]) for x in tabs])
 
-        # Turning groups on later finds them waiting.
-        subprocess.run(["defaults", "write", sv.SUITE, "tabs.groups", "-bool", "true"])
+        # Opened again, they are where they were.
         sv.quit()                       # quit, not finish: the world has to stay
         time.sleep(1)
         sv.launch()
-        shape = session()
-        t.ok("the names are still there once groups are on",
-             names(shape) == ["Basics", "SRE"] and grouped(shape) == 3, shape.get("groups"))
+        st = sv.cmd({"do": "pinfolder", "action": "state"})
+        t.ok("the folders are still there when Eden opens again",
+             names() == ["Basics", "SRE"] and filed() == WANT
+             and sorted(f["name"] for f in st.get("folders") or []) == ["Basics", "SRE"], st)
     finally:
         t.done()
         sv.finish()

@@ -19,6 +19,13 @@ final class IconColumnTests: XCTestCase {
         super.setUp()
     }
 
+    /// From a space as a new install has it, whatever the suites before
+    /// left in this process's world (CleanWorld).
+    override func setUp() async throws {
+        try await super.setUp()
+        CleanWorld.reset()
+    }
+
     override class func tearDown() {
         if let world = Store.world, world.hasPrefix("bld-ai-iconcol-") {
             try? FileManager.default.removeItem(at: Store.folder)
@@ -29,7 +36,13 @@ final class IconColumnTests: XCTestCase {
 
     override func tearDown() async throws {
         for window in windows { window.contentView = nil; window.close() }
-        for browser in browsers { browser.closeAll() }
+        for browser in browsers {
+            browser.closeAll()
+            // Its pages are real ones, which the space's row keeps: emptied,
+            // or the next test's window would open with them too.
+            Disk.drain()
+            browser.writeRow(browser.spaceID, Session.Shape(tabs: [], active: 0), now: true)
+        }
         restorePreferences?()
         if let activationPolicy { NSApp.setActivationPolicy(activationPolicy) }
         windows.removeAll()
@@ -164,17 +177,22 @@ final class IconColumnTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.sideIcons, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.usesSpaces, prefs.sharesPins)
+        let previous = (prefs.sidebar, prefs.sideIcons, prefs.usesTabGroups, prefs.splitView, prefs.usesSpaces, prefs.sharesPins,
+                        prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.sideIcons, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.usesSpaces, prefs.sharesPins) = previous
+            (prefs.sidebar, prefs.sideIcons, prefs.usesTabGroups, prefs.splitView, prefs.usesSpaces, prefs.sharesPins,
+             prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
         browser.prefs.tabsLayout = .icons
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = split
-        browser.prefs.listsPins = false
         browser.prefs.sharesPins = false
+        // Each new tab after the last, so they stand in the order made: new
+        // tabs go to the top unless told otherwise, and a second blank one
+        // there would be the first one reused.
+        browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three", "four", "five", "six"].prefix(count) {
             if browser.tabs.last?.isBlank == false { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://example.com/\(word)")!, title: word)

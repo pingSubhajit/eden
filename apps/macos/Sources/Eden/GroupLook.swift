@@ -10,6 +10,11 @@ import SwiftUI
 // Folding and unfolding run on a quick spring fitted to Dia's frames
 // (GroupLook.fold). A right-click opens the group's menu: the colours in a
 // row at its top, applied as you pick them, then what can be done to it.
+//
+// A group above the line, a kept group (Column.swift), is the same TabGroup
+// drawn and handled with the same pieces: the same surface, heading, fold,
+// colours, icon and menu, only what its area keeps it with, and some of what
+// its menu offers, being its own.
 
 extension GroupColour {
     /// The swatch itself, as the paintings have it.
@@ -274,35 +279,27 @@ extension View {
     }
 }
 
-/// A group's icon in its heading: its own, else its first tab's site icon,
-/// else a stack of cards.
-struct GroupIconView: View {
-    let group: TabGroup
-    /// The group's first tab, for its site icon.
-    let first: Tab?
+/// A group's icon in its heading: its own, else what stands for it until
+/// one is chosen (`standIn`): an open group's first tab's site icon, a
+/// kept group's folder (PinFolderIcon).
+struct GroupIconView<StandIn: View>: View {
+    let icon: GroupIcon?
+    let colour: GroupColour
     /// A tab's icon in the column (Preferences.sideMark).
     let size: CGFloat
-    /// Letters for site icons, as the tabs show them (Settings › Tabs).
-    var letters = false
+    @ViewBuilder let standIn: StandIn
 
     var body: some View {
         Group {
-            switch group.icon {
+            switch icon {
             case .emoji(let text):
                 Text(text).font(.system(size: size * 0.8))
             case .symbol(let name):
                 Image(systemName: name)
                     .font(.system(size: size * 0.72, weight: .semibold))
-                    .foregroundStyle(group.colour.ink)
+                    .foregroundStyle(colour.ink)
             case nil:
-                if let first {
-                    // The tab's own mark, as its row draws it.
-                    Mark(icon: letters ? nil : first.icon, letter: first.monogram, size: size)
-                } else {
-                    Image(systemName: "square.on.square.fill")
-                        .font(.system(size: size * 0.68, weight: .semibold))
-                        .foregroundStyle(group.colour.ink)
-                }
+                standIn
             }
         }
         .frame(width: size, height: size)
@@ -367,19 +364,30 @@ enum GroupMenu {
         return item
     }
 
-    /// The group's menu, in Dia's order, without what Eden leaves out.
-    static func make(for group: TabGroup, in browser: Browser) -> NSMenu {
-        let menu = NSMenu()
+    /// The colours, in a row at the top of the menu.
+    private static func swatches(for group: TabGroup, in browser: Browser) -> NSMenuItem {
         let swatches = NSMenuItem()
-        let row = NSHostingView(rootView: SwatchRow(browser: browser, group: group.id))
+        let row = NSHostingView(rootView: SwatchRow(browser: browser, group: group))
         row.frame = NSRect(x: 0, y: 0, width: SwatchRow.width, height: SwatchRow.height)
         // As wide as the menu, the swatches from its left as its titles are.
         row.autoresizingMask = .width
         swatches.view = row
-        menu.addItem(swatches)
+        return swatches
+    }
+
+    /// A group's menu, in Dia's order, without what Eden leaves out: its
+    /// colours, name and icon, its fold and its links the same in either
+    /// area. A kept group's (keptMenu) has what pins don't do left out.
+    static func make(for group: TabGroup, in browser: Browser) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(swatches(for: group, in: browser))
         menu.addItem(item("Rename…") { browser.editingGroupID = group.id })
         menu.addItem(item(group.icon == nil ? "Add Icon…" : "Change Icon…") { browser.iconGroupID = group.id })
         menu.addItem(.separator())
+        if browser.area(ofGroup: group.id) == .kept {
+            keptMenu(menu, for: group, in: browser)
+            return menu
+        }
         menu.addItem(item("New Tab in Group", key: "t", modifiers: [.option, .command]) { browser.newTab(inGroup: group.id) })
         menu.addItem(item("New Group", key: "n", modifiers: [.control, .command]) { browser.newGroup() })
         menu.addItem(.separator())
@@ -406,6 +414,24 @@ enum GroupMenu {
         return menu
     }
 
+    /// The rest of a kept group's menu, as an open group's, less what pins
+    /// don't do: no new tab in it, no copy of it, no other space for it.
+    /// Delete Folder is its Separate Tabs, not its Close Group: its pins
+    /// stay pinned where it stood, since a pin closed is a page lost, where
+    /// a tab closed is one ⇧⌘T away.
+    private static func keptMenu(_ menu: NSMenu, for group: TabGroup, in browser: Browser) {
+        menu.addItem(item("New Folder") { browser.newKeptGroup() })
+        menu.addItem(.separator())
+        menu.addItem(item(group.collapsed ? "Expand Folder" : "Collapse Folder") {
+            withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) }
+        })
+        menu.addItem(item("Copy All Links") { browser.copyLinks(of: group.id) })
+        menu.addItem(.separator())
+        let delete = item("Delete Folder") { withAnimation(GroupLook.fold) { browser.removeTabGroup(group.id) } }
+        delete.toolTip = "Its pins stay pinned, where it stood"
+        menu.addItem(delete)
+    }
+
     /// The menu without a right click: VoiceOver's Show Menu, at the pointer.
     static func show(for group: TabGroup, in browser: Browser) {
         make(for: group, in: browser).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
@@ -416,9 +442,9 @@ enum GroupMenu {
 /// the menu stays open for another look.
 private struct SwatchRow: View {
     @ObservedObject var browser: Browser
-    let group: UUID
+    let group: TabGroup
 
-    private var current: GroupColour? { browser.tabGroups.first { $0.id == group }?.colour }
+    private var current: GroupColour? { browser.columnGroup(group.id)?.colour }
 
     /// A swatch, the ring round the chosen one and the air between them,
     /// as close set as Dia's.
@@ -438,7 +464,7 @@ private struct SwatchRow: View {
         HStack(spacing: Self.gap) {
             ForEach(GroupColour.allCases) { colour in
                 Button {
-                    browser.setColour(colour, ofGroup: group)
+                    browser.setColour(colour, ofGroup: group.id)
                 } label: {
                     Circle()
                         .fill(colour.swatch)
@@ -463,18 +489,19 @@ private struct SwatchRow: View {
 
 /// Add Icon…, beside the group's heading: an emoji or one of the symbols,
 /// taken as it is picked, the popover staying for another look. The bin
-/// goes back to the first tab's site icon.
+/// goes back to what stood for it before: an open group's first tab's site
+/// icon, a kept group's folder.
 struct GroupIconPicker: View {
     @ObservedObject var browser: Browser
-    let group: UUID
+    let group: TabGroup
 
     private enum Kind: String, CaseIterable { case emoji = "Emoji", symbols = "Symbols" }
     @State private var kind: Kind = .emoji
     @State private var typed = ""
     @FocusState private var typing: Bool
 
-    private var current: GroupIcon? { browser.tabGroups.first { $0.id == group }?.icon }
-    private var colour: GroupColour { browser.tabGroups.first { $0.id == group }?.colour ?? .stone }
+    private var current: GroupIcon? { browser.columnGroup(group.id)?.icon }
+    private var colour: GroupColour { browser.columnGroup(group.id)?.colour ?? .stone }
     private let columns = Array(repeating: GridItem(.fixed(26), spacing: 4), count: 8)
 
     var body: some View {
@@ -487,7 +514,7 @@ struct GroupIconPicker: View {
                 .labelsHidden()
                 .frame(width: 160)
                 Button {
-                    browser.setIcon(nil, ofGroup: group)
+                    browser.setIcon(nil, ofGroup: group.id)
                 } label: {
                     Image(systemName: "trash")
                 }
@@ -500,13 +527,13 @@ struct GroupIconPicker: View {
                 switch kind {
                 case .emoji:
                     ForEach(GroupLook.emoji, id: \.self) { text in
-                        cell(selected: current == .emoji(text)) { browser.setIcon(.emoji(text), ofGroup: group) } label: {
+                        cell(selected: current == .emoji(text)) { browser.setIcon(.emoji(text), ofGroup: group.id) } label: {
                             Text(text).font(.system(size: 15))
                         }
                     }
                 case .symbols:
                     ForEach(GroupLook.symbols, id: \.self) { name in
-                        cell(selected: current == .symbol(name)) { browser.setIcon(.symbol(name), ofGroup: group) } label: {
+                        cell(selected: current == .symbol(name)) { browser.setIcon(.symbol(name), ofGroup: group.id) } label: {
                             Image(systemName: name).font(.system(size: 13, weight: .semibold)).foregroundStyle(colour.ink)
                         }
                     }
@@ -544,7 +571,7 @@ struct GroupIconPicker: View {
     private func take(_ text: String) {
         guard let last = text.last, last.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.properties.isEmoji && $0.value > 0x238C })
         else { return }
-        browser.setIcon(.emoji(String(last)), ofGroup: group)
+        browser.setIcon(.emoji(String(last)), ofGroup: group.id)
         typed = ""
     }
 }

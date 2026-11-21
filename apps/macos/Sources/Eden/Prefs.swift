@@ -582,13 +582,6 @@ final class Preferences: ObservableObject {
     @Published var peekStays: Bool {
         didSet { store.set(peekStays, forKey: "links.peek.stays") }
     }
-    /// Pins as in Arc: a link from a pinned tab to another site opens in a
-    /// peek, so the pin stays on its page (see Peek.swift), and ⌘W takes it
-    /// back to the page it was pinned at. Half of "Pins keep their site"
-    /// (Preferences.pinsKeepSite), on unless turned off.
-    @Published var pinsPeek: Bool {
-        didSet { store.set(pinsPeek, forKey: "pins.peek") }
-    }
     /// Reading mode shows a site's own markdown copy of the page when it
     /// publishes one, and works the article out only when it doesn't (see
     /// Reader.twin). Off unless asked for.
@@ -647,11 +640,6 @@ final class Preferences: ObservableObject {
     /// Browser.showDownloads). A tab unless asked for.
     @Published var downloadsOpening: DownloadsOpening {
         didSet { store.set(downloadsOpening.rawValue, forKey: "downloads.open") }
-    }
-    /// The bookmarks bar above the page (see BookmarksBar.swift). Off
-    /// unless asked for.
-    @Published var bookmarksBar: Bool {
-        didSet { store.set(bookmarksBar, forKey: "bookmarks.bar") }
     }
     /// Where a link goes, at the bottom of the page while the pointer is on
     /// it (see StatusLine.swift). On unless turned off.
@@ -777,26 +765,6 @@ final class Preferences: ObservableObject {
     /// adds a command, so there is no switch. Still a property, for the
     /// code that asks and the tests that turn it off; never written.
     @Published var usesTabGroups = true
-    /// Arc's three tiers in the sidebar: the squares, pins kept as rows
-    /// under them, and a line with Clear above the tabs that come and go
-    /// (see Tab.listed). Off unless asked for.
-    @Published var listsPins: Bool {
-        didSet { store.set(listsPins, forKey: "pins.list") }
-    }
-    /// Folders among the pinned rows, as in Arc's pinned list (see
-    /// PinFolders.swift): Arc's folders come in as folders of rows rather
-    /// than as tab groups. Off unless asked for; without Pinned rows it
-    /// does nothing.
-    @Published var pinFolders: Bool {
-        didSet { store.set(pinFolders, forKey: "pins.folders") }
-    }
-    /// A pin goes back to the page it was pinned at when it is closed with
-    /// ⌘W and when Eden opens again, as Arc's pins do, rather than keeping
-    /// wherever it was taken since. The other half of "Pins keep their
-    /// site", on unless turned off.
-    @Published var pinsGoHome: Bool {
-        didSet { store.set(pinsGoHome, forKey: "pins.home") }
-    }
     /// ⌘-click on a pin opens a new tab at its address (or moves a wandered
     /// pin into the loose tabs), as in Arc. Off, ⌘-click adds the pin to the
     /// tab selection.
@@ -809,11 +777,13 @@ final class Preferences: ObservableObject {
     /// adds a command, so there is no switch. Still a property, for the
     /// code that asks and the tests that turn it off; never written.
     @Published var pinNumberGoesBack = true
-    /// Whether the pinned rows are drawn as rows: asked for, and with the
-    /// tabs down the side. Across the top every pin is a square.
-    var showsPinRows: Bool { listsPins && sidebar }
-    /// Whether the pinned rows are drawn in their folders.
-    var showsPinFolders: Bool { pinFolders && showsPinRows }
+    /// Whether the pinned rows are drawn as rows, in their folders: with
+    /// the tabs down the side. Across the top every pin is a square. Arc's
+    /// three tiers (the squares, pins kept as rows under them, and a line
+    /// with Clear above the tabs that come and go, see Tab.listed) are how
+    /// pages are kept since pins took over from bookmarks (#6), so there is
+    /// no switch for the rows, their folders, or pins keeping their site.
+    var showsPinRows: Bool { sidebar }
     /// Pins every space shows above its own, as Arc's favourites sit above
     /// every space (see Pins.shared).
     /// Always on since the Settings rework (Drice, 24 Oct 2026): it only
@@ -1017,17 +987,11 @@ final class Preferences: ObservableObject {
         welcomed = store.bool(forKey: "welcomed") || store.object(forKey: "glyph") != nil
         usesSpaces = store.bool(forKey: "spaces")
         profilesInOneWindow = store.bool(forKey: "profiles.oneWindow")
-        listsPins = store.bool(forKey: "pins.list")
-        pinFolders = store.bool(forKey: "pins.folders")
         pinCommandOpensTab = store.bool(forKey: "pins.commandNewTab")
-        // "Pins keep their site" is one switch over two keys (see
-        // SettingsIndex): on when either was on, on by default when neither
-        // was ever touched (Drice, 24 Oct 2026), off when one was turned
-        // off and the other never set. Nothing is written here.
-        let home = store.object(forKey: "pins.home") as? Bool
-        let peek = store.object(forKey: "pins.peek") as? Bool
-        let keepsSite = home == nil && peek == nil ? true : (home ?? false) || (peek ?? false)
-        pinsGoHome = keepsSite
+        // Pinned rows, their folders and pins keeping their site are always
+        // on now that pins are where pages are kept (#6): their switches are
+        // gone, and so is what they kept.
+        for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"] { store.removeObject(forKey: key) }
         ai = AI.shipped && store.bool(forKey: "ai")
         aiProvider = store.string(forKey: "ai.provider").flatMap(AIProvider.init(rawValue:))
         aiModels = store.dictionary(forKey: "ai.models") as? [String: String] ?? [:]
@@ -1065,14 +1029,16 @@ final class Preferences: ObservableObject {
         peeksLinks = store.object(forKey: "links.peek") as? Bool ?? true
         peekClick = store.string(forKey: "links.peekClick").flatMap(PeekClick.init(rawValue:)) ?? .shift
         peekStays = store.bool(forKey: "links.peek.stays")
-        pinsPeek = keepsSite
         readsTwins = store.bool(forKey: "reader.twins")
         readerFollowsLook = store.bool(forKey: "reader.follows")
         littleLinks = store.bool(forKey: Preferences.littleKey)
         littleFindsTabs = store.bool(forKey: "links.little.tabs")
         sendsLinksToSpaces = store.bool(forKey: SpaceRoutes.key)
         spaceRoutes = (store.array(forKey: SpaceRoutes.rulesKey) ?? []).compactMap(SpaceRoute.init(plist:))
-        bookmarksBar = store.bool(forKey: "bookmarks.bar")
+        // Bookmarks left the Mac when pins took their place (#6): the bar's
+        // switch, and which browser's bookmarks filled the top of the list
+        // first, are gone with them.
+        for key in ["bookmarks.bar", "bookmarks.top"] { store.removeObject(forKey: key) }
         alwaysShowsDownloads = store.bool(forKey: "downloads.button")
         downloadsOpening = store.string(forKey: "downloads.open").flatMap(DownloadsOpening.init(rawValue:)) ?? .tab
         let links = store.object(forKey: "links.show") as? Bool ?? true
@@ -1172,7 +1138,6 @@ final class Preferences: ObservableObject {
         take(\.tabsGive, store.bool(forKey: "tabs.give"))
         take(\.instantMotion, store.bool(forKey: Motion.instantKey))
         take(\.showsTabShortcuts, store.bool(forKey: "tabs.shortcuts"))
-        take(\.bookmarksBar, store.bool(forKey: "bookmarks.bar"))
         take(\.alwaysShowsDownloads, store.bool(forKey: "downloads.button"))
     }
 

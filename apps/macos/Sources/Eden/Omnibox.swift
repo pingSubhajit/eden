@@ -359,8 +359,8 @@ struct Omnibox: View {
                 // Open on another of your devices: that device.
                 symbol(offer.elsewhere?.kind.symbol ?? "laptopcomputer")
             default:
-                // A place — open, kept or visited — wears its site's icon,
-                // as it does in History and the bookmarks bar: from what
+                // A place — open or visited — wears its site's icon, as it
+                // does in History and the column: from what
                 // this Mac already keeps, nothing fetched while typing, and
                 // the site's letter until a visit brings one.
                 Mark(icon: Favicons.shared.cached(for: offer.url), letter: letter, size: 16)
@@ -444,11 +444,6 @@ struct Omnibox: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.muted)
                     .lineLimit(1)
-            }
-            if offer.kind == .bookmark {
-                // Kept by you, not only visited: the bookmark's mark, at
-                // the end now that the site's icon leads the row.
-                symbol("bookmark")
             }
             if offer.kind == .open, offer.tab != nil {
                 // Zen's: the words, quiet until the row is picked, and an

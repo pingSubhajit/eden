@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Settings › Tabs › Pins stay on their site (#577).
+"""Pins stay on their site, always (#577).
 
 Build first (`./build.sh`), then `python3 Tests/pin_peek.py`. It uses the
 split suite's harness: started hidden, no window made or shown, everything
@@ -45,7 +45,7 @@ def peek(): return sv.cmd({"do": "probe"})["peek"]
 def close(): sv.cmd({"do": "peek", "url": "close"}); time.sleep(0.5)
 
 try:
-    sv.setup(sidebar=True, **{"pins.peek": True, "pins.list": True}); sv.launch()
+    sv.setup(sidebar=True); sv.launch()
     a = sv.page("home"); pin(a); sv.sp("select", id=a); time.sleep(0.5)
 
     follow(a, f"{OTHER}/out")
@@ -127,16 +127,21 @@ try:
     follow(b, f"{OTHER}/away")
     t.ok("a tab that isn't a pin goes as before", peek() == "" and sv.url(sv.sp("state"), b).endswith("/away"), (peek(), sv.url(sv.sp("state"), b)))
 
+    # The switch is gone: an old off, left from before, is let go at launch.
     sv.quit()
-    subprocess.run(["defaults", "write", sv.SUITE, "pins.peek", "-bool", "false"])
+    for key in ("pins.peek", "pins.home"):
+        subprocess.run(["defaults", "write", sv.SUITE, key, "-bool", "false"])
     sv.launch(); time.sleep(0.5)
     st = sv.sp("state")
     p = next(x["id"] for x in st["tabs"] if x["id"] in st["pins"])
+    home = sv.url(st, p)
     sv.sp("select", id=p); time.sleep(1.5)
     follow(p, f"{OTHER}/off")
-    t.ok("switched off: the pin follows the link", peek() == "" and sv.url(sv.sp("state"), p).endswith("/off"), (peek(), sv.url(sv.sp("state"), p)))
+    t.ok("an old off doesn't stay: the pin still peeks", peek().endswith("/off") and sv.url(sv.sp("state"), p) == home, (peek(), sv.url(sv.sp("state"), p), home))
+    close()
+    follow(p, f"{sv.BASE}/wandered")
     sv.sp("close", id=p); time.sleep(0.5)
-    t.ok("…and ⌘W puts it down where it was", sv.url(sv.sp("state"), p).endswith("/off"), sv.url(sv.sp("state"), p))
+    t.ok("…and ⌘W still puts it down at the page it was pinned at", sv.url(sv.sp("state"), p) == home, (sv.url(sv.sp("state"), p), home))
 except Exception:
     import traceback; traceback.print_exc(); t.failed += 1
 finally:

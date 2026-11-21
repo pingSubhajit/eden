@@ -43,11 +43,17 @@ enum ImportRecords {
         all = records
     }
 
-    /// Its bookmarks taken back out: what is recorded of them goes too.
-    static func forgetBookmarks(_ name: String) {
+    /// Its bookmarks taken back out: what is recorded of them goes too,
+    /// but for `left`, those still pinned in another profile (see
+    /// PinShelf.withdraw), kept for Replace there. `rows`: how many went.
+    static func forgetBookmarks(_ name: String, rows: Int = 0, keeping left: [UUID] = []) {
         var records = all
-        records[name]?.bookmarkIDs = []
-        records[name]?.bookmarks = 0
+        records[name]?.bookmarkIDs = left
+        if left.isEmpty {
+            records[name]?.bookmarks = 0
+        } else if let count = records[name]?.bookmarks {
+            records[name]?.bookmarks = max(0, count - rows)
+        }
         all = records
     }
 

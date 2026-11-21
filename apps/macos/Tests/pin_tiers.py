@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Settings › Tabs › Pinned rows (#183): squares, rows, and the line's Clear.
+"""Pinned rows (#183): squares, rows, and the line's Clear.
 
 Build first (`./build.sh`), then `python3 Tests/pin_tiers.py`. It uses the
 split suite's harness: started hidden, no window made or shown, everything
@@ -32,7 +32,7 @@ def relaunch(**prefs):
     return sv.sp("state")
 
 try:
-    sv.setup(sidebar=True, **{"pins.list": True, "tabs.groups": True}); sv.launch()
+    sv.setup(sidebar=True, **{"tabs.groups": True}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d"); e = sv.page("e")
     pin(a); pin(b, listed=True); pin(c, listed=True); pin(d)
     st = sv.sp("state")
@@ -90,33 +90,28 @@ try:
     t.ok("Clear: an empty tab in front", front and front[0]["blank"], front)
     sv.sp("select", id=ids["a"]); sv.page("h"); sv.sp("select", id=ids["a"]); sv.sp("clear"); st = sv.sp("state")
     t.ok("Clear from a pin: the pin stays in front", st["activeID"] == ids["a"] and loose(st) == ["g"], (st["activeID"], loose(st)))
-    # An empty tab of yours, in a group, is the one Clear's new tab reuses:
-    # the undo leaves it where it is.
+    # An empty tab of yours, in a group, is yours: Clear's new tab never
+    # reuses it, as ⌘T never does (#1151), and the undo leaves it where it is.
     gid = st["groupIDs"][[x["id"] for x in st["tabs"]].index(ids["g"])]
     sv.sp("newTab"); blank = sv.sp("state")["activeID"]; sv.sp("group", id=blank, group=gid)
-    sv.sp("select", id=ids["a"]); k = sv.page("k"); sv.sp("clear"); time.sleep(0.5)
-    t.ok("Clear reuses your empty tab in a group", sv.sp("state")["activeID"] == blank)
+    sv.sp("select", id=ids["a"]); k = sv.page("k"); sv.sp("clear"); time.sleep(0.5); st = sv.sp("state")
+    front = [x for x in st["tabs"] if x["id"] == st["activeID"]]
+    t.ok("Clear leaves your empty tab in a group alone, an empty tab of its own in front",
+         st["activeID"] != blank and front and front[0]["blank"] and not st["groupIDs"][[x["id"] for x in st["tabs"]].index(st["activeID"])],
+         (st["activeID"], blank))
     sv.sp("reopen"); time.sleep(0.5); st = sv.sp("state")
     kept = [(x["id"], st["groupIDs"][i]) for i, x in enumerate(st["tabs"]) if x["blank"]]
     t.ok("undo: your empty tab in a group stays", kept == [(blank, gid)], kept)
     t.ok("undo: and the cleared tab is back in front", by_url(st)[st["activeID"]] == "k", by_url(st).get(st["activeID"]))
 
-    # Off: the rows are drawn as squares, and a pin carried across the
-    # hidden line becomes the kind it landed among.
-    st = relaunch(**{"pins.list": False})
-    t.ok("switch off: the rows are kept, only not drawn", rows(st) == ["d"], rows(st))
-    ids = {v: k for k, v in by_url(st).items()}
-    sv.sp("move", id=ids["d"], to=0); st = sv.sp("state")
-    t.ok("switch off: a row carried among the squares becomes one", pins(st) == ["d", "a", "b"] and rows(st) == [], (pins(st), rows(st)))
-    sv.sp("move", id=ids["a"], to=2); st = sv.sp("state")
-    t.ok("switch off: squares move as they always did", pins(st) == ["d", "b", "a"], pins(st))
-
-    # With the tabs across the top, too, every pin is a square to carry.
-    st = relaunch(sidebar=False, **{"pins.list": True})
+    # With the tabs across the top every pin is drawn as a square, and one
+    # carried across the hidden line becomes the kind it landed among.
+    st = relaunch(sidebar=False)
+    t.ok("across the top: the rows are kept, only not drawn", rows(st) == ["d"], rows(st))
     ids = {v: k for k, v in by_url(st).items()}
     pin(ids["a"], listed=True); st = sv.sp("state")
     sv.sp("move", id=ids["a"], to=0); st = sv.sp("state")
-    t.ok("across the top: a row carried among the squares becomes one", pins(st)[0] == "a" and rows(st) == [], (pins(st), rows(st)))
+    t.ok("across the top: a row carried among the squares becomes one", pins(st)[0] == "a" and "a" not in rows(st), (pins(st), rows(st)))
 
     # More than the twelve closed tabs ⇧⌘T keeps, a pair among them, cleared
     # from a pin: all of it comes back as one step, the pair a pair again.

@@ -2,7 +2,7 @@ import EdenCore
 import AppKit
 import SwiftUI
 
-// Eden's own pages — Settings, History, Downloads, Bookmarks, Passwords,
+// Eden's own pages — Settings, History, Downloads, Passwords, Archived Tabs,
 // Bring Things Over and the release notes — each in a tab of its own, as
 // chrome://settings is in Chrome, rather than a card over the page. A tab
 // is something you can leave open beside your work, come back to with ⌃Tab,
@@ -16,7 +16,7 @@ import SwiftUI
 /// Which of Eden's own pages, and where inside it.
 struct InternalPage: Equatable {
     enum Kind: String, CaseIterable {
-        case settings, history, downloads, bookmarks, passwords, archive
+        case settings, history, downloads, passwords, archive
         case importing = "import"
         case notes = "release-notes"
     }
@@ -31,6 +31,13 @@ struct InternalPage: Equatable {
     }
 
     static let scheme = Address.internalScheme
+
+    /// eden://bookmarks: the bookmarks page, gone from the Mac with
+    /// bookmarks (#6). A tab a session kept on it is dropped where the
+    /// session is read, rather than brought back as a page that can't load.
+    static func retired(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == scheme && url.host()?.lowercased() == "bookmarks"
+    }
 
     /// eden://settings, eden://settings/privacy, eden://import/Arc.
     init?(url: URL) {
@@ -54,7 +61,6 @@ struct InternalPage: Equatable {
         case .settings: return "Settings"
         case .history: return "History"
         case .downloads: return "Downloads"
-        case .bookmarks: return "Bookmarks"
         case .passwords: return "Passwords"
         case .archive: return "Archived Tabs"
         case .importing: return "Bring Things Over"
@@ -67,7 +73,6 @@ struct InternalPage: Equatable {
         case .settings: return "gearshape"
         case .history: return "clock"
         case .downloads: return "arrow.down.circle"
-        case .bookmarks: return "book"
         case .passwords: return "key"
         case .archive: return "archivebox"
         case .importing: return "square.and.arrow.down"
@@ -154,8 +159,6 @@ struct InternalPageView: View {
             HistoryPanel(browser: browser)
         case .downloads:
             DownloadsPanel(browser: browser, loot: browser.loot)
-        case .bookmarks:
-            BookmarksPanel(browser: browser, bookmarks: browser.bookmarks)
         case .passwords:
             // The list is read each time the page is drawn, whichever way it
             // came: brought back from the last session, Settings › Passwords ›

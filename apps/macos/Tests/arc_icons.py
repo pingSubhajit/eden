@@ -3,7 +3,7 @@
 Build first (`./build.sh`), then `python3 Tests/arc_icons.py`. A made-up Arc
 profile is written into the world's own Import folder, with the one file Arc
 keeps its icons in, and the import is asked for its spaces. What the pins and
-the pinned tabs wear has to be there without a page ever being opened, which
+the pinned rows wear has to be there without a page ever being opened, which
 is the only other way an icon arrives.
 """
 import json
@@ -36,7 +36,7 @@ def png(rgb, side=16):
 
 
 def arc():
-    """Arc as this world will find it: one space with a pinned tab, one
+    """Arc as this world will find it: one space with a pinned page, one
     favourite, and the icons for both in its own store."""
     root = f"{sv.SUPPORT}/Import/Arc"
     profile = f"{root}/User Data/Default"
@@ -89,8 +89,8 @@ def main():
         t.ok("the made-up Arc is found", any(b["name"] == "Arc" for b in seen.get("browsers", [])), seen)
         out = sv.cmd({"do": "import", "from": "Arc", "what": ["spaces"]})
         arc_counts = out.get("arc") or {}
-        t.ok("its favourite is a pin and its pinned tab came too",
-             arc_counts.get("pins") == 1 and arc_counts.get("tabs") == 1, out)
+        t.ok("its favourite is a pin and its pinned page a row",
+             arc_counts.get("pins") == 2 and "tabs" not in arc_counts, out)
         # The icons are read and kept off the main queue, so they land a
         # moment after the import answers.
         for _ in range(50):

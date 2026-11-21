@@ -70,11 +70,11 @@
                                        and whether a drag from there would move the window;
                                        double: test run, a double-click there (start the probe hidden)
     ./bench place ID INDEX             put a tab at another place in the row
-    ./bench pinfolder [on|off|drawn|pin ID|new NAME [ID] [in FOLDER]|move ID FOLDER|none [before|after ID2]
-                      |fold NAME|open NAME|rename NAME TO|nest NAME PARENT|none|delete NAME]
+    ./bench pinfolder [on|off|drawn|pin ID|new NAME [ID]|move ID FOLDER|none [before|after ID2]
+                      |fold NAME|open NAME|rename NAME TO|delete NAME]
                                        test run: folders in pinned rows — the setting (on: rows too), a tab pinned
-                                       as a row, a folder (holding a pin, or inside one), a pin moved, folded,
-                                       renamed, nested, deleted; each answers the lines drawn (kind, depth, title,
+                                       as a row, a folder (holding a pin, or empty), a pin moved, folded,
+                                       renamed, deleted; each answers the lines drawn (kind, depth, title,
                                        folded), the folders and the saved order; drawn: the column drawn off
                                        screen and its lines read back
     ./bench group [ID new [NAME] | ID NAME | ID none | fold NAME | close NAME]
@@ -107,15 +107,7 @@
     ./bench import-file-start PATH   test run: start file import without waiting for completion
     ./bench import-file-status       test run: current filename, stage, counts and cancellation state
     ./bench import-file-cancel       test run: request cancellation of the current file import
-    ./bench remove-folder TITLE        test run: the bookmarks list's Remove on a top-level folder, its question left up
     ./bench passwords [TEXT] [remove]  test run: the passwords list, narrowed to TEXT; remove: its Remove All… / Remove N… (ui confirm on|off answers it, Touch ID included)
-    ./bench menu [open]                test run: the Bookmarks menu as it is about to open, and its first
-                                       folder (open: its first bookmark picked)
-    ./bench marks                      test run: each bookmark on the bar (its size), in the bar's folders'
-                                       menus and the Bookmarks menu, every folder opened, and in the list:
-                                       what it reads, and whether it wears an icon
-    ./bench bookmark URL [new]         test run: a bookmark picked from the list, timed until it loads
-                                       (new: into a new tab, whose page isn't built yet)
     ./bench windows [list|new|close N|reopen|frame N X Y W H|front N|link URL]
                                        test run: the windows, oldest first — a new one, the Nth closed,
                                        the last closed one back (⇧⌘T), the Nth moved, the Nth as if in
@@ -148,7 +140,7 @@
                                        off every screen), on a made-up 1440×900 screen, or two side by side:
                                        where a flick, a pull at a side, a dock or a click on the sliver
                                        leaves it, and how far it swings on the way
-    ./bench ui KEY VALUE               settings/passwords/welcome/history/downloads/bookmarks/hidden on|off,
+    ./bench ui KEY VALUE               settings/passwords/welcome/history/downloads/hidden on|off,
                                        import on|off|extensions|BROWSER,
                                        look light|dark|system, sidebar on|off, side left|right, spaces on|off, sharedpins on|off, swipepages on|off, confirm on|off, hides on|off,
                                        folded on|off, peek on|off, peeklink keep|close, pages120 never|onPower|always,
@@ -433,15 +425,14 @@ def main(argv):
         elif len(args) >= 2: request["id"], request["name"] = args[0], " ".join(args[1:])
         elif args: sys.exit("usage: bench group [ID new [NAME] | ID NAME | ID none | fold NAME | close NAME]")
     elif verb == "pinfolder":
-        usage = ("usage: bench pinfolder [on|off|drawn|pin ID|new NAME [ID] [in FOLDER]|move ID FOLDER|none [before|after ID2]"
-                 "|fold NAME|open NAME|rename NAME TO|nest NAME PARENT|none|delete NAME]")
+        usage = ("usage: bench pinfolder [on|off|drawn|pin ID|new NAME [ID]|move ID FOLDER|none [before|after ID2]"
+                 "|fold NAME|open NAME|rename NAME TO|delete NAME]")
         if not args: request["action"] = "state"
         elif args[0] in ("on", "off", "drawn", "state") and len(args) == 1: request["action"] = args[0]
         elif args[0] == "pin" and len(args) == 2: request["action"], request["id"] = "pin", args[1]
         elif args[0] == "new" and len(args) >= 2:
             request["action"], request["name"] = "new", args[1]
             rest = args[2:]
-            if len(rest) >= 2 and rest[-2] == "in": request["in"], rest = rest[-1], rest[:-2]
             if len(rest) == 1: request["id"] = rest[0]
             elif rest: sys.exit(usage)
         elif args[0] == "move" and len(args) in (3, 5):
@@ -451,7 +442,6 @@ def main(argv):
                 request["after"], request["anchor"] = args[3] == "after", args[4]
         elif args[0] in ("fold", "open", "delete") and len(args) == 2: request["action"], request["name"] = args[0], args[1]
         elif args[0] == "rename" and len(args) == 3: request["action"], request["name"], request["to"] = "rename", args[1], args[2]
-        elif args[0] == "nest" and len(args) == 3: request["action"], request["name"], request["parent"] = "nest", args[1], args[2]
         else: sys.exit(usage)
     elif verb == "popups":
         if not args: sys.exit("usage: bench popups ID [open N|allow] | sites | remove SITE")
@@ -471,10 +461,6 @@ def main(argv):
         request["text"] = args[0]
         request["type"] = "type" in args[1:]
         request["go"] = "go" in args[1:]
-    elif verb == "bookmark":
-        if len(args) not in (1, 2) or (len(args) == 2 and args[1] != "new"): sys.exit("usage: bench bookmark URL [new]")
-        request["url"] = args[0]
-        request["new"] = len(args) == 2
     elif verb == "import":
         kinds = ("bookmarks", "history", "passwords", "spaces")
         if "--replace" in args:
@@ -491,20 +477,12 @@ def main(argv):
     elif verb in ("import-file", "import-file-start"):
         if len(args) != 1: sys.exit(f"usage: bench {verb} PATH")
         request["path"] = os.path.abspath(args[0])
-    elif verb == "remove-folder":
-        if len(args) != 1: sys.exit("usage: bench remove-folder TITLE")
-        request["title"] = args[0]
     elif verb == "passwords":
         for a in args:
             if a == "remove": request["remove"] = True
             else: request["filter"] = a
     elif verb in ("import-file-status", "import-file-cancel"):
         if args: sys.exit(f"usage: bench {verb}")
-    elif verb == "menu":
-        if args not in ([], ["open"]): sys.exit("usage: bench menu [open]")
-        request["open"] = args == ["open"]
-    elif verb == "marks":
-        if args: sys.exit("usage: bench marks")
     elif verb == "keyeq":
         if len(args) < 2 or any(a != "shift" for a in args[2:]): sys.exit("usage: bench keyeq CHARS CODE [shift]")
         request["chars"], request["code"], request["mods"] = args[0], int(args[1]), args[2:]

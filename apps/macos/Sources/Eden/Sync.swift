@@ -55,20 +55,22 @@ enum SyncSettings {
         coded("search.suggest", \.engineSuggests),
         coded("search.keywords", \.keywords),
         coded("spaces", \.usesSpaces),
-        coded("pins.list", \.listsPins),
-        coded("pins.home", \.pinsGoHome),
         raw("tabs.close.after", \.tabLife),
         raw("tabs.newPlace", \.newTabPlace),
         coded("tabs.shortcuts", \.showsTabShortcuts),
         coded("shield", \.shielded),
         coded("privacy.clickIDs", \.removesClickIDs),
         coded("privacy.gpc", \.sendsPrivacySignal),
-        coded("bookmarks.bar", \.bookmarksBar),
         coded("quit.confirm", \.confirmsQuit),
     ]
 
     /// Their keys, readable anywhere (SyncItems.understood).
     static let known = SyncItems.knownSettings
+
+    /// Settings the Mac no longer has, pinned rows and pins going home being
+    /// always on here (#6), that the iPhone still switches: carried for it
+    /// as they are, never written or deleted by the Mac.
+    static let carried: Set<String> = ["pins.list", "pins.home"]
 
     private static func coded<T: Codable & Equatable>(_ key: String, _ path: ReferenceWritableKeyPath<Preferences, T>) -> Setting {
         Setting(key: key, read: { SyncMerge.text($0[keyPath: path]) }, write: { prefs, text in
@@ -400,6 +402,18 @@ final class Sync: ObservableObject {
         }
     }
 
+    /// Your other devices' tabs as a test world has them, sync on or off
+    /// with no iCloud behind it: what the column draws for them, and carries
+    /// a tab onto. Test runs only.
+    func pretend(_ tabs: [DeviceTabs], on: Bool) {
+        guard Store.testing else { return }
+        self.on = on
+        asks = [:]
+        asked = []
+        heardAsks = []
+        showOtherTabs(tabs)
+    }
+
     private func showOtherTabs(_ tabs: [DeviceTabs]) {
         heardTabs = tabs
         let (shown, waiting) = Elsewhere.asAsked(tabs, asked: asked, standing: heardAsks.union(asks.keys),
@@ -578,7 +592,8 @@ private final class AppScope: SyncScope {
     /// Asks of this Mac, to close a page or open one, are this Mac's too:
     /// never written by it, they are deleted everywhere once acted on.
     func owns(_ key: String, _ text: String) -> Bool {
-        SyncItems.understood(key, text) || key == own || SyncItems.asks(key, of: sync.device)
+        if key.hasPrefix("set:"), SyncSettings.carried.contains(String(key.dropFirst(4))) { return false }
+        return SyncItems.understood(key, text) || key == own || SyncItems.asks(key, of: sync.device)
     }
 
     func apply(_ live: [String: String]) {

@@ -113,7 +113,7 @@ enum SettingsIndex {
               more: "From another browser on this Mac, or from a file it exported. Nothing leaves your Mac.",
               words: ["import", "chrome", "safari", "arc", "migrate"]),
         .init(id: "sync", group: "browser", icon: "arrow.triangle.2.circlepath",
-              title: "Sync with iCloud", detail: "Open tabs, bookmarks, history, spaces, pins and settings, on your Macs, iPhone and iPad",
+              title: "Sync with iCloud", detail: "Open tabs, history, spaces, pins and settings, on your Macs, iPhone and iPad",
               more: "Through your own private iCloud database, with the same Apple Account on each device. Each profile syncs on its own; your iPhone and iPad have the Personal one. Never your passwords, cookies, sign-ins or private tabs. No server of ours.",
               keys: [Sync.onKey], words: ["sync", "icloud", "cloudkit", "other mac", "devices", "mac", "iphone", "ipad", "tabs"]),
         .init(id: "handoff", group: "browser", icon: "laptopcomputer.and.iphone",
@@ -194,9 +194,6 @@ enum SettingsIndex {
         .init(id: "tabs.give", group: "tablook", icon: "hand.point.up.left",
               title: "Tabs give when pressed", detail: "A tab sinks a little under the pointer, as in Arc",
               keys: ["tabs.give"], words: ["press", "animation", "bounce"]),
-        .init(id: "bookmarks.bar", group: "tablook", icon: "bookmark",
-              title: "Show the bookmarks bar", detail: "Your bookmarks in a row above the page",
-              keys: ["bookmarks.bar"], words: ["favorites bar"]),
         .init(id: "motion.light", group: "motion", icon: "leaf",
               title: "Save power in Low Power Mode", detail: "Simpler motion while saving power or running hot; idle tabs sleep sooner in Low Power Mode",
               more: "In Low Power Mode, or while the Mac runs hot. Pages are left as they are.",
@@ -320,7 +317,7 @@ enum SettingsIndex {
 
         // Spaces & Pins
         .init(id: "arc.setup", group: "arc", icon: "wand.and.stars",
-              title: "Set Up Like Arc", detail: "Tabs on the left, spaces, pinned rows and pins that keep their site",
+              title: "Set Up Like Arc", detail: "Tabs on the left, and spaces",
               more: "Undo puts back what you had.",
               words: ["arc", "the browser company"]),
         .init(id: "arc.import", group: "arc", icon: "square.and.arrow.down",
@@ -331,7 +328,7 @@ enum SettingsIndex {
               more: "Each space can be signed in where the others are or start afresh. Mission Control's own ⌃1–⌃9, if you turned them on, take those keys first.",
               keys: ["spaces"], words: ["workspaces", "profiles"]),
         .init(id: "profiles", group: "spaces", icon: "person.2",
-              title: "Profiles", detail: "Spaces with their own sign-ins, history and bookmarks",
+              title: "Profiles", detail: "Spaces with their own sign-ins and history",
               more: "In windows of their own, unless Profiles in one window is on. Extensions, passwords and settings are shared.",
               words: ["profile", "accounts", "work", "personal"]),
         .init(id: "profiles.oneWindow", group: "spaces", icon: "macwindow",
@@ -344,20 +341,6 @@ enum SettingsIndex {
               keys: [SpaceRoutes.key, SpaceRoutes.rulesKey],
               words: ["arc", "air traffic control", "route", "routing", "rules", "domain", "site", "open in space", "default space", "links from other apps"],
               parent: "spaces"),
-        .init(id: "pins.keep", group: "pins", icon: "pin.circle",
-              title: "Pins keep their site", detail: "Links elsewhere open over the pin, and ⌘W takes it back home",
-              more: "As in Arc and Safari: a link from a pin to another site opens in a peek over it, and a pin closed with ⌘W, or left open when Eden quits, comes back at the page it was pinned at.",
-              keys: ["pins.home", "pins.peek"], words: ["pinned tabs", "go home", "reset pin"]),
-        .init(id: "pins.list", group: "pins", icon: "list.bullet.rectangle",
-              title: "Pinned rows", detail: "Pins as rows under the squares, and Clear over the rest",
-              more: "As in Arc: squares for the sites you live in, rows for pages you keep, and a line over the rest with Clear. Right-click a tab to pin it as a row.",
-              keys: ["pins.list"], words: ["arc", "pinned"], parent: "tabs.layout"),
-        .init(id: "pins.folders", group: "pins", icon: "folder",
-              title: "Folders in pinned rows", detail: "Pinned rows in folders, folders in folders, as in Arc",
-              more: "Right-click a pinned row and choose New Folder, or drag a row onto a folder. A folder folds with a click and holds up to three levels. Bringing Arc over keeps its folders as folders here.",
-              keys: ["pins.folders"],
-              words: ["arc", "folder", "folders", "nested", "subfolder", "pinned folder", "pinned tabs", "organise", "organize"],
-              parent: "pins.list"),
         .init(id: "pins.commandNewTab", group: "pins", icon: "command",
               title: "⌘-click on a pin opens a new tab",
               detail: "Opens a tab at the pin's site, or moves a wandered page to loose tabs",
@@ -542,15 +525,13 @@ enum SettingsIndex {
         case "pages.dusk": return prefs.look != .light
         case "inspector.dark": return prefs.look != .dark
         case "sidebar.roomy", "sidebar.player": return prefs.sidebar && !prefs.sideIcons
-        case "sidebar.hides", "layout.cards", "pins.list": return prefs.sidebar
-        case "pins.folders": return prefs.sidebar && prefs.listsPins
+        case "sidebar.hides", "layout.cards": return prefs.sidebar
         case "sidebar.foldIcons": return prefs.sidebar && !prefs.sideHides
         case "toolbar.left", "tabs.compact": return !prefs.sidebar
         case "profiles.oneWindow": return Profiles.shared.several
         case "spaces.links": return prefs.usesSpaces
         case "tabs.frontBeside": return prefs.newTabPlace == .next
         case "links.little.tabs": return prefs.littleLinks
-        case "links.peek.stays": return prefs.peeksLinks || prefs.pinsPeek
         case "launcher.key": return prefs.launcher
         default: return true
         }
@@ -569,7 +550,6 @@ enum SettingsIndex {
         case "sidebar.player": return "Only with titles in the sidebar"
         case "tabs.frontBeside": return "Only with New tab position on After current"
         case "links.little.tabs": return "Only with links from other apps in a small window"
-        case "links.peek.stays": return "Only when links or pins open peeks"
         case "launcher.key": return "Only with the address field from any app on"
         default: return "Only with the tabs down a side"
         }
@@ -664,11 +644,6 @@ extension Preferences {
         }
     }
 
-    var pinsKeepSite: Bool {
-        get { pinsGoHome || pinsPeek }
-        set { pinsGoHome = newValue; pinsPeek = newValue }
-    }
-
     var peekChoice: PeekChoice {
         get { peeksLinks ? (PeekChoice(rawValue: peekClick.rawValue) ?? .shift) : .off }
         set {
@@ -681,16 +656,14 @@ extension Preferences {
     struct ArcSetup {
         var layout: TabsLayout
         var spaces: Bool
-        var rows: Bool
-        var keep: (home: Bool, peek: Bool)
     }
 
     var arcSnapshot: ArcSetup {
-        ArcSetup(layout: tabsLayout, spaces: usesSpaces, rows: listsPins, keep: (pinsGoHome, pinsPeek))
+        ArcSetup(layout: tabsLayout, spaces: usesSpaces)
     }
 
     var looksLikeArc: Bool {
-        tabsLayout == .left && usesSpaces && listsPins && pinsGoHome && pinsPeek
+        tabsLayout == .left && usesSpaces
     }
 
     /// Turns Arc's way on and says what changed.
@@ -699,17 +672,12 @@ extension Preferences {
         var changed: [String] = []
         if tabsLayout != .left { tabsLayout = .left; changed.append("tabs on the left") }
         if !usesSpaces { usesSpaces = true; changed.append("Spaces") }
-        if !listsPins { listsPins = true; changed.append("pinned rows") }
-        if !(pinsGoHome && pinsPeek) { pinsKeepSite = true; changed.append("pins keep their site") }
         return changed
     }
 
     func restore(_ before: ArcSetup) {
         tabsLayout = before.layout
         usesSpaces = before.spaces
-        listsPins = before.rows
-        pinsGoHome = before.keep.home
-        pinsPeek = before.keep.peek
     }
 }
 
@@ -723,9 +691,6 @@ extension SettingsIndex {
             "tabs.layout": prefs.tabsLayout.rawValue,
             "tabs.sleep": prefs.sleepChoice.rawValue,
             "float.own": prefs.floatOwn.rawValue,
-            "pins.keep": prefs.pinsKeepSite,
-            "pins.home": prefs.pinsGoHome,
-            "pins.peek": prefs.pinsPeek,
             "links.peek": prefs.peekChoice.rawValue,
             "pages.120": prefs.fastPages.rawValue,
             "swipe.history": prefs.holdsHistory,
@@ -756,12 +721,6 @@ extension SettingsIndex {
         case "float.own":
             guard let choice = (value as? String).flatMap(FloatOwn.init) else { return false }
             prefs.floatOwn = choice
-        case "pins.keep":
-            guard let on = value as? Bool else { return false }
-            prefs.pinsKeepSite = on
-        case "pins.folders":
-            guard let on = value as? Bool else { return false }
-            prefs.pinFolders = on
         case "profiles.oneWindow":
             guard let on = value as? Bool else { return false }
             prefs.profilesInOneWindow = on

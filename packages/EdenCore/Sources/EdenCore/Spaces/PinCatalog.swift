@@ -61,10 +61,10 @@ public enum PinLists {
     }
 
     /// A space's own pin, shown by every space from now on: at the end of
-    /// the shared ones, in no folder — folders are a space's own.
+    /// the shared ones, in no group — kept groups are a space's own.
     public static func share(_ id: UUID, own: [PinDef], shared: [PinDef]) -> (own: [PinDef], shared: [PinDef]) {
         guard var pin = own.first(where: { $0.id == id }) else { return (own, shared) }
-        pin.folder = nil
+        pin.group = nil
         return (own.filter { $0.id != id }, shared + [pin])
     }
 

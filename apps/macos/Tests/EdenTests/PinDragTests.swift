@@ -20,6 +20,13 @@ final class PinDragTests: XCTestCase {
         super.setUp()
     }
 
+    /// From a space as a new install has it, whatever the suites before
+    /// left in this process's world (CleanWorld).
+    override func setUp() async throws {
+        try await super.setUp()
+        CleanWorld.reset()
+    }
+
     /// This run's world is its own (by pid): gone with it.
     override class func tearDown() {
         if let world = Store.world, world.hasPrefix("pin-drag-") {
@@ -48,28 +55,15 @@ final class PinDragTests: XCTestCase {
 
     // MARK: - the pure parts
 
+    /// The squares' tier, and the rows under it, which part for a tab as
+    /// any carry in the column does (ColumnLayoutTests).
     func testZones() {
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 10), width: 212, gridBottom: 34, listed: nil), .squares)
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 38), width: 212, gridBottom: 34, listed: nil), .squares, "the upper half of the margin is the grid's")
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 41), width: 212, gridBottom: 34, listed: nil), .loose)
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: -20), width: 212, gridBottom: nil, listed: nil), .squares, "no pins: above the rows makes the first")
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 5), width: 212, gridBottom: nil, listed: nil), .loose)
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 60), width: 212, gridBottom: 34,
-                                    listed: CGRect(x: 0, y: 44, width: 212, height: 58)), .listed)
-        XCTAssertEqual(PinDrop.zone(CGPoint(x: 400, y: 10), width: 212, gridBottom: 34, listed: nil), .none, "over the page: not the column")
-    }
-
-    func testRowSlots() {
-        let rows: [CGFloat] = [28, 28, 28]
-        XCTAssertEqual(PinDrop.rowSlot(y: 5, heights: rows, gap: 2, ghost: nil), 0)
-        XCTAssertEqual(PinDrop.rowSlot(y: 20, heights: rows, gap: 2, ghost: nil), 1)
-        XCTAssertEqual(PinDrop.rowSlot(y: 200, heights: rows, gap: 2, ghost: nil), 3)
-        // A line open at 1: anywhere on it keeps it, and the rows after it
-        // are where they now are.
-        XCTAssertEqual(PinDrop.rowSlot(y: 31, heights: rows, gap: 2, ghost: (1, 28)), 1)
-        XCTAssertEqual(PinDrop.rowSlot(y: 57, heights: rows, gap: 2, ghost: (1, 28)), 1)
-        XCTAssertEqual(PinDrop.rowSlot(y: 70, heights: rows, gap: 2, ghost: (1, 28)), 1, "upper half of the row now under it")
-        XCTAssertEqual(PinDrop.rowSlot(y: 80, heights: rows, gap: 2, ghost: (1, 28)), 2)
+        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 10), width: 212, gridBottom: 34), .squares)
+        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 38), width: 212, gridBottom: 34), .squares, "the upper half of the margin is the grid's")
+        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 41), width: 212, gridBottom: 34), .rows)
+        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: -20), width: 212, gridBottom: nil), .squares, "no pins: above the rows makes the first")
+        XCTAssertEqual(PinDrop.zone(CGPoint(x: 50, y: 5), width: 212, gridBottom: nil), .rows)
+        XCTAssertEqual(PinDrop.zone(CGPoint(x: 400, y: 10), width: 212, gridBottom: 34), .none, "over the page: not the column")
     }
 
     func testGridSlots() {
@@ -99,11 +93,11 @@ final class PinDragTests: XCTestCase {
         let t = browser.tabs
         browser.pin(t[0]); browser.pin(t[1])
         let page = t[3].built
-        XCTAssertTrue(browser.pinDropped(t[3], listed: false, at: 1))
+        XCTAssertTrue(browser.square(t[3], at: 1))
         XCTAssertEqual(browser.tabs.map(\.id), [t[0], t[3], t[1], t[2], t[4]].map(\.id))
         XCTAssertNotNil(t[3].pin)
         XCTAssertTrue(t[3].built === page, "the same web view, not a reload")
-        XCTAssertTrue(browser.unpinDropped(t[0], at: 1))
+        XCTAssertTrue(browser.move(t[0], to: ColumnPlace(area: .open, index: 1)))
         XCTAssertEqual(browser.tabs.map(\.id), [t[3], t[1], t[2], t[0], t[4]].map(\.id))
         XCTAssertNil(t[0].pin)
         XCTAssertNil(t[0].home)
@@ -115,7 +109,8 @@ final class PinDragTests: XCTestCase {
         browser.prefs.splitView = true
         browser.pair(t[2], with: t[1], onLeft: false)
         XCTAssertFalse(browser.pinsByDrag(t[1]))
-        XCTAssertFalse(browser.pinDropped(t[1], listed: false, at: 0))
+        XCTAssertFalse(browser.square(t[1], at: 0))
+        XCTAssertFalse(browser.move(t[1], to: ColumnPlace(area: .kept)), "nor as a row: a pinned row is one page")
         XCTAssertNil(t[1].pin)
         XCTAssertNotNil(browser.split(for: t[1]), "the pair stays a pair")
     }
@@ -133,8 +128,9 @@ final class PinDragTests: XCTestCase {
         try await settle()
         let page = t[3].built
         XCTAssertNotNil(page)
-        // The rows start under the grid: 34 + 10.
-        let start = point(x: 70, y: Metrics.strip + 44 + 14 + 30, in: window)
+        // The rows start under the grid, 34 + 10, and the line a pin keeps
+        // above the rest (#6).
+        let start = point(x: 70, y: rowsTop + 14 + 30, in: window)
         // Between the two squares: the middle of three places.
         let room = browser.prefs.sideWidth - 20
         let middle = 10 + room / 2
@@ -162,8 +158,8 @@ final class PinDragTests: XCTestCase {
         // once a line has opened for it above the first: 30 lower.
         try await drag(from: start, through: [
             point(x: 10 + room / 6, y: Metrics.strip + 40, in: window),
-            point(x: 80, y: Metrics.strip + 44 + 30 + 30 + 4, in: window),
-            point(x: 80, y: Metrics.strip + 44 + 30 + 30 + 4, in: window),
+            point(x: 80, y: rowsTop + 30 + 30 + 4, in: window),
+            point(x: 80, y: rowsTop + 30 + 30 + 4, in: window),
         ], in: window)
         XCTAssertNil(t[0].pin, "unpinned")
         XCTAssertEqual(browser.tabs.map(\.id), [t[1], t[2], t[0], t[3], t[4]].map(\.id))
@@ -180,12 +176,12 @@ final class PinDragTests: XCTestCase {
         let room = browser.prefs.sideWidth - 20
         try await drag(from: point(x: 10 + room / 6, y: Metrics.strip + 17, in: window), through: [
             point(x: 10 + room / 6, y: Metrics.strip + 40, in: window),
-            point(x: 80, y: Metrics.strip + 44 + 30 + 30 + 4, in: window),
+            point(x: 80, y: rowsTop + 30 + 30 + 4, in: window),
         ], in: window)
         XCTAssertNil(t[0].pin)
         XCTAssertEqual(browser.tabs.prefix(4).map(\.id), [t[1], t[2], t[0], t[3]].map(\.id))
         // And back up into the grid, first.
-        try await drag(from: point(x: 70, y: Metrics.strip + 44 + 14 + 30, in: window), through: [
+        try await drag(from: point(x: 70, y: rowsTop + 14 + 30, in: window), through: [
             point(x: 30, y: Metrics.strip + 30, in: window),
             point(x: 20, y: Metrics.strip + 17, in: window),
         ], in: window)
@@ -214,9 +210,9 @@ final class PinDragTests: XCTestCase {
         let window = makeWindow(browser)
         try await settle()
         // A row carried down its own list.
-        try await drag(from: point(x: 70, y: Metrics.strip + 44 + 14, in: window), through: [
-            point(x: 70, y: Metrics.strip + 44 + 14 + 30, in: window),
-            point(x: 70, y: Metrics.strip + 44 + 14 + 62, in: window),
+        try await drag(from: point(x: 70, y: rowsTop + 14, in: window), through: [
+            point(x: 70, y: rowsTop + 14 + 30, in: window),
+            point(x: 70, y: rowsTop + 14 + 62, in: window),
         ], in: window)
         XCTAssertEqual(browser.tabs.map(\.id), [t[0], t[1], t[3], t[4], t[2]].map(\.id))
         XCTAssertEqual(browser.pinnedCount, 2)
@@ -265,7 +261,7 @@ final class PinDragTests: XCTestCase {
         browser.select(t[3])
         let window = makeWindow(browser)
         try await settle()
-        try await drag(from: point(x: 70, y: Metrics.strip + 44 + 14, in: window), through: [
+        try await drag(from: point(x: 70, y: rowsTop + 14, in: window), through: [
             point(x: 70, y: Metrics.strip + 30, in: window),
             point(x: 70, y: Metrics.strip + 17, in: window),
         ], in: window)
@@ -282,20 +278,24 @@ final class PinDragTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs,
-                        prefs.usesSpaces, prefs.sharesPins)
+        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs,
+                        prefs.usesSpaces, prefs.sharesPins, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs,
-             prefs.usesSpaces, prefs.sharesPins) = previous
+            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs,
+             prefs.usesSpaces, prefs.sharesPins, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
         browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = false
-        browser.prefs.listsPins = rows
         browser.prefs.roomyTabs = false
         browser.prefs.sharesPins = false
+        // Each new tab after the last, so they stand in the order made and
+        // the New Tab row is under them all: new tabs go to the top unless
+        // told otherwise, and a second blank one there would be the first
+        // one reused.
+        browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three", "four", "five", "six"].prefix(count) {
             if browser.tabs.last?.isBlank == false { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)
@@ -313,6 +313,11 @@ final class PinDragTests: XCTestCase {
         windows.append(window)
         return window
     }
+
+    /// Where the tabs in no group start under two squares: the grid, 34
+    /// and 10 under it, then the line a pin keeps above the rest, with
+    /// pinned rows always on (#6).
+    private var rowsTop: CGFloat { Metrics.strip + 44 + KeepLine.height + SideBar.gap }
 
     /// A point given from the column's top-left, in the window's terms.
     private func point(x: CGFloat, y: CGFloat, in window: NSWindow) -> NSPoint {
@@ -375,11 +380,11 @@ final class PinDragTests: XCTestCase {
             var last: NSPoint
             switch name {
             case "row-over-grid", "pair-refused":
-                last = try await carry(from: point(x: 70, y: Metrics.strip + 44 + 14 + (name == "pair-refused" ? 0 : 30), in: window), through: [
+                last = try await carry(from: point(x: 70, y: rowsTop + 14 + (name == "pair-refused" ? 0 : 30), in: window), through: [
                     point(x: 10 + room / 2, y: Metrics.strip + 30, in: window), point(x: 10 + room / 2, y: Metrics.strip + 17, in: window)], in: window)
             case "pin-over-rows":
                 last = try await carry(from: point(x: 10 + room / 6, y: Metrics.strip + 17, in: window), through: [
-                    point(x: 80, y: Metrics.strip + 44 + 64, in: window)], in: window)
+                    point(x: 80, y: rowsTop + 64, in: window)], in: window)
             case "row-over-pinned-rows":
                 let rowsTop = Metrics.strip + 44 + 30 + 20
                 last = try await carry(from: point(x: 70, y: rowsTop + 14 + 30, in: window), through: [

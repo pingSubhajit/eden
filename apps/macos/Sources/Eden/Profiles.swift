@@ -186,6 +186,8 @@ final class Profiles: ObservableObject {
         }
         Shared.forgetDownloadAddresses()
         Store.settings.removeObject(forKey: "space.current.\(id.uuidString)")
+        Store.settings.removeObject(forKey: PinShelf.broughtIDsKey(id))
+        Store.settings.removeObject(forKey: PinShelf.unfolderedKey(id))
         list.removeAll { $0.id == id }
         write()
     }
@@ -294,8 +296,8 @@ enum ProfileMenu {
     /// Its name, then a window of its own.
     static func askNew() {
         Ask.name("New Profile", detail: OneWindow.on
-                    ? "A separate set of spaces with its own sign-ins, history and bookmarks."
-                    : "A separate set of spaces with its own sign-ins, history and bookmarks, in a window of its own.",
+                    ? "A separate set of spaces with its own sign-ins and history."
+                    : "A separate set of spaces with its own sign-ins and history, in a window of its own.",
                  placeholder: "Work", confirm: "Create") { name in
             let made = Profiles.shared.add(named: name)
             Browsers.open(profile: made.id)
@@ -330,7 +332,7 @@ struct ProfilesSettings: View {
 
     var body: some View {
         Card {
-            Line("Profiles", "Separate sets of spaces, each with its own sign-ins, history and bookmarks, in windows of their own. Extensions, passwords and settings are shared.") {
+            Line("Profiles", "Separate sets of spaces, each with its own sign-ins and history, in windows of their own. Extensions, passwords and settings are shared.") {
                 Pill("New Profile…") { ProfileMenu.askNew() }
             }
             if profiles.several {
@@ -359,7 +361,7 @@ struct ProfilesSettings: View {
                     if !profile.isPersonal {
                         Pill("Delete…", tint: .red) {
                             Ask.sure("Delete “\(profile.name)”?",
-                                     detail: "Its windows close, its spaces go with their tabs and pins, and its cookies, sign-ins, history and bookmarks are erased from this Mac.",
+                                     detail: "Its windows close, its spaces go with their tabs and pins, and its cookies, sign-ins and history are erased from this Mac.",
                                      confirm: "Delete", returnCancels: true) {
                                 Profiles.shared.delete(profile.id)
                             }

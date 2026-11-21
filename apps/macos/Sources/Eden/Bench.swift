@@ -397,28 +397,25 @@ final class Bench {
             guard let tab = find(request, in: browser) else { answer(missing(request)); return }
             browser.sleep(tab) { said in answer(["said": said, "asleep": tab.asleep]) }
 
-        case "openmark":
-            // A bookmark opened as the bar opens one. Only on a EDEN_PROBE run.
-            guard Store.testing else { answer(["error": "openmark only works on a --test run"]); return }
-            guard let text = request["url"] as? String, let url = URL(string: text) else { answer(["error": "openmark needs a url"]); return }
-            browser.openBookmark(url)
-            answer(["active": browser.active?.id.uuidString ?? ""])
-
         case "pin":
             // Pin a tab, or unpin it with "off". Only on a EDEN_PROBE run.
             guard Store.testing else { answer(["error": "pin only works on a --test run"]); return }
             guard let tab = find(request, in: browser) else { answer(missing(request)); return }
             // "listed": pinned as a row, or an existing pin made a row
             // (true) or a square (false).
-            // "at": let go there, as the column's drag lets go (PinDrop):
-            // among the squares (or the rows, with "listed"), or with "off"
-            // among the tabs in no group — or into "group".
+            // "at": let go there, as the column's drag lets go: among the
+            // squares (Browser.square), or with "listed" at the top of the
+            // kept area, or with "off" at the top of the open area — or into
+            // "group" — as a carry in the column ends (Browser.move(_:to:)).
             var taken: Bool?
             if let at = request["at"] as? Int {
                 if request["off"] as? Bool == true {
-                    taken = browser.unpinDropped(tab, at: at, group: (request["group"] as? String).flatMap(UUID.init))
+                    let group = (request["group"] as? String).flatMap(UUID.init)
+                    taken = tab.pin != nil && browser.move(tab, to: ColumnPlace(area: .open, group: group, index: at))
+                } else if request["listed"] as? Bool == true {
+                    taken = browser.move(tab, to: ColumnPlace(area: .kept, index: at))
                 } else {
-                    taken = browser.pinDropped(tab, listed: request["listed"] as? Bool ?? false, at: at)
+                    taken = browser.square(tab, at: at)
                 }
             }
             else if request["off"] as? Bool == true { browser.unpin(tab) }
@@ -879,12 +876,6 @@ final class Bench {
                 // for this window's profile, newest first.
                 "archive": browser.archiving,
                 "archived": browser.archive.tabs.map { ["url": $0.url.absoluteString, "title": $0.title] },
-                "bookmarks": browser.bookmarking,
-                // The dropdown off the button, the ⇧⌘B card in it, and how
-                // many are kept, for every window alike.
-                "bookmarksOpen": browser.bookmarksOpen,
-                "bookmarkCard": browser.bookmarkCard != nil,
-                "bookmarkCount": browser.bookmarks.count,
                 "import": browser.bringingIn != nil,
                 "field": browser.editing,
                 "suggesting": browser.suggesting != nil,
@@ -1183,66 +1174,6 @@ final class Bench {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                 for observer in [wake, sleep].compactMap({ $0 }) { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
                 answer(["folded": browser.folded, "pageBefore": before, "passes": passes])
-            }
-
-        case "bookmarksweep":
-            // Bookmarks kept and then let go, one a frame, as the star or a
-            // folder's menu would: how many rows of the column and how many
-            // bookmarks bars were built again along the way, and how long
-            // each pass of the main run loop carrying an edit took. Test
-            // runs only: it writes the world's bookmarks.
-            guard Store.testing else { answer(["error": "bookmarksweep is for test runs"]); return }
-            let count = request["count"] as? Int ?? 10
-            let interval = request["interval"] as? Double ?? 1.0 / 60
-            let urls = (0..<count).compactMap { URL(string: "https://bookmarksweep.test/\($0)") }
-            var made: [Bookmark.ID] = []
-            let clock = LoopClock()
-            Bench.bodies = [:]
-            clock.start()
-            func edit(_ n: Int) {
-                guard n < urls.count * 2 else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        clock.stop()
-                        answer([
-                            "edits": urls.count * 2, "tabs": browser.tabs.count,
-                            "bodies": Bench.bodies, "left": browser.bookmarks.count,
-                            "editMs": LoopClock.summary(clock.marked),
-                            "otherMs": LoopClock.summary(clock.unmarked),
-                        ])
-                    }
-                    return
-                }
-                clock.mark()
-                if n < urls.count {
-                    if let kept = browser.bookmarks.add(urls[n], title: "Sweep \(n)") { made.append(kept.id) }
-                } else {
-                    if n - urls.count < made.count { browser.bookmarks.remove(made[n - urls.count]) }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + interval) { edit(n + 1) }
-            }
-            edit(0)
-
-        case "keeppage":
-            // The page on screen kept, or let go ("keep": false), on the
-            // bookmarks alone, as the Bookmarks panel does it: nothing else
-            // of the browser changes. Then the Bookmarks menu's items as it
-            // would open, a moment later, and how many times the bookmarks
-            // bar was built meanwhile. Test runs only: it writes the world's
-            // bookmarks.
-            guard Store.testing else { answer(["error": "keeppage is for test runs"]); return }
-            guard let tab = browser.active, let url = tab.address else { answer(["error": "no page on screen"]); return }
-            Bench.bodies = [:]
-            if request["keep"] as? Bool == false {
-                if let kept = browser.bookmarks.bookmark(for: url) { browser.bookmarks.remove(kept.id) }
-            } else {
-                _ = browser.bookmarks.add(url, title: tab.title)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let menu = NSApp.mainMenu?.items.first { $0.title == "Bookmarks" }?.submenu
-                if let menu { menu.delegate?.menuNeedsUpdate?(menu) }
-                answer(["kept": browser.pageKept,
-                        "items": menu?.items.prefix(2).map(\.title) ?? [],
-                        "bar": Bench.bodies["bar"] ?? 0])
             }
 
         case "pointer":
@@ -1574,117 +1505,6 @@ final class Bench {
             default: answer(state())
             }
 
-        case "bookmark":
-            // A bookmark picked from the button's list, through the same
-            // call the list makes: how long until WebKit is loading it, and
-            // until the run loop rests. Only on a EDEN_PROBE run.
-            guard Store.testing else { answer(["error": "bookmark only works on a --test run — it would load a page in your tab"]); return }
-            guard let url = (request["url"] as? String).flatMap(Address.url(from:)) else { answer(["error": "bookmark needs a url"]); return }
-            // "new": into a new tab, whose page has yet to be built.
-            if request["new"] as? Bool == true { browser.newTab() }
-            guard let tab = browser.active else { answer(["error": "no tab to open it in"]); return }
-            browser.bookmarksOpen = true
-            let built = tab.built != nil
-            var loading: Double?
-            let start = CACurrentMediaTime()
-            let watch = tab.$loading.first(where: { $0 }).sink { _ in loading = (CACurrentMediaTime() - start) * 1000 }
-            browser.pickBookmark(url)
-            let returned = (CACurrentMediaTime() - start) * 1000
-            Bench.whenResting(since: start) { rested in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    watch.cancel()
-                    answer(["returned": returned, "loading": loading ?? -1, "rested": rested,
-                            "viewWasBuilt": built, "listStillOpen": browser.bookmarksOpen, "sameTab": browser.active?.id == tab.id])
-                }
-            }
-
-        case "dropdown":
-            // The bookmark button's list, laid out off every screen, never in
-            // a popover: its height as it opens, the list's part of it, and
-            // how tall the tree is with every folder open.
-            let dropdown = BookmarksDropdown(browser: browser, bookmarks: browser.bookmarks)
-            let whole = NSHostingView(rootView: dropdown).fittingSize
-            let all = Set(Bookmarks.folders(browser.bookmarks.roots).map(\.node.id))
-            let outline = BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant(all), open: { _ in }, openInNewTab: { _ in })
-                .padding(6)
-                .frame(width: 280)
-            // As it opens, folders closed: what the list was once sized by.
-            let closed = BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant([]), open: { _ in }, openInNewTab: { _ in })
-                .padding(6)
-                .frame(width: 280)
-            // And as it opens now, with what opens with it.
-            let opening = BookmarksDropdown.opening(browser.bookmarks.roots)
-            let shown = BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant(opening), open: { _ in }, openInNewTab: { _ in })
-                .padding(6)
-                .frame(width: 280)
-            answer(["height": Double(whole.height), "width": Double(whole.width), "list": Double(dropdown.listHeight),
-                    "allOpen": Double(NSHostingView(rootView: outline).fittingSize.height),
-                    "closed": Double(NSHostingView(rootView: closed).fittingSize.height),
-                    "shown": Double(NSHostingView(rootView: shown).fittingSize.height),
-                    "opening": opening.count])
-
-        case "marks":
-            // Each bookmark wherever it is shown, nothing drawn on a screen:
-            // the bar's buttons laid out off every screen, with their size;
-            // each of the bar's folders as the menu it opens, and the menu
-            // bar's Bookmarks menu, every folder in them opened; and the
-            // button's list, row by row — each with what it reads and
-            // whether it wears the site's icon or a letter in its place.
-            guard Store.testing else { answer(["error": "marks only works on a --test run"]); return }
-            // "rename": [url, name] — typed into the ⇧⌘B card's Name field.
-            if let pair = request["rename"] as? [String], pair.count == 2,
-               let url = URL(string: pair[0]), let kept = browser.bookmarks.bookmark(for: url) {
-                BookmarkCard.rename(kept.id, pair[1], in: browser.bookmarks)
-            }
-            func line(_ depth: Int, _ item: NSMenuItem) -> [String: Any] {
-                ["depth": depth, "title": item.title, "folder": item.submenu != nil, "image": item.image != nil]
-            }
-            let bar = browser.bookmarks.roots.map { node -> [String: Any] in
-                let size = NSHostingView(rootView: BookmarksBar.Item(node: node, act: {})).fittingSize
-                return ["label": node.label, "title": node.title, "unnamed": node.unnamed,
-                        "width": Double(size.width), "height": Double(size.height)]
-            }
-            let folders = browser.bookmarks.roots.filter(\.isFolder).map { folder -> [String: Any] in
-                ["folder": folder.title, "items": BookmarkMenu.shared.walk(folder).map { line($0.depth, $0.item) }]
-            }
-            var menu: [[String: Any]] = []
-            if let main = NSApp.mainMenu?.items.first(where: { $0.title == "Bookmarks" })?.submenu {
-                main.delegate?.menuNeedsUpdate?(main)
-                func down(_ items: [NSMenuItem], _ depth: Int) {
-                    for item in items where item.tag == 0x5EAC && !item.isSeparatorItem {
-                        menu.append(line(depth, item))
-                        if let sub = item.submenu {
-                            sub.delegate?.menuNeedsUpdate?(sub)
-                            down(sub.items, depth + 1)
-                        }
-                    }
-                }
-                down(main.items, 0)
-            }
-            func rows(_ nodes: [Bookmark], _ depth: Int) -> [[String: Any]] {
-                nodes.flatMap { node -> [[String: Any]] in
-                    [["depth": depth, "label": node.label, "folder": node.isFolder,
-                      "icon": !node.isFolder && Favicons.shared.cached(for: node.address) != nil]] + rows(node.children ?? [], depth + 1)
-                }
-            }
-            // "path": the button's list drawn there, every folder open, in
-            // the light, off every screen.
-            if let path = request["path"] as? String {
-                let all = Set(Bookmarks.folders(browser.bookmarks.roots).map(\.node.id))
-                let host = NSHostingView(rootView: BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant(all), open: { _ in }, openInNewTab: { _ in })
-                    .padding(6)
-                    .frame(width: 280)
-                    .background(Palette.ground))
-                host.appearance = NSAppearance(named: .aqua)
-                host.frame = NSRect(origin: .zero, size: host.fittingSize)
-                host.layoutSubtreeIfNeeded()
-                if let picture = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-                    host.cacheDisplay(in: host.bounds, to: picture)
-                    try? picture.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
-                }
-            }
-            answer(["bar": bar, "folders": folders, "menu": menu, "list": rows(browser.bookmarks.roots, 0)])
-
         case "import":
             // Another browser's passwords, bookmarks and history, brought in
             // through the same calls the Welcome and the panels make. Only on
@@ -1714,8 +1534,10 @@ final class Bench {
                                       "profile": profile ?? "all"]
             if what.contains("bookmarks") {
                 let (added, already, kept) = browser.takeBookmarks(from: source, profile: profile, replacing: request["replace"] as? Bool == true)
-                out["bookmarks"] = ["added": added, "already": already, "kept": kept, "total": browser.bookmarks.count,
-                                    "top": browser.bookmarks.roots.map(\.title)]
+                // What came in is pinned rows now (see PinShelf), counted there.
+                let rows = browser.pinShelf.roots
+                out["bookmarks"] = ["added": added, "already": already, "kept": kept, "total": Bookmarks.count(rows),
+                                    "top": rows.map(\.title)]
             }
             if what.contains("history") {
                 let places = source.places(profile: profile)
@@ -1736,9 +1558,9 @@ final class Bench {
             }
             if what.contains("spaces") {
                 if let sidebar = source.arcSidebar(profile: profile) {
-                    let (spaces, pins, tabs) = browser.takeArc(sidebar, from: source, profile: profile)
-                    ImportRecords.note(source.name, spaces: spaces, pinned: pins + tabs)
-                    out["arc"] = ["spaces": spaces, "pins": pins, "tabs": tabs,
+                    let (spaces, pins) = browser.takeArc(sidebar, from: source, profile: profile)
+                    ImportRecords.note(source.name, spaces: spaces, pinned: pins)
+                    out["arc"] = ["spaces": spaces, "pins": pins,
                                   "names": browser.spaces.map(\.name), "usesSpaces": browser.prefs.usesSpaces]
                 } else {
                     out["arc"] = "no Arc sidebar"
@@ -1782,21 +1604,12 @@ final class Bench {
             guard let path = request["path"] as? String else { answer(["error": "import-file needs a path"]); return }
             Task { @MainActor in
                 let took = await browser.takeFile(URL(fileURLWithPath: path))
+                let rows = browser.pinShelf.roots
                 answer(["said": took.said, "bookmarks": took.bookmarks, "already": took.already, "places": took.places,
                         "kept": took.kept, "skipped": took.skipped, "cancelled": took.cancelled,
-                        "total": browser.bookmarks.count, "top": browser.bookmarks.roots.map(\.title), "saved": browser.saved.count])
+                        "total": Bookmarks.count(rows), "top": rows.map(\.title), "saved": browser.saved.count])
             }
 
-        case "remove-folder":
-            // The bookmarks list's Remove on a top-level folder, question and
-            // all: the real sheet, which `press` with "sheet" answers. Only on
-            // a EDEN_PROBE run.
-            guard Store.testing else { answer(["error": "remove-folder only works on a --test run"]); return }
-            guard let title = request["title"] as? String,
-                  let folder = browser.bookmarks.roots.first(where: { $0.isFolder && $0.title == title })
-            else { answer(["error": "no top-level folder by that title"]); return }
-            browser.bookmarks.askRemove(folder)
-            answer(["asked": title])
         case "passwords":
             // The passwords panel's list, narrowed as its search box would
             // narrow it, and with "remove" its Remove All… / Remove N…, which
@@ -1960,49 +1773,6 @@ final class Bench {
                 }
                 answer(["mac": mac, "page": page, "kept": kept, "menu": items, "web": web != nil])
             }
-
-        case "menu":
-            // The Bookmarks menu as it is about to open: the menu bar
-            // told it is being tracked, SwiftUI's own update run on it, its
-            // first folder opened — then what each holds. Only on a
-            // EDEN_PROBE run; nothing is drawn.
-            guard Store.testing else { answer(["error": "menu only works on a --test run"]); return }
-            guard let main = NSApp.mainMenu, let menu = main.items.first(where: { $0.title == "Bookmarks" })?.submenu
-            else { answer(["error": "no Bookmarks menu"]); return }
-            // "peek": only what is in it now, nothing opened or filled — to
-            // see what an update while it is open left of the bookmarks.
-            // "shown"/"hidden": the menu told it opened or closed, as tracking would.
-            if request["shown"] as? Bool == true {
-                NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: main)
-                menu.delegate?.menuWillOpen?(menu)
-            }
-            if request["swiftui"] as? Bool == true { BookmarkMenu.shared.swiftUIUpdate() }
-            if request["hidden"] as? Bool == true {
-                menu.delegate?.menuDidClose?(menu)
-                NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: main)
-            }
-            if request["peek"] as? Bool == true {
-                answer(["ours": BookmarkMenu.shared.count, "items": menu.items.count])
-                return
-            }
-            let before = menu.items.count
-            let wrapped = menu.delegate.map { "\(type(of: $0))" } ?? "none"
-            let start = CACurrentMediaTime()
-            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: main)
-            let filled = (CACurrentMediaTime() - start) * 1000
-            menu.delegate?.menuNeedsUpdate?(menu)
-            let folder = menu.items.first { $0.submenu != nil && $0.tag != 0 }?.submenu
-            if let folder { folder.delegate?.menuNeedsUpdate?(folder) }
-            // "open": the first bookmark in that folder picked, as a click would.
-            if request["open"] as? Bool == true, let folder,
-               let index = folder.items.firstIndex(where: { $0.representedObject is URL }) {
-                folder.performActionForItem(at: index)
-            }
-            answer(["delegate": wrapped, "before": before, "after": menu.items.count, "ours": BookmarkMenu.shared.count, "fillMs": filled,
-                    "titles": menu.items.prefix(8).map { $0.isSeparatorItem ? "—" : $0.title },
-                    "firstFolder": folder?.items.prefix(4).map(\.title) ?? [],
-                    "firstFolderImages": folder?.items.prefix(4).map { $0.image != nil } ?? [],
-                    "active": browser.active?.address?.absoluteString ?? ""])
 
         case "keyeq":
             // A ⌘ shortcut pressed while the page has the keyboard, put
@@ -3575,12 +3345,12 @@ final class Bench {
             }
 
         case "pinfolder":
-            // Folders in pinned rows (PinFolders.swift), as the setting,
-            // the menus and a drag make and change them, and the rows read
-            // back as drawn. Test runs only: it rearranges your pins.
+            // Kept groups among the pinned rows (Column.swift), as the menus
+            // and a drag make and change them, and the rows read back as
+            // drawn. Test runs only: it rearranges your pins.
             guard Store.testing else { answer(["error": "pinfolder only works on a --test run"]); return }
-            let folders = browser.pinFolders
-            func named(_ key: String) -> PinFolder? {
+            let folders = browser.keptGroups
+            func named(_ key: String) -> TabGroup? {
                 guard let name = request[key] as? String, !name.isEmpty else { return nil }
                 return folders.first { $0.name == name } ?? folders.first { $0.id.uuidString.lowercased().hasPrefix(name.lowercased()) }
             }
@@ -3589,18 +3359,18 @@ final class Bench {
                 return browser.tabs.first { $0.id.uuidString.lowercased().hasPrefix(ref) }
             }
             func state(_ extra: [String: Any] = [:]) -> [String: Any] {
-                let now = browser.pinFolders
+                let now = browser.keptGroups
                 let name = { (id: UUID?) -> Any in id.flatMap { id in now.first { $0.id == id }?.name } ?? NSNull() }
                 var out: [String: Any] = [
-                    "setting": browser.prefs.pinFolders, "rows": browser.prefs.showsPinRows,
-                    "drawsFolders": browser.showsPinFolderRows,
-                    "folders": now.map { ["id": $0.id.uuidString, "name": $0.name, "parent": name($0.parent),
-                                          "collapsed": $0.collapsed, "depth": PinTree.depth(of: $0.id, in: now)] as [String: Any] },
+                    "rows": browser.prefs.showsPinRows,
+                    "drawsFolders": browser.drawsKeptGroups,
+                    "folders": now.map { ["id": $0.id.uuidString, "name": $0.name, "collapsed": $0.collapsed,
+                                          "colour": $0.colour.rawValue] as [String: Any] },
                     // kind, depth, title, folded: what the column draws.
-                    "lines": browser.pinRowLines().map(\.described),
+                    "lines": browser.keptLines().map(\.described),
                     // The rows in the order the row (and pins.json) keeps them.
-                    "order": browser.listedPins.map { [Bench.short($0), $0.name ?? $0.title, name($0.pinFolder)] },
-                    "saved": Pins.defs(browser.spaceID).filter { $0.listed == true }.map { [$0.title, name($0.folder)] },
+                    "order": browser.listedPins.map { [Bench.short($0), $0.name ?? $0.title, name($0.keptGroupID)] },
+                    "saved": Pins.defs(browser.spaceID).filter { $0.listed == true }.map { [$0.title, name($0.group)] },
                 ]
                 for (key, value) in extra { out[key] = value }
                 return out
@@ -3608,25 +3378,18 @@ final class Bench {
             switch request["action"] as? String ?? "state" {
             case "state":
                 break
-            case "on":
-                // Pinned rows with it, which it means nothing without.
-                browser.prefs.listsPins = true
-                browser.prefs.pinFolders = true
-                browser.pinsChanged(in: browser.spaceID)
-            case "off":
-                browser.prefs.pinFolders = false
             case "pin":
                 // A tab pinned as a row, ready for a folder.
                 guard let tab = pinned("id") else { answer(missing(request)); return }
                 if tab.pin == nil { browser.pin(tab, listed: true) } else if !tab.listed { browser.setListed(tab, true) }
             case "new":
-                // New Folder, holding a pin (its menu's) or inside a folder
-                // (a folder's menu's New Folder Inside).
+                // New Folder, holding a pin (its menu's) or empty (a
+                // folder's menu's).
                 let tab = pinned("id")
                 if request["id"] != nil, tab == nil { answer(missing(request)); return }
-                guard let made = browser.newPinFolder(named: request["name"] as? String ?? "New Folder",
-                                                      in: named("in")?.id, holding: tab, rename: false)
-                else { answer(["error": "no folder can be made there"]); return }
+                guard let made = browser.newKeptGroup(named: request["name"] as? String ?? "New Folder",
+                                                      holding: tab, rename: false)
+                else { answer(["error": "only a pinned row of this space goes in a folder"]); return }
                 answer(state(["made": made.uuidString])); return
             case "move":
                 // Move to Folder, or with "anchor" where a drag lets it go.
@@ -3635,23 +3398,24 @@ final class Bench {
                 if request["folder"] as? String == "none" { into = nil }
                 else if let folder = named("folder") { into = folder.id }
                 else { answer(["error": "no folder “\(request["folder"] as? String ?? "")”"]); return }
-                guard browser.takesFolder(tab) else { answer(["error": "only a pinned row of this space goes in a folder"]); return }
-                browser.movePin(tab, into: into, anchor: pinned("anchor")?.id, after: request["after"] as? Bool ?? false)
+                guard browser.fitsKeptGroup(tab) else { answer(["error": "only a pinned row of this space goes in a folder"]); return }
+                // Beside "anchor", before it or "after" it, among what is
+                // there without the row moved; else at the end.
+                let there: [UUID] = into.map { browser.members(ofGroup: $0).map(\.id) }
+                    ?? browser.keptItems().compactMap { item in if case .tab(let row) = item { return row.id }; return item.group?.id }
+                let others = there.filter { $0 != tab.id }
+                let index = pinned("anchor").flatMap { anchor in others.firstIndex(of: anchor.id) }
+                    .map { $0 + (request["after"] as? Bool == true ? 1 : 0) }
+                browser.move(tab, to: ColumnPlace(area: .kept, group: into, index: index))
             case "fold", "open":
                 guard let folder = named("name") else { answer(["error": "no folder “\(request["name"] as? String ?? "")”"]); return }
-                browser.setPinFolderFolded(folder.id, request["action"] as? String == "fold")
+                browser.setGroupFolded(folder.id, request["action"] as? String == "fold")
             case "rename":
                 guard let folder = named("name"), let to = request["to"] as? String else { answer(["error": "rename needs NAME TO"]); return }
-                browser.renamePinFolder(folder.id, to: to)
-            case "nest":
-                guard let folder = named("name") else { answer(["error": "no folder “\(request["name"] as? String ?? "")”"]); return }
-                let parent = request["parent"] as? String == "none" ? nil : named("parent")?.id
-                guard request["parent"] as? String == "none" || parent != nil else { answer(["error": "no parent folder"]); return }
-                guard PinTree.canMove(folder.id, into: parent, in: folders) else { answer(["error": "too deep, or inside itself"]); return }
-                browser.movePinFolder(folder.id, into: parent)
+                browser.renameTabGroup(folder.id, to: to)
             case "delete":
                 guard let folder = named("name") else { answer(["error": "no folder “\(request["name"] as? String ?? "")”"]); return }
-                browser.deletePinFolder(folder.id)
+                browser.removeTabGroup(folder.id)
             case "drawn":
                 // The column drawn off screen, as `column` draws it, and the
                 // lines it drew read back: kind, depth, title, folded.
@@ -3669,7 +3433,7 @@ final class Bench {
                 }
                 return
             default:
-                answer(["error": "pinfolder: state|on|off|pin|new|move|fold|open|rename|nest|delete|drawn"]); return
+                answer(["error": "pinfolder: state|pin|new|move|fold|open|rename|delete|drawn"]); return
             }
             answer(state())
 
@@ -3838,7 +3602,6 @@ final class Bench {
             if let on = request["history"] as? Bool { browser.recalling = on }
             if let on = request["downloads"] as? Bool { browser.hoarding = on }
             if let on = request["archive"] as? Bool { browser.archiving = on }
-            if let on = request["bookmarks"] as? Bool { browser.bookmarking = on }
             // The Bring things over sheet: on, off, on at a browser by name,
             // or on for the extensions alone, as Settings › Extensions opens it.
             if let text = request["import"] as? String {
@@ -4043,9 +3806,9 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "openmark", "close", "wait", "sleep", "select", "text", "nowplaying", "agent", "kept", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "bookmark", "marks", "menu", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "strip", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "remove-folder", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "nowplaying", "agent", "kept", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "strip", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
 
-                "tabs", "open", "go", "openmark", "close", "wait", "sleep", "select", "text", "nowplaying", "player", "agent", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "bookmark", "marks", "menu", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "strip", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "remove-folder", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "nowplaying", "player", "agent", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "strip", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
             ]])
         }
     }

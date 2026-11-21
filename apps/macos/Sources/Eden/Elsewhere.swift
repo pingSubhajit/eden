@@ -116,13 +116,11 @@ struct DeviceGroups: View {
     @ObservedObject var prefs: Preferences
     let space: UUID
     @Binding var opened: Set<String>
-    /// Where a tab carried in the column would land: on one of these, it
-    /// opens there too (RowGap.Place.device).
-    var gap: RowGap? = nil
+    /// A tab carried in the column onto one of these, by the device's id,
+    /// and the room it needs: it opens there too (ColumnCarry.Target.device).
+    /// Where each group is drawn is the column's layout's (ColumnLayout).
+    var gap: (device: String, height: CGFloat)? = nil
     var gapFrame = RowGapFrame()
-    /// Where each group is drawn, for the column to tell which one a tab is
-    /// carried onto.
-    var frames: DeviceFrames? = nil
     @ObservedObject private var sync = Sync.shared
     @ObservedObject private var pages = OpenPages.shared
 
@@ -134,13 +132,9 @@ struct DeviceGroups: View {
             if !here.isEmpty {
                 DeviceGroup(browser: browser, prefs: prefs, device: device, pages: here, open: open,
                             opened: opened.contains(device.device),
-                            gap: gap?.device == device.device ? gap : nil, gapFrame: gapFrame) {
+                            gap: gap?.device == device.device ? gap?.height : nil, gapFrame: gapFrame) {
                     if !opened.insert(device.device).inserted { opened.remove(device.device) }
                 }
-                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("rows")) }) { [frames] rect in
-                    frames?.rects[device.device] = rect
-                }
-                .onDisappear { [frames] in frames?.rects[device.device] = nil }
                 // A device's last page closed takes its group, as your
                 // tabs' rows go; the column settles round it (SideBar).
                 .transition(.sideRow)
@@ -162,14 +156,15 @@ struct DeviceGroup: View {
     /// The pages open in this profile's windows, by History.identity.
     let open: Set<String>
     let opened: Bool
-    /// A tab carried onto it: the place its page will take, at the end, the
+    /// A tab carried onto it: the room its page will take, at the end, the
     /// group lit and open to show it as a tab group shows one.
-    var gap: RowGap? = nil
+    var gap: CGFloat? = nil
     var gapFrame = RowGapFrame()
     let toggle: () -> Void
 
     var body: some View {
-        SideGroup(colour: .stone, folded: !opened, lit: gap != nil, showsRows: opened || gap != nil) {
+        SideGroup(colour: .stone, folded: !opened, lit: gap != nil,
+                  showsRows: DeviceRows.shown(opened: opened, carried: gap != nil)) {
             GroupLabel(row: prefs.sideRow, toggle: toggle) {
                 Image(systemName: device.kind.symbol)
                     .font(.system(size: prefs.sideMark * 0.8, weight: .medium))
@@ -193,7 +188,7 @@ struct DeviceGroup: View {
                 }
                 .transition(.sideRow)
             }
-            if let gap { RowGapSlot(gap: gap, frame: gapFrame) }
+            if let gap { RowGapSlot(height: gap, frame: gapFrame) }
         }
     }
 }

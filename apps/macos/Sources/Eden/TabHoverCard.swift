@@ -10,7 +10,9 @@ import SwiftUI
 //
 // A group's heading shows one too: the four of its tabs you were in last as
 // one picture, its name and how many tabs it holds, and what can be done to
-// all of them. It is most of use folded, when its tabs can't be seen.
+// all of them. It is most of use folded, when its tabs can't be seen. A
+// group above the line, a kept group (Column.swift), has the same card for
+// its pins.
 //
 // The picture is taken once, as the card comes up, not kept live: a page out
 // of sight is drawn by its own process only when asked, and asking on every
@@ -46,7 +48,7 @@ enum TabHoverCard {
         var frame: CGRect = .zero
     }
 
-    /// What a card is of: a tab, or a group of tabs by its heading.
+    /// What a card is of: a tab, or a group in either area, by its heading.
     enum Subject {
         case tab(Tab)
         case group(UUID)
@@ -147,7 +149,7 @@ enum TabHoverCard {
     private static func worthACard(_ subject: Subject, in browser: Browser) -> Bool {
         switch subject {
         case .tab(let tab): return !tab.isBlank
-        case .group(let id): return !browser.tabs(in: id).isEmpty
+        case .group(let id): return !browser.members(ofGroup: id).isEmpty
         }
     }
 
@@ -395,7 +397,7 @@ enum TabHoverCard {
             members = [tab]
             wantsPicture = tab.hasPreview
         case .group(let id):
-            members = recent(browser.tabs(in: id), in: browser)
+            members = recent(browser.members(ofGroup: id), in: browser)
             // Its collage stands whatever it has: a tab with no picture
             // shows its icon there.
             wantsPicture = true
@@ -514,18 +516,18 @@ enum TabHoverCard {
     /// weakly, so one closed meanwhile is no one's.
     private struct Under {
         weak var tab: Tab?
-        let group: UUID?
+        /// A group's or a folder's heading: never a tab, held weakly above.
+        let heading: Subject?
         weak var browser: Browser?
         let spot: Spot
 
         init(_ subject: Subject, browser: Browser, spot: Spot) {
-            switch subject {
-            case .tab(let tab):
+            if case .tab(let tab) = subject {
                 self.tab = tab
-                group = nil
-            case .group(let id):
+                heading = nil
+            } else {
                 tab = nil
-                group = id
+                heading = subject
             }
             self.browser = browser
             self.spot = spot
@@ -533,7 +535,7 @@ enum TabHoverCard {
 
         var subject: Subject? {
             if let tab { return .tab(tab) }
-            return group.map(Subject.group)
+            return heading
         }
     }
 
@@ -646,9 +648,10 @@ extension View {
         modifier(HoverCardSource(browser: browser, subject: .tab(tab), enabled: enabled))
     }
 
-    /// The card for the group `id` when the pointer rests on its heading.
-    func groupHoverCard(_ id: UUID, in browser: Browser, enabled: Bool) -> some View {
-        modifier(HoverCardSource(browser: browser, subject: .group(id), enabled: enabled))
+    /// The card for a group, in either area, when the pointer rests on its
+    /// heading.
+    func groupHoverCard(_ group: TabGroup, in browser: Browser, enabled: Bool) -> some View {
+        modifier(HoverCardSource(browser: browser, subject: .group(group.id), enabled: enabled))
     }
 }
 
@@ -745,8 +748,8 @@ private struct CardFrame: View, Animatable {
         switch layer.subject {
         case .tab(let tab):
             HoverCard(browser: browser, tab: tab, picture: layer.pictures[tab.id], wantsPicture: layer.wantsPicture)
-        case .group(let id):
-            GroupCard(browser: browser, group: id, pictures: layer.pictures)
+        case .group:
+            GroupCard(browser: browser, subject: layer.subject, pictures: layer.pictures)
         }
     }
 }
@@ -933,9 +936,12 @@ private struct CardControls: View {
 /// picture, its name and how many tabs it holds, and what can be done to
 /// all of them. No Close Group: on a card that comes up under the pointer it
 /// would be too near a slip, and the heading's own cross and menu have it.
+/// A kept group's, above the line (Column.swift), is the same for its
+/// pins, less Duplicate, which pins don't do.
 private struct GroupCard: View {
     @ObservedObject var browser: Browser
-    let group: UUID
+    /// A group's or a folder's.
+    let subject: TabHoverCard.Subject
     let pictures: [Tab.ID: NSImage]
 
     @ObservedObject private var prefs = Shared.prefs
@@ -945,13 +951,31 @@ private struct GroupCard: View {
     @State private var copied = false
 
     var body: some View {
-        if let found = browser.tabGroups.first(where: { $0.id == group }) {
+        if let found {
             card(found)
         }
     }
 
+    /// The group as it is now, in either area.
+    private var found: TabGroup? {
+        switch subject {
+        case .tab: nil
+        case .group(let id): browser.columnGroup(id)
+        }
+    }
+
+    /// Above the line: a kept group (Column.swift), whose tabs are pins.
+    private var kept: Bool {
+        guard case .group(let id) = subject else { return false }
+        return browser.area(ofGroup: id) == .kept
+    }
+
+    private var counted: (one: String, many: String) {
+        kept ? ("pin", "pins") : ("tab", "tabs")
+    }
+
     private func card(_ found: TabGroup) -> some View {
-        let tabs = browser.tabs(in: group)
+        let tabs = browser.members(ofGroup: found.id)
         // Worked out as it is drawn: a tab closed or moved out leaves its
         // place to the next you were in.
         let shown = TabHoverCard.recent(tabs, in: browser)
@@ -972,7 +996,7 @@ private struct GroupCard: View {
                         .foregroundStyle(Palette.ink)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(tabs.count == 1 ? "1 tab" : "\(tabs.count) tabs")
+                    Text(tabs.count == 1 ? "1 \(counted.one)" : "\(tabs.count) \(counted.many)")
                         .font(.system(size: 12))
                         .foregroundStyle(Palette.muted)
                 }
@@ -987,7 +1011,7 @@ private struct GroupCard: View {
         }
         .padding(HoverCard.padding)
         .frame(width: TabHoverCard.width, alignment: .leading)
-        .task(id: shown.map(\.id)) { TabHoverCard.showing(shown, for: .group(group)) }
+        .task(id: shown.map(\.id)) { TabHoverCard.showing(shown, for: subject.key) }
         .task(id: tabs.map(\.id)) { tabsChanging.follow(tabs) }
         .task(id: copied) {
             // The tick says it is done, then the button is a button again.
@@ -1003,9 +1027,10 @@ private struct GroupCard: View {
         TabHoverCard.hide()
     }
 
-    /// Its links, a copy of it and its fold; while one of its tabs plays or
-    /// is muted, its sound.
+    /// Its links, a copy of it (a group's) and its fold; while one of its
+    /// tabs plays or is muted, its sound.
     private func controls(_ found: TabGroup, tabs: [Tab]) -> [CardControl] {
+        let kind = kept ? "Folder" : "Group"
         var controls = [
             CardControl(id: "copy", symbol: copied ? "checkmark" : "link", help: "Copy All Links") {
                 let links = browser.links(of: found.id)
@@ -1014,22 +1039,24 @@ private struct GroupCard: View {
                 NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
                 copied = true
             },
-            CardControl(id: "duplicate", symbol: "plus.square.on.square", help: "Duplicate Group") {
+        ]
+        if !kept {
+            controls.append(CardControl(id: "duplicate", symbol: "plus.square.on.square", help: "Duplicate Group") {
                 browser.duplicateTabGroup(found.id)
                 TabHoverCard.hide()
-            },
-            CardControl(id: "fold", symbol: found.collapsed ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
-                        help: found.collapsed ? "Expand Group" : "Collapse Group") {
-                withAnimation(GroupLook.fold) { browser.toggleTabGroup(found.id) }
-            },
-        ]
+            })
+        }
+        controls.append(CardControl(id: "fold", symbol: found.collapsed ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
+                                    help: found.collapsed ? "Expand \(kind)" : "Collapse \(kind)") {
+            withAnimation(GroupLook.fold) { browser.toggleTabGroup(found.id) }
+        })
         if tabs.contains(where: { $0.noisy || $0.muted }) {
             // Heard: Mute All. Only silenced: Unmute All.
             let silencing = tabs.contains { $0.noisy && !$0.muted }
             controls.append(CardControl(id: "mute", symbol: silencing ? "speaker.wave.2" : "speaker.slash",
                                         help: silencing ? "Mute All" : "Unmute All") {
                 // As the group stands when pressed, not as it was drawn.
-                let now = browser.tabs(in: found.id)
+                let now = browser.members(ofGroup: found.id)
                 let silence = now.contains { $0.noisy && !$0.muted }
                 for tab in now where silence ? (tab.noisy && !tab.muted) : tab.muted { tab.toggleMute() }
             })

@@ -6,7 +6,7 @@ import SwiftUI
 // The address field from any app (Settings › Keyboard & Mouse › From any app;
 // #783, idea 497). A key of your own raises it over whichever app is in
 // front, as Spotlight's does. What is typed there is answered as ⌘L answers
-// it — your bookmarks, where you have been, the pages already open — and
+// it — where you have been, the pages already open, your pins among them — and
 // Return opens it in Eden's window in front, or goes to the tab that has
 // it, and brings Eden forward. Escape, a click outside, ⌘W or the key
 // again puts it away and leaves you in the app you were in, which never

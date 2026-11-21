@@ -80,7 +80,7 @@ struct WelcomePanel: View {
 
     private var bring: some View {
         VStack(alignment: .leading, spacing: 22) {
-            heading("Bring things over.", "Passwords go into your keychain, bookmarks into the menu, and history means the address field already knows where you go. Nothing in the other browser changes.")
+            heading("Bring things over.", "Passwords go into your keychain, bookmarks into your pinned rows, and history means the address field already knows where you go. Nothing in the other browser changes.")
 
             let sources = ImportSource.installed()
             let unreadable = Chromium.unreadable()
@@ -109,7 +109,7 @@ struct WelcomePanel: View {
                         Text("Passwords from \((source ?? sources[0]).name) aren't supported yet.")
                             .font(.system(size: 13)).foregroundStyle(Palette.muted)
                     }
-                    Choice("Bookmarks", "Folders and all, behind the bookmark button", on: $wantsBookmarks)
+                    Choice("Bookmarks", "As pinned rows, folders and all", on: $wantsBookmarks)
                     Choice("History", "The last few thousand places, for finishing addresses", on: $wantsHistory)
                 }
 

@@ -14,7 +14,7 @@ final class SettingsIndexTests: XCTestCase {
 
     private let touched = ["sidebar", "sidebar.position", "tabs.sleep", SleepPace.key, "float.leave", "float.away",
                            "pins.home", "pins.peek", "links.peek", "links.peekClick", "pages.120", "pages.120.mode",
-                           "swipe.history", "links.show", "float.flicks", "spaces", "pins.list",
+                           "swipe.history", "links.show", "float.flicks", "spaces", "pins.list", "pins.folders",
                            "search.shift", "search.shiftCustom"]
 
     private func fresh(_ body: () -> Void) {
@@ -42,14 +42,13 @@ final class SettingsIndexTests: XCTestCase {
     func testDefaultsForUntouchedKeys() {
         fresh {
             let prefs = Preferences()
-            XCTAssertTrue(prefs.pinsKeepSite)
             XCTAssertEqual(prefs.fastPages, .onPower)
             XCTAssertTrue(prefs.holdsHistory)
             XCTAssertEqual(prefs.sleepChoice, .normal)
             XCTAssertEqual(prefs.floatOwn, .tabs)
             XCTAssertEqual(prefs.peekChoice, .shift)
             // Nothing written just for reading them.
-            for key in ["pins.home", "pins.peek", "pages.120.mode", "swipe.history"] {
+            for key in ["pages.120.mode", "swipe.history"] {
                 XCTAssertNil(Store.settings.object(forKey: key), key)
             }
         }
@@ -61,15 +60,11 @@ final class SettingsIndexTests: XCTestCase {
             Store.settings.set(false, forKey: "swipe.history")
             Store.settings.set(false, forKey: "links.show")
             Store.settings.set(false, forKey: "float.flicks")
-            Store.settings.set(false, forKey: "pins.home")
             let prefs = Preferences()
             XCTAssertEqual(prefs.fastPages, .never)
             XCTAssertFalse(prefs.holdsHistory)
             XCTAssertFalse(prefs.showsLinks)
             XCTAssertFalse(prefs.floatFlicks)
-            XCTAssertFalse(prefs.pinsKeepSite, "one off, the other never set: off")
-            Store.settings.set(true, forKey: "pins.peek")
-            XCTAssertTrue(Preferences().pinsKeepSite, "either on: on")
             Store.settings.set(true, forKey: "pages.120")
             XCTAssertEqual(Preferences().fastPages, .always)
         }
@@ -94,9 +89,6 @@ final class SettingsIndexTests: XCTestCase {
             prefs.floatOwn = .never
             XCTAssertEqual(Store.settings.object(forKey: "float.leave") as? Bool, false)
             XCTAssertEqual(Store.settings.object(forKey: "float.away") as? Bool, false)
-            prefs.pinsKeepSite = false
-            XCTAssertEqual(Store.settings.object(forKey: "pins.home") as? Bool, false)
-            XCTAssertEqual(Store.settings.object(forKey: "pins.peek") as? Bool, false)
             prefs.peekChoice = .off
             XCTAssertEqual(Store.settings.object(forKey: "links.peek") as? Bool, false)
             prefs.peekChoice = .optionCommand
@@ -108,14 +100,29 @@ final class SettingsIndexTests: XCTestCase {
     func testSetUpLikeArcAndUndo() {
         fresh {
             let prefs = Preferences()
-            prefs.pinsKeepSite = false
+            prefs.tabsLayout = .top
             let before = prefs.arcSnapshot
             XCTAssertFalse(prefs.looksLikeArc)
-            XCTAssertEqual(prefs.setUpLikeArc().count, 4)
+            XCTAssertEqual(prefs.setUpLikeArc(), ["tabs on the left", "Spaces"])
             XCTAssertTrue(prefs.looksLikeArc)
             prefs.restore(before)
-            XCTAssertEqual(prefs.tabsLayout, before.layout)
-            XCTAssertFalse(prefs.usesSpaces || prefs.listsPins || prefs.pinsKeepSite)
+            XCTAssertEqual(prefs.tabsLayout, .top)
+            XCTAssertFalse(prefs.usesSpaces)
+        }
+    }
+
+    /// Pinned rows, their folders and pins keeping their site are always
+    /// on (#6): their switches leave Settings, and what they kept goes.
+    func testPinSwitchesAreGone() {
+        fresh {
+            for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"] { Store.settings.set(false, forKey: key) }
+            let prefs = Preferences()
+            for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"] {
+                XCTAssertNil(Store.settings.object(forKey: key), key)
+            }
+            prefs.tabsLayout = .left
+            XCTAssertTrue(prefs.showsPinRows)
+            for id in ["pins.list", "pins.folders", "pins.keep"] { XCTAssertNil(SettingsIndex.item(id), id) }
         }
     }
 
