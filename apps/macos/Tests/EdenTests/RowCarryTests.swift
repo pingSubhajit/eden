@@ -649,10 +649,13 @@ final class RowCarryTests: XCTestCase {
         XCTAssertEqual(SideBar.lineDrawn, SideBar.lineLaid, "and the line where it is laid out once let go")
     }
 
-    /// As the owner has it: two devices with pages, the phone folded and
-    /// the pad open, at the top; pinned rows under them; the line, New tab
-    /// at the top, then the tabs. A tab carried up to the phone's heading,
-    /// and another onto the pad's pages, goes to that device.
+    /// The column as the owner has it, two devices' groups at the top with
+    /// pages, both folded; two pinned rows under them; the line, New tab at
+    /// the top, then the tabs: the last tab, carried up past all of it and
+    /// past the pad's heading, goes to the phone when let go on its heading.
+    /// (Dropping on an opened group's pages needs a tab picked up from
+    /// rest, whose page the press loads; a test page that never loads has
+    /// no address to send.)
     func testATabCarriedUpPastTheKeptRowsOntoADeviceGoesToIt() async throws {
         let browser = makeBrowser()
         keepsClean(browser)
@@ -671,8 +674,7 @@ final class RowCarryTests: XCTestCase {
         browser.pin(t[0], listed: true)
         browser.pin(t[1], listed: true)
         browser.prefs.newTabPlace = .top
-        t[3].restore(url: URL(string: "https://four.invalid/")!, title: "four")
-        t[4].restore(url: URL(string: "https://five.invalid/")!, title: "five")
+        t[4].restore(url: try XCTUnwrap(URL(string: "https://five.invalid/")), title: "five")
         browser.select(t[4])
         let window = makeWindow(browser)
         try await ready(browser)
@@ -687,6 +689,7 @@ final class RowCarryTests: XCTestCase {
         try await settle()
         XCTAssertTrue(Sync.shared.devicesWithTabs.first { $0.device == "phone" }?.tabs.contains { $0.url == "https://five.invalid/" } == true,
                       "opened on the phone")
+        XCTAssertNil(t[4].pin, "and kept here, a tab")
     }
 
     /// One of your tabs carried onto a device's group that already has its

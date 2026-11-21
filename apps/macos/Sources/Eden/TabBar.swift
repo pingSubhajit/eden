@@ -1111,11 +1111,12 @@ struct Carried: ViewModifier {
     var gap: ((CGPoint?) -> CarryGap)? = nil
     /// Let go: true when it went into the gap that was open for it.
     var placed: ((CarriedDrop) -> Bool)? = nil
-    /// Down the column: the part of the run's space that is in sight, which
-    /// what is carried is kept within however far the hand goes. Carried
-    /// past the last row, or above the first, it was drawn outside the
-    /// scrolling column and cut off at its edge where it went.
-    var within: ClosedRange<CGFloat>? = nil
+    /// Down the column: kept within the scrolling column's view however far
+    /// the hand goes. Carried past the last row, or above the first, it was
+    /// drawn outside the view and cut off at its edge where it went. What is
+    /// in view is read as it is drawn, so it follows the column scrolling or
+    /// changing size under the carry.
+    var keptInView = false
     let move: (Int) -> Void
 
     @State private var held = false
@@ -1129,6 +1130,11 @@ struct Carried: ViewModifier {
     /// Where it was drawn in `space` when it was picked up, read once by the
     /// held item alone, so the others measure nothing as the row scrolls.
     @State private var origin: CGFloat?
+    /// How long it is drawn, as it was picked up: its place less the gap
+    /// after it. Not its place now, which closes to nothing while a gap is
+    /// open for it elsewhere (RowGapSource) although it is drawn whole, the
+    /// gap as long as this.
+    @State private var length: CGFloat = 0
     /// True while the drag lasts, and put back by SwiftUI when it is called
     /// off as well as when it ends (see CarryGuard).
     @GestureState private var carrying = false
@@ -1157,13 +1163,15 @@ struct Carried: ViewModifier {
             // place has given it is where the place is drawn this frame, not
             // where the spring will end. Taken from the end, the tab fell a
             // place behind the hand at every tab it passed and drifted back.
-            .visualEffect { [held, origin, travel, shift, vertical, space, within, length] content, proxy in
+            .visualEffect { [held, origin, travel, shift, vertical, space, keptInView, length] content, proxy in
                 var moved = shift
                 if held, let origin {
                     let frame = proxy.frame(in: .named(space))
                     moved = origin + travel - (vertical ? frame.minY : frame.minX)
-                    if vertical, let within {
-                        moved = Carried.kept(moved, top: frame.minY, length: length, within: within)
+                    // The scroll view's bounds in its own place's terms,
+                    // where it starts at 0: what is in view now.
+                    if vertical, keptInView, let view = proxy.bounds(of: .scrollView) {
+                        moved = Carried.kept(moved, top: 0, length: length, within: view.minY...view.maxY)
                     }
                 }
                 return content.offset(x: vertical ? 0 : moved, y: vertical ? moved : 0)
@@ -1200,6 +1208,7 @@ struct Carried: ViewModifier {
                             held = true
                             from = index
                             start = Carried.leading(of: index, in: steps)
+                            length = steps.indices.contains(index) ? max(0, steps[index] - SideBar.gap) : 0
                             origin = nil
                             CarryGuard.open(ticket, end: callOff)
                         }
@@ -1329,13 +1338,6 @@ struct Carried: ViewModifier {
                 travel = 0
                 reordered = false
             }
-    }
-
-    /// How long what is carried is drawn: its place less the gap after it.
-    /// Read from the steps, not its frame, which is nothing while its place
-    /// is closed for a gap elsewhere (RowGapSource).
-    private var length: CGFloat {
-        steps.indices.contains(index) ? max(0, steps[index] - SideBar.gap) : 0
     }
 
     /// The offset that moves what is carried, `length` long and starting at

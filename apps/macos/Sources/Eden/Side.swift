@@ -348,11 +348,6 @@ struct SideBar: View {
                                 refit()
                             }
                         }
-                        // Where it is, for what is carried to be kept in
-                        // sight (inSight).
-                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in
-                            frames.scroll = $0
-                        }
                         // While the rows fit: still, and only as tall as they
                         // are, the room under them the window's to be dragged
                         // by. The same scroll view either way, so rows that
@@ -818,17 +813,6 @@ struct SideBar: View {
         }
     }
 
-    /// The part of the rows' space in sight, inside the scrolling column's
-    /// edges, which cut off anything drawn past them: what is carried is
-    /// kept within it (Carried.within), as far as the hand goes past the
-    /// last row or above the first. Read as the column is drawn, which it is
-    /// as a carry starts; nothing scrolls under a carry.
-    private var inSight: ClosedRange<CGFloat>? {
-        guard let scroll = frames.scroll, scroll.height > 0 else { return nil }
-        let top = scroll.minY - frames.rows.minY
-        return top...(top + scroll.height)
-    }
-
     /// Where each piece stands among those carried along a run, the gap
     /// left out (Carried's index).
     private static func places(_ pieces: [ColumnLayout<Tab>.Piece]) -> [ColumnLayout<Tab>.Slot: Int] {
@@ -868,7 +852,7 @@ struct SideBar: View {
                                       if !held { putDown() }
                                   },
                                   gap: { carrying(.tab(tab.id), row: tab, at: $0) },
-                                  placed: { placed($0) }, within: inSight) { shift(tab, along: run, to: $0) })
+                                  placed: { placed($0) }, keptInView: true) { shift(tab, along: run, to: $0) })
         } else {
             item
         }
@@ -920,7 +904,7 @@ struct SideBar: View {
                                       if !now { putDown() }
                                   },
                                   gap: { carrying(.group(group.id), row: nil, at: $0) },
-                                  placed: { placed($0, group: group.id) }, within: inSight) { shift(group: group.id, in: area, to: $0) })
+                                  placed: { placed($0, group: group.id) }, keptInView: true) { shift(group: group.id, in: area, to: $0) })
                 // Over the others while it, or one of its tabs, is carried.
                 .zIndex(carryingGroup == group.id ? 1 : 0)
         } else {

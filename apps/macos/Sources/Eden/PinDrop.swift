@@ -54,9 +54,6 @@ enum PinDrop {
 final class ColumnFrames {
     var grid: CGRect?
     var rows: CGRect = .zero
-    /// The scrolling part of the column, which cuts off what is drawn past
-    /// its edges.
-    var scroll: CGRect?
 }
 
 /// The place opened in the grid for a tab carried there: its mark, faint,
