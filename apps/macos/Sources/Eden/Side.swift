@@ -663,7 +663,8 @@ struct SideBar: View {
                 // not the column (idea 31).
                 .modifier(PinCarried(index: index, cells: cells,
                                      cross: { squareOverRows(tab, $0) },
-                                     land: { squareLand(tab, $0) }) { browser.move(tab, to: $0) })
+                                     land: { squareLand(tab, $0) },
+                                     keep: { browser.pinOrder }, putBack: { browser.putBack($0) }) { browser.move(tab, to: $0) })
             }
             if let ghost, let tab = crossingTab {
                 PinGhost(tab: tab, width: all[ghost].width, height: all[ghost].height)
@@ -974,17 +975,19 @@ struct SideBar: View {
         } ?? false
         var target: ColumnCarry.Target?
         var refused = false
-        if let source, let device = device(for: source, at: point, in: laid) {
+        let answer = source.flatMap { device(for: $0, at: point, in: laid) }
+        switch answer {
+        case .takes(let device):
             target = .device(device)
-        } else if let source, source.pin == nil, laid.device(at: point.y, holding: nil) != nil {
-            // One of your tabs over a device's group that won't take it —
-            // that device has its page open already, or it is a page the
-            // devices aren't shown: nothing parts, and it holds still, as
-            // it did before the kept area was under the devices. Falling
-            // through to the head of the kept area, letting go there pinned
-            // a tab that was being sent.
-            refused = true
-        } else {
+        case .refuses:
+            // Over a device's group that won't take it — a pin at its home,
+            // a page that device has open already, or one the devices
+            // aren't shown: nothing parts, and it stays as it was picked
+            // up, said if let go there (refused). Falling through to the
+            // head of the kept area, letting go there pinned a tab that was
+            // being sent, and moved a pin the device had turned down.
+            break
+        case nil:
             let unit = half ? source : tab
             let heading = unit.map { $0.pin != nil && $0.everywhere } ?? false
             let aim = laid.aim(for: carried, from: run(of: carried), at: point, holding: carry?.place, heading: heading) { place in
@@ -1001,7 +1004,9 @@ struct SideBar: View {
         }
         let next = target.map { ColumnCarry(carried: carried, target: $0, height: height(of: carried, half: half, in: laid), whole: !half) }
         showCarry(next)
-        guard let next else { return refused ? .held : .none }
+        // Turned down by a device, it stays here as it was, as one it takes
+        // does: the places it took on the way given back.
+        guard let next else { return answer != nil ? .copy : refused ? .held : .none }
         return next.moves ? .away : .copy
     }
 
@@ -1021,25 +1026,54 @@ struct SideBar: View {
         }
     }
 
-    /// The other device whose group the hand is over, to open the tab there
-    /// too: one the other devices can be shown (Sync.page(of:in:)) and that
-    /// device hasn't open already. Kept a little past its edge, as a group
+    /// What another device's group under the hand makes of a tab carried
+    /// over it, nil when it is over none: it takes one the other devices
+    /// can be shown (Sync.page(of:in:)) and that device hasn't open
+    /// already, to open there too. Kept a little past its edge, as a group
     /// keeps a tab (GroupDropFrames.resolve).
     ///
-    /// Only one of your tabs, never a pin, square or row: a pin is on every
-    /// device already, and one gone on from its home would send the page it
-    /// wandered to while it stayed the pin here. Over a device's group a pin
-    /// goes where anything else it won't take does, to the head of the kept
-    /// area under it (ColumnLayout.area(at:)).
-    private func device(for tab: Tab, at point: CGPoint, in laid: ColumnLayout<Tab>) -> String? {
-        guard tab.pin == nil, Sync.shared.on, let page = Sync.page(of: tab, in: browser.spaceID),
-              let url = URL(string: page.url),
-              let over = laid.device(at: point.y, holding: carry?.device),
-              let device = Sync.shared.devicesWithTabs.first(where: { $0.device == over })
-        else { return nil }
+    /// A pin, row or square, goes only once it has gone on from its home:
+    /// what goes is the page its row shows it on, and the pin stays here as
+    /// it is. At its home it is on every device already.
+    private func device(for tab: Tab, at point: CGPoint, in laid: ColumnLayout<Tab>) -> DeviceAnswer? {
+        guard Sync.shared.on, let over = laid.device(at: point.y, holding: carry?.device) else { return nil }
+        let device = Sync.shared.devicesWithTabs.first { $0.device == over }
+        let name = device?.name ?? "That device"
+        guard let device, let page = Sync.page(of: tab, in: browser.spaceID), let url = URL(string: page.url) else {
+            if tab.shy { return .refuses("Private tabs stay on this Mac") }
+            if tab.pin != nil, tab.isHome(tab.restAddress) { return .refuses("\(name) has this pin already") }
+            return .refuses("This page can't be opened on \(name)")
+        }
         let identity = History.identity(for: url)
-        guard !device.tabs.contains(where: { URL(string: $0.url).map(History.identity(for:)) == identity }) else { return nil }
-        return over
+        guard !device.tabs.contains(where: { URL(string: $0.url).map(History.identity(for:)) == identity }) else {
+            return .refuses("Already open on \(name)")
+        }
+        return .takes(over)
+    }
+
+    /// What a device's group makes of a tab carried over it (device(for:)):
+    /// it opens the page there, or says why not if let go.
+    private enum DeviceAnswer: Equatable {
+        case takes(String)
+        case refuses(String)
+
+        var refusal: String? {
+            if case .refuses(let why) = self { return why }
+            return nil
+        }
+    }
+
+    /// Let go at `point`, in the rows' space, over a device's group that
+    /// won't take `tab`: letting go on a device is asking it to open the
+    /// page, and an ask turned down is told, not only shown (#25). True
+    /// when it was, and nothing else is done with the tab. Asked where the
+    /// hand let go, not where it last moved: a let-go just past the group,
+    /// or out of the window, is not one.
+    private func refused(_ tab: Tab, at point: CGPoint) -> Bool {
+        guard point.x >= -PinDrop.sideSlack, point.x <= width - 20 + PinDrop.sideSlack,
+              let why = device(for: tab, at: point, in: layout(carrying: carry))?.refusal else { return false }
+        browser.announce(why)
+        return true
     }
 
     /// The open group a tab under the line is over, for a pair's half let
@@ -1100,7 +1134,12 @@ struct SideBar: View {
     /// leaving it. Onto another device, the page picked up is opened there,
     /// and kept here, sliding home as it comes into that device's list.
     private func placed(_ drop: CarriedDrop) -> Bool {
-        guard let carry, let row = drop.row, carry.carried == .tab(row.id) else { return false }
+        guard let carry, let row = drop.row, carry.carried == .tab(row.id) else {
+            // Let go over a device's group that wouldn't take it: said, and
+            // the tab left where it was.
+            guard carry == nil, let row = drop.row else { return false }
+            return refused(drop.source ?? row, at: drop.point)
+        }
         // Into the group it opened: it stays open.
         if carry.group == sprung { sprung = nil }
         let source = drop.source ?? row
@@ -1228,23 +1267,30 @@ struct SideBar: View {
     }
 
     /// A square carried out over the rows: they part for it where it would
-    /// land, as for any tab carried there (`carrying`). True while the hand
-    /// is past the grid, and the grid then holds still.
-    private func squareOverRows(_ tab: Tab, _ point: CGPoint) -> Bool {
+    /// land, as for any tab carried there (`carrying`). What they show while
+    /// the hand is past the grid, and the grid then holds still; nil while
+    /// it is over the grid.
+    private func squareOverRows(_ tab: Tab, _ point: CGPoint) -> CarryGap? {
         let at = columnPoint(point, from: .pins)
         let gridBottom = browser.squarePins.isEmpty ? nil : frames.grid?.maxY
         guard PinDrop.zone(at, width: width - 20, gridBottom: gridBottom) == .rows else {
             _ = carrying(.tab(tab.id), row: tab, at: nil)
-            return false
+            return nil
         }
-        _ = carrying(.tab(tab.id), row: tab, at: CGPoint(x: at.x - frames.rows.minX, y: at.y - frames.rows.minY))
-        return true
+        return carrying(.tab(tab.id), row: tab, at: CGPoint(x: at.x - frames.rows.minX, y: at.y - frames.rows.minY))
     }
 
     /// A square let go (nil: called off): over the rows, where they parted
     /// for it — a row above the line, a tab under it. True when they took it.
     private func squareLand(_ tab: Tab, _ point: CGPoint?) -> Bool {
         guard point != nil, let carry, carry.carried == .tab(tab.id) else {
+            if let point, carry == nil {
+                let at = columnPoint(point, from: .pins)
+                let gridBottom = browser.squarePins.isEmpty ? nil : frames.grid?.maxY
+                if PinDrop.zone(at, width: width - 20, gridBottom: gridBottom) == .rows {
+                    _ = refused(tab, at: CGPoint(x: at.x - frames.rows.minX, y: at.y - frames.rows.minY))
+                }
+            }
             putDown()
             return false
         }
@@ -2196,22 +2242,35 @@ private struct RightClick: NSViewRepresentable {
     }
 }
 
+/// A pin's place among the pins: which tab it is, and whether a row
+/// (Browser.pinOrder).
+struct PinPlace: Equatable {
+    let id: UUID
+    let listed: Bool
+}
+
 /// A pinned square picked up and carried across the grid, its travel its
 /// own: only the square being carried redraws as the hand moves, and the
 /// grid only when it changes place.
 struct PinCarried: ViewModifier {
     let index: Int
     let cells: [CGRect]
-    /// Carried out over the tabs (see Carried.cross): true while they show
-    /// where it would land, and the square then stays out of the grid's way.
-    var cross: ((CGPoint) -> Bool)? = nil
+    /// Carried out over the tabs (see Carried.cross): what they show while
+    /// the hand is past the grid, and the square then stays out of the
+    /// grid's way; nil while it is over the grid.
+    var cross: ((CGPoint) -> CarryGap?)? = nil
     /// Let go: true when the tabs took it.
     var land: ((CGPoint?) -> Bool)? = nil
+    /// The pins as they stood when it was picked up, and putting them back
+    /// so: for one sent to another device, which is kept here as it was.
+    var keep: (() -> [PinPlace])? = nil
+    var putBack: (([PinPlace]) -> Void)? = nil
     let move: (Int) -> Void
 
     @State private var held = false
     @State private var from = 0
     @State private var travel: CGSize = .zero
+    @State private var kept: [PinPlace] = []
     /// Put back by SwiftUI when the drag is called off as well as when it
     /// ends: the square's look changing under the hand calls it off, and the
     /// square stayed floating (see CarryGuard).
@@ -2242,10 +2301,21 @@ struct PinCarried: ViewModifier {
                         if !held {
                             held = true
                             from = index
+                            kept = keep?() ?? []
                             CarryGuard.open(ticket, end: callOff)
                         }
                         travel = value.translation
-                        if cross?(value.location) == true { return }
+                        if let gap = cross?(value.location) {
+                            // Sent to another device, it is kept here as
+                            // well: back in the cell it was picked up from,
+                            // as a row goes back to its place (CarryGap.copy),
+                            // and the squares it crossed on the way, the
+                            // others picked with it among them, back in theirs.
+                            if gap == .copy, let putBack, !kept.isEmpty {
+                                withAnimation(Motion.settle) { putBack(kept) }
+                            }
+                            return
+                        }
                         let target = PinCarried.target(travel: travel, from: from, cells: cells)
                         if target != index {
                             withAnimation(Motion.settle) { move(target) }
@@ -2253,6 +2323,12 @@ struct PinCarried: ViewModifier {
                     }
                     .onEnded { value in
                         guard CarryGuard.close(ticket) else { return }
+                        // Where it was let go, asked once more, as on every
+                        // move: over a device's group with no move there
+                        // first, the squares are still put back.
+                        if cross?(value.location) == .copy, let putBack, !kept.isEmpty {
+                            withAnimation(Motion.settle) { putBack(kept) }
+                        }
                         _ = land?(value.location)
                         withAnimation(Motion.settle) {
                             held = false

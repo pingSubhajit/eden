@@ -694,8 +694,9 @@ final class RowCarryTests: XCTestCase {
 
     /// One of your tabs carried onto a device's group that already has its
     /// page open: the device won't take it, so nothing parts and it holds
-    /// still; let go, it stays where it was, unpinned. It used to fall
-    /// through to the kept area under the devices and be pinned.
+    /// still; let go, a toast says why, and it stays where it was,
+    /// unpinned. It used to fall through to the kept area under the
+    /// devices and be pinned.
     func testATabADeviceHasOpenAlreadyHoldsStillOverIt() async throws {
         let browser = makeBrowser()
         keepsClean(browser)
@@ -723,29 +724,33 @@ final class RowCarryTests: XCTestCase {
         XCTAssertNil(SideBar.shownGap, "nothing parts: not the phone, not the kept area")
         try await send(.leftMouseUp, at: point(y: 14, in: window), in: window)
         try await settle()
+        XCTAssertEqual(browser.announcement, "Already open on iPhone")
         XCTAssertNil(t[4].pin, "not pinned")
         XCTAssertTrue(browser.listedPins.isEmpty)
     }
 
     /// A square gone on from its home, carried onto another device's
-    /// group: a pin never goes to a device, so it goes to the head of the
-    /// kept area under the group, a pinned row there, and the device is
-    /// asked nothing.
-    func testASquareOverADevicesGroupGoesToTheKeptAreaNotTheDevice() async throws {
+    /// group: the page it went on to is opened there, and it stays a
+    /// square here, as it was.
+    func testASquareGoneOnOverADevicesGroupSendsItsPage() async throws {
         let browser = makeBrowser()
         keepsClean(browser)
+        let server = try homeAndAway()
         let wasOn = Sync.shared.on
-        addTeardownBlock { @MainActor in Sync.shared.pretend([], on: wasOn) }
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
         Sync.shared.pretend([DeviceTabs(device: "phone", name: "Phone", kind: .iphone,
                                         tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
                             on: true)
         let t = browser.tabs
-        browser.pin(t[0])
-        // Wandered: a page the devices could be shown.
-        t[0].restore(url: try XCTUnwrap(URL(string: "https://wandered.invalid/")), title: "wandered")
-        XCTAssertNotNil(Sync.page(of: t[0], in: browser.spaceID))
-        browser.select(t[4])
         let window = makeWindow(browser)
+        try await goneOn(t[0], listed: false, from: server, in: browser)
+        let away = server.url("/away").absoluteString
+        browser.select(t[4])
         try await ready(browser)
         SideBar.shownGap = nil
         // The grid, 34 and 10 under it; then the phone's group 0–28, the
@@ -757,13 +762,506 @@ final class RowCarryTests: XCTestCase {
             try await send(.leftMouseDragged, at: at(10 + room / 6 + (y - 17) / 2, y), in: window)
         }
         try await settle()
-        XCTAssertNil(SideBar.shownGap?.device, "not the device")
-        XCTAssertEqual(SideBar.shownGap?.place, ColumnPlace(area: .kept), "the kept area under it")
+        XCTAssertEqual(SideBar.shownGap?.device, "phone")
         try await send(.leftMouseUp, at: at(10 + room / 6 + 20, 44 + 14), in: window)
         try await settle()
-        XCTAssertTrue(t[0].listed, "a pinned row")
         let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
-        XCTAssertFalse(phone?.tabs.contains { $0.url == "https://wandered.invalid/" } == true, "nothing sent")
+        XCTAssertTrue(phone?.tabs.contains { $0.url == away } == true, "sent")
+        XCTAssertNotNil(t[0].pin, "still pinned here")
+        XCTAssertFalse(t[0].listed, "a square")
+        XCTAssertTrue(t[0].wandered, "still gone on")
+    }
+
+    /// The same with Split View off, the other way a row is let go.
+    func testAPinAtHomeIsTurnedDownWithSplitViewOffToo() async throws {
+        let (browser, window, t) = try await twoPinsUnderThePhone()
+        browser.prefs.splitView = false
+        try await carry(from: 74, to: 14, in: window)
+        try await settle()
+        XCTAssertEqual(browser.announcement, "iPhone has this pin already")
+        XCTAssertEqual(browser.listedPins.map(\.id), [t[0].id, t[1].id], "where they were")
+    }
+
+    /// Carried onto a device's group that turns it down, and let go just
+    /// past it with no move in between: where it was let go is not the
+    /// device, so nothing is said.
+    func testLetGoJustPastADeviceThatTurnsItDownSaysNothing() async throws {
+        let (browser, window, _) = try await twoPinsUnderThePhone()
+        try await carry(from: 74, to: 14, in: window, letGo: false)
+        try await settle()
+        try await send(.leftMouseUp, at: point(y: 44, in: window), in: window)
+        try await settle()
+        XCTAssertNil(browser.announcement)
+    }
+
+    /// Carried up past the other pin, which makes way, and let go on the
+    /// phone's group with no move over it first: turned down there all the
+    /// same, the pin it passed given back its place.
+    func testLetGoStraightOntoADeviceThatTurnsItDownGivesThePlacesBack() async throws {
+        let (browser, window, t) = try await twoPinsUnderThePhone()
+        try await carry(from: 74, to: 40, in: window, letGo: false)
+        try await settle()
+        XCTAssertEqual(browser.listedPins.map(\.id), [t[1].id, t[0].id], "made way")
+        try await send(.leftMouseUp, at: point(y: 14, in: window), in: window)
+        try await settle()
+        XCTAssertEqual(browser.announcement, "iPhone has this pin already")
+        XCTAssertEqual(browser.listedPins.map(\.id), [t[0].id, t[1].id], "where they were")
+    }
+
+    /// A pair's second half carried onto a device that has the first
+    /// half's page open already but not its own: the device takes the half
+    /// picked up, and it is that page it is sent, asked where it was let go
+    /// as much as on the way.
+    func testAPairsHalfGoesToADeviceThatHasTheOtherHalfOpen() async throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        let home = server.url("/home"), away = server.url("/away")
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "iPhone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: home.absoluteString, title: "Home", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        t[1].restore(url: home, title: "")
+        t[2].restore(url: away, title: "")
+        browser.pair(t[2], with: t[1], onLeft: false)
+        let window = makeWindow(browser)
+        browser.window = window
+        browser.select(t[1])
+        try await until { t[1].committed == home && t[2].committed == away && !t[1].loading && !t[2].loading }
+        browser.select(t[4])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        // The phone's group, folded, 0–28; the line 30–48; one 50–78; the
+        // pair 80–136, its second half from 108. That half carried up onto
+        // the phone's heading.
+        let y: CGFloat = 122
+        TabDrag.testPointer = NSPoint(x: window.frame.minX + 70, y: window.frame.minY + point(y: y, in: window).y)
+        defer { TabDrag.testPointer = nil }
+        try await carry(from: y, to: 14, in: window, letGo: false)
+        try await settle()
+        XCTAssertEqual(SideBar.shownGap?.device, "phone", "taken on the way")
+        try await send(.leftMouseUp, at: point(y: 14, in: window), in: window)
+        try await settle()
+        let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
+        XCTAssertTrue(phone?.tabs.contains { $0.url == away.absoluteString } == true, "the half picked up, sent")
+        XCTAssertNil(browser.announcement, "nothing turned down")
+    }
+
+    /// A pinned row gone on from its home, carried up over the squares and
+    /// let go on the phone's group with no move over it first: where it
+    /// was let go is the phone, not the squares, so its page is sent and
+    /// it stays a row.
+    func testARowLetGoOnADeviceStraightFromOverTheSquaresGoesThere() async throws {
+        let (browser, window, t, server) = try await aSquareAndARowUnderThePhone(goneOn: true)
+        try await carry(from: 88, to: 17, in: window, letGo: false)
+        try await settle()
+        try await send(.leftMouseUp, at: point(y: 58, in: window), in: window)
+        try await settle()
+        let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
+        XCTAssertTrue(phone?.tabs.contains { $0.url == server.url("/away").absoluteString } == true, "sent")
+        XCTAssertTrue(t[1].listed, "still a row")
+        XCTAssertEqual(browser.squarePins.map(\.id), [t[0].id])
+    }
+
+    /// The same with the row at its home: the phone turns it down, says
+    /// so, and it stays a row.
+    func testARowLetGoOnADeviceStraightFromOverTheSquaresIsTurnedDown() async throws {
+        let (browser, window, t, _) = try await aSquareAndARowUnderThePhone(goneOn: false)
+        try await carry(from: 88, to: 17, in: window, letGo: false)
+        try await settle()
+        try await send(.leftMouseUp, at: point(y: 58, in: window), in: window)
+        try await settle()
+        XCTAssertEqual(browser.announcement, "iPhone has this pin already")
+        XCTAssertTrue(t[1].listed, "still a row")
+        XCTAssertEqual(browser.squarePins.map(\.id), [t[0].id])
+    }
+
+    /// One square, the grid 0–34 and 10 under it; the phone's group,
+    /// folded, 44–72; a pinned row 74–102, at its home or gone on.
+    private func aSquareAndARowUnderThePhone(goneOn wandered: Bool) async throws
+        -> (Browser, NSWindow, [Eden.Tab], LocalPageServer) {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "iPhone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        browser.pin(t[0])
+        let window = makeWindow(browser)
+        if wandered {
+            try await goneOn(t[1], listed: true, from: server, in: browser)
+        } else {
+            let home = server.url("/home")
+            t[1].restore(url: home, title: "")
+            browser.select(t[1])
+            try await until { t[1].committed == home && !t[1].loading }
+            browser.pin(t[1], listed: true)
+        }
+        browser.select(t[4])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        return (browser, window, t, server)
+    }
+
+    /// The phone's group, folded, 0–28, with a page of its own; two pinned
+    /// rows under it, one 30–58 and two 60–88, the second at its home on a
+    /// page that loads.
+    private func twoPinsUnderThePhone() async throws -> (Browser, NSWindow, [Eden.Tab]) {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "iPhone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        browser.pin(t[0], listed: true)
+        let window = makeWindow(browser)
+        let home = server.url("/home")
+        t[1].restore(url: home, title: "")
+        browser.select(t[1])
+        try await until { t[1].committed == home && !t[1].loading }
+        browser.pin(t[1], listed: true)
+        browser.select(t[4])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        return (browser, window, t)
+    }
+
+    /// A square at its home, carried out of the grid onto another device's
+    /// group and let go there: turned down, a toast says why, and it stays
+    /// a square where it was.
+    func testASquareAtHomeLetGoOnADeviceIsTurnedDownAndSaysSo() async throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "Phone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        let window = makeWindow(browser)
+        let home = server.url("/home")
+        t[0].restore(url: home, title: "")
+        browser.select(t[0])
+        try await until { t[0].committed == home && !t[0].loading }
+        browser.pin(t[0])
+        browser.select(t[4])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        // The grid, 34 and 10 under it; then the phone's group 0–28.
+        let room = browser.prefs.sideWidth - 20
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        try await send(.leftMouseDown, at: at(10 + room / 6, 17), in: window)
+        for y in stride(from: CGFloat(19), through: 44 + 14, by: 2) {
+            try await send(.leftMouseDragged, at: at(10 + room / 6 + (y - 17) / 2, y), in: window)
+        }
+        try await settle()
+        XCTAssertNil(SideBar.shownGap, "nothing parts")
+        try await send(.leftMouseUp, at: at(10 + room / 6 + 20, 44 + 14), in: window)
+        try await settle()
+        XCTAssertEqual(browser.announcement, "Phone has this pin already")
+        XCTAssertNotNil(t[0].pin)
+        XCTAssertFalse(t[0].listed, "still a square")
+        let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
+        XCTAssertFalse(phone?.tabs.contains { $0.url == home.absoluteString } == true, "nothing sent")
+    }
+
+    /// A square gone on from its home, carried down across the squares
+    /// under it, which make way as it passes, and on onto another device's
+    /// group: it is kept here where it was picked up, not in the cell it
+    /// crossed.
+    func testASquareSentAcrossTheGridGoesBackToItsCell() async throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "Phone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        let window = makeWindow(browser)
+        try await goneOn(t[0], listed: false, from: server, in: browser)
+        for tab in t[1...4] { browser.pin(tab) }
+        let squares = browser.squarePins.map(\.id)
+        XCTAssertEqual(squares, t.map(\.id))
+        browser.newTab()
+        try await ready(browser)
+        SideBar.shownGap = nil
+        // Five squares, three in the first row and two in the second, 34
+        // tall with 4 between: 0–34 and 38–72; 10 under them the phone's
+        // group, 82–110.
+        let room = browser.prefs.sideWidth - 20
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        let x = 10 + room / 6
+        try await send(.leftMouseDown, at: at(x, 17), in: window)
+        for y in stride(from: CGFloat(19), through: 55, by: 2) {
+            try await send(.leftMouseDragged, at: at(x, y), in: window)
+        }
+        try await settle()
+        XCTAssertNotEqual(browser.squarePins.map(\.id), squares, "the squares made way")
+        for y in stride(from: CGFloat(57), through: 96, by: 2) {
+            try await send(.leftMouseDragged, at: at(x, y), in: window)
+        }
+        try await settle()
+        XCTAssertEqual(SideBar.shownGap?.device, "phone")
+        XCTAssertEqual(browser.squarePins.map(\.id), squares, "back where it was picked up")
+        try await send(.leftMouseUp, at: at(x, 96), in: window)
+        try await settle()
+        let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
+        XCTAssertTrue(phone?.tabs.contains { $0.url == server.url("/away").absoluteString } == true, "sent")
+        XCTAssertEqual(browser.squarePins.map(\.id), squares, "kept where it was")
+    }
+
+    /// The same with another square picked with it: the two move as one
+    /// across the grid, and onto the device both go back where they were,
+    /// and the squares they passed.
+    func testSquaresPickedTogetherAndSentGoBackToTheirCells() async throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        let wasCommandOpens = browser.prefs.pinCommandOpensTab
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            browser.prefs.pinCommandOpensTab = wasCommandOpens
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "Phone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        let window = makeWindow(browser)
+        for tab in t[0...1] { browser.pin(tab) }
+        try await goneOn(t[2], listed: false, from: server, in: browser)
+        for tab in t[3...4] { browser.pin(tab) }
+        let squares = browser.squarePins.map(\.id)
+        XCTAssertEqual(squares, t.map(\.id))
+        browser.select(t[0])
+        browser.prefs.pinCommandOpensTab = false
+        browser.extendTabSelection(to: t[2], modifiers: [.command])
+        XCTAssertEqual(browser.selectedTabIDs, [t[0].id, t[2].id])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        // As above: the first row's three squares 0–34, the second's two
+        // 38–72, the phone's group 82–110. The third square, the one gone
+        // on, carried down into the second row and on onto the phone.
+        let room = browser.prefs.sideWidth - 20
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        let x = 10 + room * 5 / 6
+        try await send(.leftMouseDown, at: at(x, 17), in: window)
+        for y in stride(from: CGFloat(19), through: 55, by: 2) {
+            try await send(.leftMouseDragged, at: at(x, y), in: window)
+        }
+        try await settle()
+        XCTAssertNotEqual(browser.squarePins.map(\.id), squares, "the squares made way")
+        XCTAssertNotEqual(browser.squarePins.firstIndex { $0.id == t[0].id }, 0, "the one picked with it moved too")
+        for y in stride(from: CGFloat(57), through: 96, by: 2) {
+            try await send(.leftMouseDragged, at: at(x, y), in: window)
+        }
+        try await settle()
+        XCTAssertEqual(SideBar.shownGap?.device, "phone")
+        XCTAssertEqual(browser.squarePins.map(\.id), squares, "all back where they were")
+        try await send(.leftMouseUp, at: at(x, 96), in: window)
+        try await settle()
+        let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
+        XCTAssertTrue(phone?.tabs.contains { $0.url == server.url("/away").absoluteString } == true, "sent")
+        XCTAssertEqual(browser.squarePins.map(\.id), squares, "kept where they were")
+    }
+
+    /// The pins put back as they stood when a square was picked up, after
+    /// the squares made way for it, each its kind again: a pin unpinned
+    /// meanwhile is passed over, while one pinned meanwhile, which the
+    /// order can't place, leaves the pins as they are.
+    func testPinsPutBackAsTheyStoodUnlessOneWasPinnedSince() {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let t = browser.tabs
+        browser.pin(t[0])
+        browser.pin(t[1])
+        browser.pin(t[2])
+        browser.pin(t[3], listed: true)
+        let order = browser.pinOrder
+        browser.move(t[1], to: 0)
+        XCTAssertEqual(browser.pinOrder.map(\.id), [t[1], t[0], t[2], t[3]].map(\.id), "the squares made way")
+        // Made a row on the way, as a square carried among the rows with
+        // them hidden is; and one unpinned meanwhile.
+        t[0].listed = true
+        browser.unpin(t[2])
+        browser.putBack(order)
+        XCTAssertEqual(browser.pinOrder, order.filter { $0.id != t[2].id }, "the rest as they stood")
+
+        browser.move(t[1], to: 0)
+        browser.pin(t[4])
+        let carried = browser.pinOrder
+        browser.putBack(order)
+        XCTAssertEqual(browser.pinOrder, carried, "as the carry left them")
+    }
+
+    /// A pinned row gone on from its home, carried onto another device's
+    /// group: the page it went on to is opened there by that page's title,
+    /// not the name the pin was given for its home, and the row stays where
+    /// it was among the pins, still gone on.
+    func testAPinnedRowGoneOnOverADevicesGroupSendsItsPage() async throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "iPhone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        browser.pin(t[0], listed: true)
+        let window = makeWindow(browser)
+        try await goneOn(t[1], listed: true, from: server, in: browser)
+        t[1].name = "Named home"
+        let away = server.url("/away").absoluteString
+        browser.select(t[4])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        // The phone's group, folded, 0–28; one 30–58, two 60–88. Two
+        // carried up onto the phone's heading.
+        try await carry(from: 74, to: 14, in: window, letGo: false)
+        try await settle()
+        XCTAssertEqual(SideBar.shownGap?.device, "phone")
+        try await send(.leftMouseUp, at: point(y: 14, in: window), in: window)
+        try await settle()
+        let sent = Sync.shared.devicesWithTabs.first { $0.device == "phone" }?.tabs.first { $0.url == away }
+        XCTAssertEqual(sent?.title, "Away", "sent, by the page's own title")
+        XCTAssertEqual(browser.listedPins.map(\.id), [t[0].id, t[1].id], "kept where it was")
+        XCTAssertTrue(t[1].wandered, "still gone on")
+    }
+
+    /// What the other devices are shown of a tab you named: your name for
+    /// it, as ever. Of a pin you named, gone on from its home: the page's
+    /// own title, since the pin's name is its home's.
+    func testTheOtherDevicesSeeANamedTabByItsNameAndAPinGoneOnByItsPage() throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let t = browser.tabs
+        t[3].restore(url: try XCTUnwrap(URL(string: "https://loose.invalid/")), title: "Loose page")
+        t[3].name = "Mine"
+        XCTAssertEqual(Sync.page(of: t[3], in: browser.spaceID)?.title, "Mine")
+        t[1].restore(url: try XCTUnwrap(URL(string: "https://home.invalid/")), title: "Home")
+        browser.pin(t[1], listed: true)
+        t[1].restore(url: try XCTUnwrap(URL(string: "https://away.invalid/")), title: "Away")
+        t[1].name = "Named home"
+        XCTAssertTrue(t[1].wandered)
+        XCTAssertEqual(Sync.page(of: t[1], in: browser.spaceID)?.title, "Away")
+    }
+
+    /// A pinned row at its home, carried up past the other pin onto
+    /// another device's group: that device has the pin already, so nothing
+    /// opens, and the pin it passed on the way is given back its place.
+    /// Let go there, the device is asked nothing, a toast says why, and the
+    /// pins stand as they did.
+    func testAPinnedRowAtHomeLetGoOnADeviceIsTurnedDownAndSaysSo() async throws {
+        let browser = makeBrowser()
+        keepsClean(browser)
+        let server = try homeAndAway()
+        let wasOn = Sync.shared.on
+        addTeardownBlock { @MainActor in
+            browser.closeAll()
+            Sync.shared.pretend([], on: wasOn)
+            server.stop()
+            CleanWorld.reset()
+        }
+        Sync.shared.pretend([DeviceTabs(device: "phone", name: "iPhone", kind: .iphone,
+                                        tabs: [DeviceTabs.Page(url: "https://a.phone.invalid/", title: "", space: nil)], at: 0)],
+                            on: true)
+        let t = browser.tabs
+        browser.pin(t[0], listed: true)
+        let window = makeWindow(browser)
+        let home = server.url("/home")
+        t[1].restore(url: home, title: "")
+        browser.select(t[1])
+        try await until { t[1].committed == home && !t[1].loading }
+        browser.pin(t[1], listed: true)
+        XCTAssertNil(Sync.page(of: t[1], in: browser.spaceID), "at its home: nothing to send")
+        browser.select(t[4])
+        try await ready(browser)
+        SideBar.shownGap = nil
+        try await carry(from: 74, to: 14, in: window, letGo: false)
+        try await settle()
+        XCTAssertNil(SideBar.shownGap, "nothing parts: not the phone, not the kept area")
+        XCTAssertEqual(browser.listedPins.map(\.id), [t[0].id, t[1].id], "the pin it passed given back its place")
+        XCTAssertNil(browser.announcement, "nothing said while it is held")
+        try await send(.leftMouseUp, at: point(y: 14, in: window), in: window)
+        try await settle()
+        XCTAssertEqual(browser.announcement, "iPhone has this pin already")
+        XCTAssertEqual(browser.listedPins.map(\.id), [t[0].id, t[1].id], "where they were")
+        let phone = Sync.shared.devicesWithTabs.first { $0.device == "phone" }
+        XCTAssertFalse(phone?.tabs.contains { $0.url == home.absoluteString } == true, "nothing sent")
+    }
+
+    /// Two pages on a loopback origin that load, as a pin's must for it to
+    /// have gone anywhere: one that never loads has no page to send.
+    private func homeAndAway() throws -> LocalPageServer {
+        try LocalPageServer([
+            "/home": .init(type: "text/html", body: "<title>Home</title><h1>Home</h1>"),
+            "/away": .init(type: "text/html", body: "<title>Away</title><h1>Away</h1>"),
+        ])
+    }
+
+    /// `tab` pinned at the server's home once it is there, then sent on to
+    /// its other page from the browser, as a link the hand followed would:
+    /// gone on from its home (PinLanding).
+    private func goneOn(_ tab: Eden.Tab, listed: Bool, from server: LocalPageServer, in browser: Browser) async throws {
+        let home = server.url("/home"), away = server.url("/away")
+        tab.restore(url: home, title: "")
+        browser.select(tab)
+        try await until { tab.committed == home && !tab.loading }
+        browser.pin(tab, listed: listed)
+        tab.go(to: away)
+        try await until { tab.committed == away && !tab.loading && tab.title == "Away" }
+        XCTAssertTrue(tab.wandered, "gone on")
+    }
+
+    private func until(within seconds: Double = 10, _ done: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(seconds)
+        while !done(), Date() < end { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(done(), "in time")
     }
 
     /// New tabs at the top: one 0–28, two 30–58 above the line 60–78, New

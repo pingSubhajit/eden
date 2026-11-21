@@ -538,11 +538,13 @@ final class Sync: ObservableObject {
     /// how far down it is read and whether as an article. Nil for one they
     /// aren't shown: private, a bench tab, a page that can't be carried, or
     /// a pin at its home — the pin, which every device has already; gone on
-    /// to another page, it is that page.
+    /// to another page, it is that page, by the page's own title: a pin's
+    /// name is its home's.
     static func page(of tab: Tab, in space: UUID) -> DeviceTabs.Page? {
         guard !tab.shy, !tab.bench, let url = Continuity.page(tab.restAddress) else { return nil }
         if tab.isHome(url) { return nil }
-        let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
+        let named = tab.pin == nil ? tab.name : nil
+        let title = named.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
         return DeviceTabs.Page(url: url.absoluteString, title: title, space: space,
                                scroll: DeviceTabs.Page.scroll(tab.reading), reading: tab.reader ? true : nil)
     }
