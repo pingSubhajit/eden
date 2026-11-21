@@ -10,7 +10,9 @@ final class ImportFileTests: XCTestCase {
 
     override class func setUp() {
         super.setUp()
-        let world = "import-tests-\(UUID().uuidString.lowercased())"
+        // Named for this process, as every suite's world is: Store throws
+        // such a world away at exit, and sweeps it if a run never got there.
+        let world = "import-tests-\(getpid())"
         probeWorld = world
         setenv("EDEN_PROBE", world, 1)
     }

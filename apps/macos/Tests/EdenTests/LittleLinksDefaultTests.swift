@@ -14,8 +14,13 @@ final class LittleLinksDefaultTests: XCTestCase {
         store = UserDefaults(suiteName: suite)
     }
 
+    /// Written out, then its file taken off the disk (#7). Not let go of as
+    /// a domain: the preferences daemon carries that out later, by writing
+    /// the file again, empty.
     override func tearDown() {
-        store.removePersistentDomain(forName: suite)
+        CFPreferencesAppSynchronize(suite as CFString)
+        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.removeItem(at: library.appendingPathComponent("Preferences/\(suite).plist"))
         store = nil
         super.tearDown()
     }

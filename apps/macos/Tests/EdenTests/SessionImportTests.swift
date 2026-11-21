@@ -329,7 +329,9 @@ final class SessionImportTests: XCTestCase {
 
     @MainActor
     func testTakeSessionBringsTabsAsleepGroupsAndPinsOnce() throws {
-        let world = "session-import-tests-\(UUID().uuidString.lowercased())"
+        // Named for this process, as every suite's world is: Store throws
+        // such a world away at exit, and sweeps it if a run never got there.
+        let world = "session-import-tests-\(getpid())"
         setenv("EDEN_PROBE", world, 1)
         defer {
             Disk.drain()
