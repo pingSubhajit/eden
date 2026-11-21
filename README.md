@@ -10,7 +10,7 @@ macOS 14 or later · iOS and iPadOS 27 or later · free. No public download yet,
 
 ## Across your devices
 
-Eden keeps your Mac, iPhone and iPad in step through your own iCloud. It syncs your open tabs, bookmarks, history, spaces, pins and settings.
+Eden keeps your Mac, iPhone and iPad in step through your own iCloud. It syncs your open tabs, history, spaces, pins and settings, and the iPhone and iPad's bookmarks. On the Mac, pins are where you keep pages, and ⌘D pins the page in front.
 
 - **Your other devices' tabs, beside your own.** On the Mac, each device gets a group in the column, under your pins, listing what it has open in the space you're in. On iPhone and iPad they sit in the tab overview and the sidebar.
 - **Carry on where you stopped.** Open a page from another device and Eden puts it in the space it came from, scrolled to where you were, in reading mode if you were reading. If the page is open here already, Eden switches to it.
@@ -57,7 +57,7 @@ Apps you allow in System Settings › Privacy & Security › Automation can read
 | ⌥⌘T new tab in group | ⌃⌘N new group |
 | ⇧⌘[ ⇧⌘] previous, next tab | ⌘1 to ⌘9 jump to a tab |
 | ⌃Tab recent tabs | ⌘S hide the column |
-| ⇧⌘H hide something | ⇧⌘B bookmark |
+| ⇧⌘H hide something | ⌘D pin or unpin the page |
 | ⌘Y history | ⇧⌘J downloads |
 
 Change any of them in Settings › Keyboard & Mouse › Shortcuts.
