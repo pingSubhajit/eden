@@ -1033,12 +1033,14 @@ private struct TabPill: View, Equatable {
 /// its pair, as it does once the pair has been shown letting go of it (see
 /// TabDrag.separate); else the pair goes whole. Neither for a group carried
 /// by its heading. `drawn`: the leading edge of what is carried, under the
-/// hand, in the run's space.
+/// hand, in the run's space; `point`, where the hand let go, in the same
+/// space.
 struct CarriedDrop {
     let row: Tab?
     let source: Tab?
     let detaching: Bool
     let drawn: CGFloat?
+    let point: CGPoint
 }
 
 /// What a run of the column does for a tab carried over it (Carried.gap).
@@ -1048,8 +1050,9 @@ enum CarryGap {
     /// A gap is open for it in another run, and its own place closes: the
     /// row holds still where it is.
     case away
-    /// A gap is open for it elsewhere, and it is kept here as well — sent
-    /// to another device: the row goes back to where it was picked up.
+    /// Over another device's group, and it is kept here: sent there as
+    /// well, a gap open in its group, or turned down by it, nothing open.
+    /// The row goes back to where it was picked up.
     case copy
     /// It is over a run that won't take it: nothing opens, and it holds
     /// still where it is.
@@ -1266,6 +1269,9 @@ struct Carried: ViewModifier {
                         // came after can't be where it was let go.
                         guard CarryGuard.close(ticket) else { return }
                         if let browser, let tab, browser.prefs.splitView {
+                            // Asked while the drag still knows which half
+                            // of a pair is carried: finishing forgets it.
+                            if TabDrag.shared.cancelledID != tab.id { askOnceMore(at: value.location) }
                             let finished = TabDrag.shared.finish(browser: browser, tab: tab)
                             let source = finished.source
                             // Let go over the pins, or out of them: theirs,
@@ -1281,7 +1287,7 @@ struct Carried: ViewModifier {
                                     // shown it would go, the half shown
                                     // leaving its pair on its own.
                                     if placed?(CarriedDrop(row: tab, source: source, detaching: true,
-                                                           drawn: origin.map { $0 + travel })) == true { break }
+                                                           drawn: origin.map { $0 + travel }, point: value.location)) == true { break }
                                     if let destination = groupDestination?(source, value.location) {
                                         // Along its own group it has moved as
                                         // it went (see `gap`): already there.
@@ -1293,7 +1299,7 @@ struct Carried: ViewModifier {
                                     }
                                 case .outside:
                                     if placed?(CarriedDrop(row: tab, source: source, detaching: false,
-                                                           drawn: origin.map { $0 + travel })) == true { break }
+                                                           drawn: origin.map { $0 + travel }, point: value.location)) == true { break }
                                     if !browser.dragOut(source, at: finished.point) {
                                         if let onDropTab { onDropTab(source, value.location) }
                                         else if source.id == tab.id { onDrop?(value.location) }
@@ -1302,11 +1308,14 @@ struct Carried: ViewModifier {
                                     if reordered { move(from) }
                                 }
                             }
-                        } else if land?(value.location) != true, outside?() != true {
-                            if placed?(CarriedDrop(row: tab, source: tab, detaching: false,
-                                                   drawn: origin.map { $0 + travel })) == true {}
-                            else if let onDropTab, let tab { onDropTab(tab, value.location) }
-                            else { onDrop?(value.location) }
+                        } else {
+                            askOnceMore(at: value.location)
+                            if land?(value.location) != true, outside?() != true {
+                                if placed?(CarriedDrop(row: tab, source: tab, detaching: false,
+                                                       drawn: origin.map { $0 + travel }, point: value.location)) == true {}
+                                else if let onDropTab, let tab { onDropTab(tab, value.location) }
+                                else { onDrop?(value.location) }
+                            }
                         }
                         // Told now, not only when `held` changes: the drop
                         // may have taken this row away, and that change with it.
@@ -1374,6 +1383,19 @@ struct Carried: ViewModifier {
             before -= others[slot]
         }
         return slot
+    }
+
+    /// Let go: where, asked once more, as on every move, so what is done
+    /// is what the place it was let go shows, even with no move there
+    /// first: over the squares or off them, and over another device's
+    /// group, the places it took on the way given back (CarryGap.copy).
+    private func askOnceMore(at location: CGPoint) {
+        if cross?(location) == true {
+            _ = gap?(nil)
+            return
+        }
+        guard gap?(location) == .copy, index != from else { return }
+        withAnimation(Motion.settle) { move(from) }
     }
 
     /// Off to the side of the row, with some slack for a hand that wanders,

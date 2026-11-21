@@ -4244,6 +4244,38 @@ final class Browser: NSObject, ObservableObject {
         rememberSession()
     }
 
+    /// The pins in the order they stand, and which of them are rows: what
+    /// a square carried across the others changes as they make way for it
+    /// (moveDisplayedTab), for a carry that keeps it here after all to put
+    /// back (PinCarried).
+    var pinOrder: [PinPlace] {
+        tabs.compactMap { $0.pin == nil ? nil : PinPlace(id: $0.id, listed: $0.listed) }
+    }
+
+    /// The pins put back in `order`, each its kind again, into the places
+    /// the pins hold among the tabs; the other tabs keep theirs, and a pin
+    /// gone since is passed over. A pin made since, which `order` can't
+    /// place, leaves them all as they are: as the carry left them, which is
+    /// an order the column keeps, squares ahead of rows, where a guess at
+    /// its place might not be.
+    func putBack(_ order: [PinPlace]) {
+        let now = pinOrder
+        let present = Set(now.map(\.id))
+        let back = order.filter { present.contains($0.id) }
+        guard back.count == now.count, back != now else { return }
+        let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var next = back.compactMap { byID[$0.id] }.makeIterator()
+        var row = tabs
+        for index in row.indices where row[index].pin != nil {
+            if let pin = next.next() { row[index] = pin }
+        }
+        for place in back {
+            if let pin = byID[place.id], pin.listed != place.listed { pin.listed = place.listed }
+        }
+        tabs = row
+        rememberSession()
+    }
+
     /// Whether a pin carried onto another may land there. With the rows
     /// shown, a square goes among squares and a row among rows; the menu
     /// moves one between them. With them off every pin is drawn a square,
