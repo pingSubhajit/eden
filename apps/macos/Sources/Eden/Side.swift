@@ -1622,8 +1622,9 @@ private struct SideRow: View, Equatable {
     /// What the page warns of, on the row you're on: a glyph before its
     /// title (TabTitle).
     private var warning: AtRest? { live ? AtRest.warning(tab.restAddress) : nil }
-    /// A pin already put down has nothing left to put down: no minus (#1050).
-    private var closable: Bool { tab.pin == nil || !tab.asleep }
+    /// A pin already put down has nothing left to put down (#1050): its
+    /// cross is a × that takes the pin out for good (Browser.deletePin).
+    private var deletes: Bool { tab.pin != nil && tab.asleep }
     /// A pin gone on from its page (Tab.wandered): its home's icon at the
     /// start, which takes it back there, then a slash and the page it is on.
     private var away: Bool { !editing && tab.wandered }
@@ -1754,7 +1755,7 @@ private struct SideRow: View, Equatable {
         // doesn't jump on each row the pointer passes.
         .mask {
             ZStack {
-                Rectangle().opacity(hovering && closable && !editing && !status ? 0 : 1)
+                Rectangle().opacity(hovering && !editing && !status ? 0 : 1)
                 HStack(spacing: 0) {
                     Rectangle()
                     LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
@@ -1766,12 +1767,16 @@ private struct SideRow: View, Equatable {
         .overlay(alignment: .trailing) {
             if !editing {
                 ZStack {
-                    if hovering && closable {
+                    if hovering {
                         // A pinned row is put down, not closed (see
-                        // Browser.close), and says so, as Arc's does; so is
-                        // a grouped tab's page while it is open (closeTab).
-                        RowCross(symbol: tab.pin != nil || (putsAway && !tab.asleep) ? "minus" : "xmark",
-                                 height: prefs.sideRow) { if hovering && closable { close() } }
+                        // Browser.close), and says so with a minus; so is a
+                        // grouped tab's page while it is open (closeTab).
+                        // Put down, its × takes the pin out.
+                        RowCross(symbol: (tab.pin != nil && !deletes) || (putsAway && !tab.asleep) ? "minus" : "xmark",
+                                 height: prefs.sideRow) {
+                            guard hovering else { return }
+                            if deletes { browser.deletePin(tab) } else { close() }
+                        }
                             .transition(.opacity)
                     }
                 }

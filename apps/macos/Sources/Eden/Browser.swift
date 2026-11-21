@@ -2210,6 +2210,22 @@ final class Browser: NSObject, ObservableObject {
         rememberSession()
     }
 
+    /// A pin taken out for good, at once: the × on a pinned row put down,
+    /// and Delete in a pin's menu. Unpinned and closed, as Unpin and the
+    /// tab's × would, but ⇧⌘T brings it back a pin, where it was, rather
+    /// than a tab: taking out a pin loses more than closing a tab.
+    func deletePin(_ tab: Tab) {
+        guard tab.pin != nil, tabs.contains(where: { $0.id == tab.id }) else { return }
+        let slot = tabs.filter { $0.pin != nil && $0.listed == tab.listed }.firstIndex { $0.id == tab.id } ?? 0
+        let pin = PinGhost(letter: tab.pin ?? tab.monogram, id: tab.pinID, listed: tab.listed,
+                           group: tab.keptGroupID, home: tab.home, homeTitle: tab.homeTitle, name: tab.name,
+                           everywhere: tab.everywhere, slot: slot, asleep: tab.asleep)
+        unpin(tab)
+        close(tab)
+        guard let ghost = ghosts.lastIndex(where: { $0.was == tab.id }) else { return }
+        ghosts[ghost].pin = pin
+    }
+
     /// What unpinning takes from a tab, with nothing moved or written: its
     /// letter, its home, its row and the kept group it was in, its pin.
     /// Its page, its history and its name stay, and nothing wakes.
@@ -2535,8 +2551,29 @@ final class Browser: NSObject, ObservableObject {
         /// it back with Back, Forward and where it was scrolled to, as Safari
         /// and Chrome do. Held only here, gone with the ghost.
         var keepsake: Keepsake? = nil
+        /// The pin it was, taken out for good (deletePin): ⇧⌘T brings it
+        /// back a pin.
+        var pin: PinGhost? = nil
 
         var label: String { title.isEmpty ? Address.pretty(url) : title }
+    }
+
+    /// What a pin taken out for good was, for ⇧⌘T to make it again: its
+    /// letter and its id, square or row, the folder it was in, its page and
+    /// the title kept for it (Pins.retitle), its name, whether every space
+    /// showed it, its place among the pins of its kind, and whether it was
+    /// asleep.
+    struct PinGhost: Equatable {
+        let letter: String
+        let id: UUID?
+        let listed: Bool
+        let group: UUID?
+        let home: URL?
+        let homeTitle: String
+        let name: String?
+        let everywhere: Bool
+        let slot: Int
+        let asleep: Bool
     }
 
     /// WebKit's interactionState is opaque; boxed so a Ghost still compares.
@@ -4902,6 +4939,10 @@ final class Browser: NSObject, ObservableObject {
             show(own)
             return
         }
+        if let pin = ghost.pin {
+            reopen(pin, from: ghost)
+            return
+        }
         let tab = Tab(configuration: Web.configuration(space: spaceID))
         prepare(tab)
         let group = regroup(ghost)
@@ -4928,6 +4969,55 @@ final class Browser: NSObject, ObservableObject {
            canJoin(tab, beside: partner) {
             pair(tab, with: partner, onLeft: ghost.onLeft)
         }
+    }
+
+    /// A pin taken out for good, a pin again: its letter, its id, its page
+    /// and its name, back at its place among the pins of its kind and in
+    /// its folder while that is still there, every space's again if it
+    /// was. Taken out asleep, it comes back asleep, and you stay where you
+    /// are; taken out awake, from its menu, it comes back in front, with
+    /// its history if it had any, as a tab does.
+    private func reopen(_ pin: PinGhost, from ghost: Ghost) {
+        let tab = Tab(configuration: Web.configuration(space: spaceID))
+        prepare(tab)
+        tab.restore(url: ghost.url, title: ghost.title, vouched: ghost.titleIsOwn, name: pin.name,
+                    state: ghost.keepsake?.state)
+        tab.muted = ghost.muted
+        let awake = !pin.asleep
+        if awake { leaving() }
+        tabs.append(tab)
+        makePin(tab, listed: pin.listed)
+        tab.pin = pin.letter
+        tab.home = pin.home ?? ghost.url
+        if let id = pin.id, !tabs.contains(where: { $0.pinID == id }) { tab.pinID = id }
+        if pin.listed, let group = pin.group, keptGroups.contains(where: { $0.id == group }) { tab.keptGroupID = group }
+        let pins = tabs.filter { $0.pin != nil && $0.id != tab.id }
+        var tier = pins.filter { $0.listed == pin.listed }
+        tier.insert(tab, at: min(pinSlot(tab, listed: pin.listed, proposed: pin.slot), tier.count))
+        let row = (pin.listed ? pins.filter { !$0.listed } + tier : tier + pins.filter(\.listed))
+            + tabs.filter { $0.pin == nil }
+        if !row.elementsEqual(tabs, by: { $0.id == $1.id }) { tabs = row }
+        if pin.everywhere, prefs.showsSharedPins {
+            shareEverywhere(tab)
+            if let id = tab.pinID { placeShared(id, listed: pin.listed, slot: pin.slot) }
+        }
+        if awake { select(tab) }
+        writeSession(now: true)
+        // Its kept title went with its pin; written back now the pin is.
+        if !pin.homeTitle.isEmpty, let id = tab.pinID { Pins.retitle(id, pin.homeTitle, from: self) }
+    }
+
+    /// A pin every space shows, just shared again (shareEverywhere puts it
+    /// after the others), moved back to `slot` among the shared pins of
+    /// its kind, in every space and window.
+    private func placeShared(_ id: UUID, listed: Bool, slot: Int) {
+        var shared = Pins.shared(profileID)
+        guard let at = shared.firstIndex(where: { $0.id == id }) else { return }
+        let def = shared.remove(at: at)
+        let kind = shared.indices.filter { (shared[$0].listed == true) == listed }
+        let to = slot < kind.count ? kind[slot] : kind.last.map { $0 + 1 } ?? shared.count
+        shared.insert(def, at: to)
+        if Pins.setShared(shared, from: self) { sharedPinsChanged() }
     }
 
     /// The group a tab coming back goes into: its own, while groups are on
