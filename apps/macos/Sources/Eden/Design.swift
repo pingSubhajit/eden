@@ -468,25 +468,71 @@ extension View {
 private struct FadeOut: ViewModifier {
     let backwards: Bool
 
+    /// One view however long the line, not one for a line that fits and
+    /// another for one that doesn't: a line moving as it crosses from one to
+    /// the other (a pinned row's title as its slash comes, SideRow) would be
+    /// a new view, put in where it ends up rather than carried there.
     func body(content: Content) -> some View {
-        ViewThatFits(in: .horizontal) {
+        Overrun(backwards: backwards) {
             content.fixedSize(horizontal: true, vertical: false)
-            content
-                .fixedSize(horizontal: true, vertical: false)
-                // The room it is given, not the line's own length.
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: backwards ? .trailing : .leading)
-                .mask {
-                    HStack(spacing: 0) {
-                        if backwards { fade(from: .trailing, to: .leading) }
-                        Rectangle()
-                        if !backwards { fade(from: .leading, to: .trailing) }
-                    }
-                }
+        }
+        .mask {
+            // The line itself, unseen, says how long it is.
+            Overrun.Veil(backwards: backwards) {
+                content.fixedSize(horizontal: true, vertical: false).hidden()
+                Rectangle()
+                LinearGradient(colors: [.black, .clear],
+                               startPoint: backwards ? .trailing : .leading,
+                               endPoint: backwards ? .leading : .trailing)
+            }
         }
     }
+}
 
-    private func fade(from start: UnitPoint, to end: UnitPoint) -> some View {
-        LinearGradient(colors: [.black, .clear], startPoint: start, endPoint: end).frame(width: 24)
+/// A line at its own length, or at the room it is given when that is less,
+/// from its start either way: its leading end, or for a line that reads
+/// right to left its trailing one.
+private struct Overrun: Layout {
+    let backwards: Bool
+    /// How far the end of a line too long for its room fades.
+    static let fade: CGFloat = 24
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let line = subviews.first?.sizeThatFits(.unspecified) else { return .zero }
+        return CGSize(width: min(line.width, proposal.width ?? line.width), height: line.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let first = subviews.first else { return }
+        let line = first.sizeThatFits(.unspecified)
+        first.place(at: CGPoint(x: backwards ? bounds.maxX : bounds.minX, y: bounds.midY),
+                    anchor: backwards ? .trailing : .leading, proposal: ProposedViewSize(line))
+    }
+
+    /// The mask over it: whole while the line fits, and fading over its last
+    /// `fade` points where it runs past its room. Its three parts are the
+    /// line, to measure, the solid part, and the fade, put beside the solid
+    /// part only when the line runs over, and out of the way otherwise.
+    struct Veil: Layout {
+        let backwards: Bool
+
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            proposal.replacingUnspecifiedDimensions()
+        }
+
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            guard subviews.count == 3 else { return }
+            let line = subviews[0].sizeThatFits(.unspecified)
+            subviews[0].place(at: bounds.origin, proposal: ProposedViewSize(line))
+            let over = line.width > bounds.width + 0.5
+            let fade = over ? min(Overrun.fade, bounds.width) : 0
+            let solid = CGSize(width: bounds.width - fade, height: bounds.height)
+            subviews[1].place(at: CGPoint(x: backwards ? bounds.maxX : bounds.minX, y: bounds.minY),
+                              anchor: backwards ? .topTrailing : .topLeading, proposal: ProposedViewSize(solid))
+            subviews[2].place(at: CGPoint(x: backwards ? bounds.minX : bounds.maxX, y: bounds.minY),
+                              anchor: backwards ? .topLeading : .topTrailing,
+                              proposal: ProposedViewSize(width: fade, height: bounds.height))
+        }
     }
 }
 
