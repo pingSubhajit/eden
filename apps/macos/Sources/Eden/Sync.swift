@@ -312,6 +312,10 @@ final class Sync: ObservableObject {
     /// Asks of this Mac whose tabs didn't reach disk, waiting to be tried
     /// again.
     private var retries = AskRetries()
+    /// When this Mac last did an ask about each of its pages: a late ask
+    /// made before that is answered without being done, and this Mac's tabs
+    /// are stamped afresh after each (#13).
+    private(set) var answeredPages = AnsweredPages.read()
 
     /// One of another device's pages, closed there: asked of it through
     /// iCloud, and gone from its list here at once. Done there when it
@@ -320,7 +324,32 @@ final class Sync: ObservableObject {
         guard on, let url = URL(string: page.url) else { return }
         let identity = History.identity(for: url)
         let at = askTime(for: identity, on: device)
-        ask(SyncItems.ask(close: page.url, on: device, now: at), at: at, device: device, page: identity, opening: nil)
+        ask(SyncItems.ask(close: page.url, on: device, now: at, seen: seen(device)), at: at,
+            device: device, page: identity, opening: nil)
+    }
+
+    /// Asks about `pages` done now, written down: kept here only once on
+    /// disk (AnsweredPages.written).
+    private func keepDoings(_ pages: Set<String>) -> Bool {
+        guard !pages.isEmpty else { return true }
+        let now = Date().timeIntervalSince1970
+        var kept = answeredPages
+        kept.done(pages, at: now)
+        kept.prune(now: now)
+        guard kept.written() else { return false }
+        answeredPages = kept
+        return true
+    }
+
+    /// This Mac's tabs' stamp (AnsweredPages.stamp).
+    fileprivate func stampTabs(kept: Double?, published: Double?, now: Double) -> Double {
+        answeredPages.stamp(kept: kept, published: published, now: now)
+    }
+
+    /// The stamp of `device`'s tabs as last heard, which an ask of it is
+    /// made from (CloseAsk.seen).
+    private func seen(_ device: String) -> Double? {
+        heardTabs.first { $0.device == device }?.at
     }
 
     /// When an ask about `page` of `device` written now is timed: after
@@ -350,7 +379,8 @@ final class Sync: ObservableObject {
         guard on, let page = Sync.page(of: tab, in: space), let url = URL(string: page.url) else { return false }
         let identity = History.identity(for: url)
         let at = askTime(for: identity, on: device)
-        ask(SyncItems.ask(open: page, on: device, now: at), at: at, device: device, page: identity, opening: page)
+        ask(SyncItems.ask(open: page, on: device, now: at, seen: seen(device)), at: at,
+            device: device, page: identity, opening: page)
         return true
     }
 
@@ -379,9 +409,9 @@ final class Sync: ObservableObject {
     private func answerAsks(in live: [String: String]) {
         let now = Date().timeIntervalSince1970
         let due = SyncItems.dueAsks(live, on: device, now: now, answered: answered, answering: answering,
-                                    ready: { self.retries.ready($0, now: now) })
+                                    pages: answeredPages, ready: { self.retries.ready($0, now: now) })
         guard !due.isEmpty else { return }
-        Sync.log.notice("asks due: \(due.closing.count, privacy: .public) to close, \(due.opening.count, privacy: .public) to open, \(due.overtaken.count, privacy: .public) overtaken")
+        Sync.log.notice("asks due: \(due.closing.count, privacy: .public) to close, \(due.opening.count, privacy: .public) to open, \(due.overtaken.count, privacy: .public) overtaken, \(due.outdated.count, privacy: .public) out of date")
         let keys = due.keys
         answering.formUnion(keys)
         DispatchQueue.main.async { [weak self] in
@@ -390,6 +420,7 @@ final class Sync: ObservableObject {
             let target = windows.first(where: { $0 === Browsers.front }) ?? windows.first
             let pages = due.pagesToClose
             let done = due.done(opened: target != nil)
+            let doneAbout = due.pagesDone(done)
             let landed = SyncItems.answer({
                 for browser in windows { browser.closeAsked(pages) }
                 if let target {
@@ -413,6 +444,13 @@ final class Sync: ObservableObject {
                 Sync.log.notice("asks to open wait for a window: \(SyncItems.askLabels(due.opening.keys), privacy: .public)")
             }
             guard !done.isEmpty else { return }
+            // What was done, on disk before the asks go, or a late one could
+            // undo it after a relaunch (AnsweredPages).
+            guard self.keepDoings(doneAbout) else {
+                let wait = self.retries.failed(done, now: Date().timeIntervalSince1970)
+                Sync.log.notice("asks' doings didn't reach disk, tried again in \(Int(wait), privacy: .public)s: \(SyncItems.askLabels(done), privacy: .public)")
+                return
+            }
             Sync.log.notice("asks answered, tabs on disk: \(SyncItems.askLabels(done), privacy: .public)")
             self.retries.forget(done)
             self.answered.formUnion(done)
@@ -485,11 +523,13 @@ final class Sync: ObservableObject {
         let closed = DeviceTabs.recent(ghosts.filter { Continuity.page(URL(string: $0.url)) != nil }.sorted { $0.at < $1.at }, now: now)
         var mine = DeviceTabs(device: device, name: macName, kind: .mac, tabs: pages, at: now,
                               front: front, seen: seen, closed: closed.isEmpty ? nil : closed)
-        for before in [agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }, offered].compactMap({ $0 })
-            where before.says(mine) && now - before.at < 24 * 60 * 60 {
-            mine.at = before.at
-            break
-        }
+        let published = agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }
+        let kept = [published, offered].compactMap { $0 }
+            .first { $0.says(mine) && now - $0.at < 24 * 60 * 60 }?.at
+        // Afresh after an ask done since, even one that changed nothing, and
+        // always later than any before: whoever sees them has seen it done
+        // (AnsweredPages).
+        mine.at = Sync.shared.stampTabs(kept: kept, published: published?.at, now: now)
         offered = mine
         return mine
     }

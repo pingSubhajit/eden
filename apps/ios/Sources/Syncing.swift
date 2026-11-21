@@ -186,6 +186,10 @@ final class Syncing {
     /// Asks of this device whose tabs didn't reach disk, waiting to be tried
     /// again.
     @ObservationIgnored private var retries = AskRetries()
+    /// When this device last did an ask about each of its pages: a late ask
+    /// made before that is answered without being done, and this device's
+    /// tabs are stamped afresh after each (#13).
+    @ObservationIgnored private(set) var answeredPages = AnsweredPages.read()
 
     /// What another device asked of this one, from its list of this
     /// device's tabs: pages closed, as the cross on a card closes them
@@ -201,13 +205,14 @@ final class Syncing {
         answered.formIntersection(standing)
         retries.keep(standing)
         let due = SyncItems.dueAsks(live, on: device, now: now, answered: answered, answering: answering,
-                                    ready: { self.retries.ready($0, now: now) })
+                                    pages: answeredPages, ready: { self.retries.ready($0, now: now) })
         guard !due.isEmpty else { return }
-        Syncing.log.notice("asks due: \(due.closing.count, privacy: .public) to close, \(due.opening.count, privacy: .public) to open, \(due.overtaken.count, privacy: .public) overtaken")
+        Syncing.log.notice("asks due: \(due.closing.count, privacy: .public) to close, \(due.opening.count, privacy: .public) to open, \(due.overtaken.count, privacy: .public) overtaken, \(due.outdated.count, privacy: .public) out of date")
         let keys = due.keys
         answering.formUnion(keys)
         let pages = due.pagesToClose
         let sent = due.pagesToOpen
+        let doneAbout = due.pagesDone(keys)
         DispatchQueue.main.async { [weak self, browser] in
             let asked = browser.ordinaryTabs.filter { tab in
                 guard let url = Continuity.page(tab.url), pages.contains(History.identity(for: url)) else { return false }
@@ -225,11 +230,36 @@ final class Syncing {
                 Syncing.log.notice("asks' tabs didn't reach disk, tried again in \(Int(wait), privacy: .public)s: \(SyncItems.askLabels(keys), privacy: .public)")
                 return
             }
+            // What was done, on disk before the asks go, or a late one could
+            // undo it after a relaunch (AnsweredPages).
+            guard self.keepDoings(doneAbout) else {
+                let wait = self.retries.failed(keys, now: Date().timeIntervalSince1970)
+                Syncing.log.notice("asks' doings didn't reach disk, tried again in \(Int(wait), privacy: .public)s: \(SyncItems.askLabels(keys), privacy: .public)")
+                return
+            }
             Syncing.log.notice("asks answered, tabs on disk: \(SyncItems.askLabels(keys), privacy: .public)")
             self.retries.forget(keys)
             self.answered.formUnion(keys)
             self.cloud?.localChange()
         }
+    }
+
+    /// Asks about `pages` done now, written down: kept here only once on
+    /// disk (AnsweredPages.written).
+    private func keepDoings(_ pages: Set<String>) -> Bool {
+        guard !pages.isEmpty else { return true }
+        let now = Date().timeIntervalSince1970
+        var kept = answeredPages
+        kept.done(pages, at: now)
+        kept.prune(now: now)
+        guard kept.written() else { return false }
+        answeredPages = kept
+        return true
+    }
+
+    /// This device's tabs' stamp (AnsweredPages.stamp).
+    func stampTabs(kept: Double?, published: Double?, now: Double) -> Double {
+        answeredPages.stamp(kept: kept, published: published, now: now)
     }
 
     // MARK: - for Settings
@@ -365,11 +395,13 @@ final class AppScope: SyncScope {
         let closed = DeviceTabs.recent(browser.recentlyClosed, now: now)
         var mine = DeviceTabs(device: syncing.device, name: UIDevice.current.name, kind: pad ? .ipad : .iphone,
                               tabs: pages, at: now, front: front, seen: syncing.seen, closed: closed.isEmpty ? nil : closed)
-        for before in [agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }, offered].compactMap({ $0 })
-            where before.says(mine) && now - before.at < 24 * 60 * 60 {
-            mine.at = before.at
-            break
-        }
+        let published = agreed.flatMap { SyncMerge.value(DeviceTabs.self, $0) }
+        let kept = [published, offered].compactMap { $0 }
+            .first { $0.says(mine) && now - $0.at < 24 * 60 * 60 }?.at
+        // Afresh after an ask done since, even one that changed nothing, and
+        // always later than any before: whoever sees them has seen it done
+        // (AnsweredPages).
+        mine.at = syncing.stampTabs(kept: kept, published: published?.at, now: now)
         offered = mine
         return mine
     }
