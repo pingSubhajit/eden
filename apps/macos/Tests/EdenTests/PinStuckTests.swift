@@ -66,7 +66,9 @@ final class PinStuckTests: XCTestCase {
         ], in: window)
         XCTAssertEqual(CarryGuard.count, 1, "carried")
         iconArrives(browser.tabs[0], in: browser)
-        try await settle()
+        // The square is drawn again with its icon, and the carry called off,
+        // a moment later: later still on a Mac busy with other suites (#16).
+        try await waitFor { CarryGuard.count == 0 }
         XCTAssertEqual(CarryGuard.count, 0, "put down as the drag was called off")
         try await send(.leftMouseUp, at: last, in: window)
         try await settle()
@@ -74,8 +76,9 @@ final class PinStuckTests: XCTestCase {
         XCTAssertEqual(browser.squarePins.count, 6)
         // Picked up again, it goes where it is carried — once the page the
         // first press selected has loaded, which would call it off too.
-        try await Task.sleep(for: .seconds(2))
         let first = browser.tabs[0]
+        try await waitFor(within: 10) { first.built != nil && !first.loading }
+        try await settle()
         try await drag(from: point(x: x, y: y, in: window), through: [
             point(x: x + room / 3, y: y, in: window),
             point(x: x + room / 3 + 4, y: y, in: window),
@@ -233,6 +236,13 @@ final class PinStuckTests: XCTestCase {
 
     private func settle() async throws {
         try await Task.sleep(for: .milliseconds(250))
+    }
+
+    /// Until `done`, or a few seconds: what a fixed wait would take for
+    /// granted, waited for.
+    private func waitFor(within seconds: Double = 3, _ done: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(seconds)
+        while !done(), Date() < end { try await Task.sleep(for: .milliseconds(20)) }
     }
 
     private func click(_ point: NSPoint, in window: NSWindow) async throws {

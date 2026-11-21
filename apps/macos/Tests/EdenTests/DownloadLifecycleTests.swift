@@ -75,6 +75,11 @@ final class DownloadLifecycleTests: XCTestCase {
         try? nothingShown()
         window?.orderOut(nil)
         window?.close()
+        browser?.closeAll()
+        browser?.window = nil
+        browser = nil
+        window = nil
+        page = nil
         if let downloadFolder { try? FileManager.default.removeItem(at: downloadFolder) }
         try await super.tearDown()
     }
