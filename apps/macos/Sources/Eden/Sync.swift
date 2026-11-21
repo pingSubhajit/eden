@@ -501,7 +501,7 @@ final class Sync: ObservableObject {
     /// to another page, it is that page.
     static func page(of tab: Tab, in space: UUID) -> DeviceTabs.Page? {
         guard !tab.shy, !tab.bench, let url = Continuity.page(tab.restAddress) else { return nil }
-        if tab.pin != nil, PinDef.atHome(tab.home, showing: url) { return nil }
+        if tab.isHome(url) { return nil }
         let title = tab.name.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
         return DeviceTabs.Page(url: url.absoluteString, title: title, space: space,
                                scroll: DeviceTabs.Page.scroll(tab.reading), reading: tab.reader ? true : nil)
@@ -544,7 +544,8 @@ final class Sync: ObservableObject {
 
         var localPins: [UUID: [PinDef]] = [:]
         for space in spaces { localPins[space.id] = Pins.defs(space.id) }
-        let pins = SyncItems.applyPins(live, spaces: spaces.map(\.id), local: localPins, localShared: Pins.shared(id))
+        let pins = SyncItems.applyPins(live, spaces: spaces.map(\.id), local: localPins, localShared: Pins.shared(id),
+                                       keepsOwnTitles: true)
         Pins.adopt(pins.bySpace, in: spaces.map(\.id), shared: pins.shared, profile: id)
 
         Profiles.bookmarks(id).adopt(SyncItems.applyBookmarks(live))

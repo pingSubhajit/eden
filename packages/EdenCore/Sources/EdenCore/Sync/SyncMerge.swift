@@ -326,7 +326,14 @@ public enum SyncItems {
     /// is this Mac's alone and never syncs (#8): a pin still a row in the same
     /// space keeps the one it had here; shared, moved or made a square, it is in
     /// none, as only a space's own rows ever are.
-    public static func applyPins(_ live: [String: String], spaces: [UUID], local: [UUID: [PinDef]], localShared: [PinDef])
+    ///
+    /// `keepsOwnTitles`: a device that learns each pin's title from its home
+    /// as it names itself (the Mac, Pins.retitle) keeps the one it learnt
+    /// while the pin's home is still the one it learnt it at; a title is
+    /// only ever agreed once, so the agreed one may be any page's the pin
+    /// was on then. Titles stay each device's own: none is sent as an edit.
+    public static func applyPins(_ live: [String: String], spaces: [UUID], local: [UUID: [PinDef]], localShared: [PinDef],
+                                 keepsOwnTitles: Bool = false)
         -> (bySpace: [UUID: [PinDef]], shared: [PinDef]) {
         let known = (Array(local.values).flatMap { $0 } + localShared)
         func defs(_ space: String, fallback: [PinDef], groups: [UUID: UUID] = [:]) -> [PinDef] {
@@ -340,8 +347,10 @@ public enum SyncItems {
             let order = live[pinOrder(space)].flatMap { SyncMerge.value([String].self, $0) } ?? []
             return SyncMerge.ordered(Set(found.keys), order: order, fallback: fallback.map(\.id.uuidString)).compactMap { text in
                 guard let id = UUID(uuidString: text), let pin = found[text] else { return nil }
-                let title = live[pinTitle(id)].flatMap { SyncMerge.value(String.self, $0) }
-                    ?? known.first { $0.id == id }?.title ?? pin.home
+                let mine = known.first { $0.id == id }
+                let own = keepsOwnTitles ? mine.flatMap { $0.home == pin.home && !$0.title.isEmpty ? $0.title : nil } : nil
+                let title = own ?? live[pinTitle(id)].flatMap { SyncMerge.value(String.self, $0) }
+                    ?? mine?.title ?? pin.home
                 return PinDef(id: id, letter: pin.letter, home: pin.home, title: title, name: pin.name, listed: pin.listed,
                               group: pin.listed == true ? groups[id] : nil)
             }

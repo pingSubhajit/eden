@@ -1705,7 +1705,7 @@ struct TabMenu: View {
             // (Browser.goHome) is here instead, while it has wandered.
             if rows && tab.listed {
                 Button("Back to Pinned Page") { browser.goHome(tab) }
-                    .disabled(tab.home.map { Browser.samePage($0, tab.address) } ?? true)
+                    .disabled(!tab.wandered)
             } else {
                 Button("Change Letter") { browser.editLetter(tab) }
             }

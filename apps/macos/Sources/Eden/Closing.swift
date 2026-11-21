@@ -101,7 +101,7 @@ extension Browser {
         let asked = { (tab: Tab) -> Bool in
             guard !tab.shy, !tab.bench, let url = Continuity.page(tab.restAddress) else { return false }
             // A pin at its home isn't in the list the other device had.
-            if tab.pin != nil, PinDef.atHome(tab.home, showing: url) { return false }
+            if tab.isHome(url) { return false }
             return pages.contains(History.identity(for: url))
         }
         for tab in tabs.filter(asked) { close(tab) }
