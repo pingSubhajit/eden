@@ -110,3 +110,41 @@ final class PinMergeTests: XCTestCase {
         XCTAssertFalse(PinDef.atHome(nil, showing: home), "not a pin: an open tab like any")
     }
 }
+
+/// A pin's title as a device that learns it keeps it (SyncItems.applyPins,
+/// keepsOwnTitles): its own while the home is the same, the agreed one else.
+final class PinOwnTitleTests: XCTestCase {
+    private let space = UUID()
+    private let id = UUID()
+
+    private func mail(_ title: String, home: String = "https://mail.example/") -> PinDef {
+        PinDef(id: id, letter: "M", home: home, title: title)
+    }
+
+    private func applied(_ agreed: PinDef, mine: PinDef, keeps: Bool = true) -> String? {
+        let live = SyncItems.pins(bySpace: [space: [agreed]], shared: [], base: [:])
+        return SyncItems.applyPins(live, spaces: [space], local: [space: [mine]], localShared: [],
+                                   keepsOwnTitles: keeps).bySpace[space]?.first?.title
+    }
+
+    func testATitleLearntHereStaysWhileTheHomeIsTheSame() {
+        XCTAssertEqual(applied(mail("www.mail.example"), mine: mail("Inbox")), "Inbox")
+    }
+
+    func testAHomeChangedElsewhereTakesTheAgreedTitle() {
+        XCTAssertEqual(applied(mail("Calendar", home: "https://calendar.example/"), mine: mail("Inbox")), "Calendar")
+    }
+
+    func testNoTitleOfItsOwnTakesTheAgreedOne() {
+        XCTAssertEqual(applied(mail("Inbox"), mine: mail("")), "Inbox")
+    }
+
+    func testADeviceThatDoesntLearnTitlesTakesTheAgreedOne() {
+        XCTAssertEqual(applied(mail("www.mail.example"), mine: mail("Inbox"), keeps: false), "www.mail.example")
+    }
+
+    func testTitlesAreNeverSentAsEdits() {
+        let agreed = SyncItems.pins(bySpace: [space: [mail("www.mail.example")]], shared: [], base: [:])
+        XCTAssertEqual(SyncItems.pins(bySpace: [space: [mail("Inbox")]], shared: [], base: agreed), agreed)
+    }
+}
