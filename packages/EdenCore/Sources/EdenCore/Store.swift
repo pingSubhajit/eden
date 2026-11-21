@@ -34,6 +34,111 @@ public enum Store {
         return asked.isEmpty || asked == "1" || asked == "test" ? "test" : asked
     }()
 
+    /// A world named after the process it runs in, its name ending in that
+    /// process's id, as every test suite names its own ("<suite>-<pid>"):
+    /// no run after this one will ever be in it, so it goes when the
+    /// process ends, its folder and its settings with it (#7). A world of a
+    /// fixed name, the bench's or the test world, stays from run to run.
+    public static var throwaway: Bool {
+        guard let world else { return false }
+        return world.hasSuffix("-\(ProcessInfo.processInfo.processIdentifier)")
+    }
+
+    /// What a throwaway world's folder and settings are named by: the
+    /// world, and when its process started. A pid comes round again; the
+    /// moment its process started, to the microsecond, tells a run that has
+    /// ended from a live one that was handed its pid since (sweep).
+    private static let throwawayName: String? = {
+        guard throwaway, let world,
+              case .running(let start) = process(ProcessInfo.processInfo.processIdentifier) else { return nil }
+        return "\(world).\(start)"
+    }()
+
+    /// What the kernel says of a process.
+    enum ProcessState: Equatable {
+        /// Running, since this moment, in microseconds since 1970.
+        case running(Int64)
+        /// No process has that pid.
+        case gone
+        /// The kernel couldn't be asked: nothing can be said either way.
+        case unknown
+    }
+
+    /// The process `pid`, as the kernel has it.
+    static func process(_ pid: pid_t) -> ProcessState {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&name, u_int(name.count), &info, &size, nil, 0) == 0 else { return .unknown }
+        // Asked of a pid no process has, the call answers with nothing.
+        guard size > 0 else { return .gone }
+        let start = info.kp_proc.p_starttime
+        return .running(Int64(start.tv_sec) * 1_000_000 + Int64(start.tv_usec))
+    }
+
+    /// Asked for by the first use of the folder or the settings: a
+    /// throwaway world is set to go when the process exits, once, and what
+    /// earlier ones left behind goes now (sweep).
+    private static let discardsAtExit: Void = {
+        guard throwawayName != nil else { return }
+        atexit { Store.discardWorld() }
+        sweep()
+    }()
+
+    /// The throwaway world's folder and settings, gone, so neither is left
+    /// in Library for every test run there has been. The settings are
+    /// written out first and then their file taken off the disk. Not let go
+    /// of as a domain: the preferences daemon carries that out in its own
+    /// time, by writing the file again, empty, after it was taken off.
+    /// Settings written while the process is on its way out may still land
+    /// after this; the next run sweeps them.
+    private static func discardWorld() {
+        try? FileManager.default.removeItem(at: folder)
+        guard let settingsSuite else { return }
+        CFPreferencesAppSynchronize(settingsSuite as CFString)
+        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.removeItem(at: library.appendingPathComponent("Preferences/\(settingsSuite).plist"))
+    }
+
+    /// What throwaway worlds of runs that have ended left behind: a run
+    /// that crashed never got to its exit, and settings written while a
+    /// process is on its way out can land after it took their file away.
+    /// Only a throwaway world's name, "<name>-<pid>.<start>", whose process
+    /// is gone: no process has that pid, or the one that has it started at
+    /// another moment. Nothing else ever matches: the browser you use, a
+    /// bench world, a world named before throwaway names had their start.
+    private static func sweep() {
+        let files = FileManager.default
+        let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        for name in (try? files.contentsOfDirectory(atPath: support.path)) ?? []
+        where name.hasPrefix("Eden (") && name.hasSuffix(")") && ended(String(name.dropFirst(6).dropLast())) {
+            try? files.removeItem(at: support.appendingPathComponent(name))
+        }
+        let preferences = files.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Preferences")
+        let prefix = "com.subhajit.eden.beta.test."
+        for name in (try? files.contentsOfDirectory(atPath: preferences.path)) ?? []
+        where name.hasPrefix(prefix) && name.hasSuffix(".plist")
+            && ended(String(name.dropFirst(prefix.count).dropLast(".plist".count))) {
+            try? files.removeItem(at: preferences.appendingPathComponent(name))
+        }
+    }
+
+    /// Whether `name` is a throwaway world's ("<world>-<pid>.<start>") whose
+    /// process has ended: certainly, as the kernel says, never because it
+    /// couldn't say.
+    static func ended(_ name: String) -> Bool {
+        func digits(_ text: Substring) -> Bool { !text.isEmpty && text.allSatisfy { $0.isASCII && $0.isNumber } }
+        guard let dot = name.lastIndex(of: "."), let dash = name[..<dot].lastIndex(of: "-") else { return false }
+        let pidText = name[name.index(after: dash)..<dot], startText = name[name.index(after: dot)...]
+        guard digits(pidText), pidText.count <= 5, digits(startText), let pid = pid_t(pidText),
+              let start = Int64(startText), pid != ProcessInfo.processInfo.processIdentifier else { return false }
+        switch process(pid) {
+        case .gone: return true
+        case .running(let now): return now != start
+        case .unknown: return false
+        }
+    }
+
     /// A test run there to be weighed and timed rather than driven
     /// (EDEN_MEASURE beside EDEN_PROBE). It keeps what the shipped
     /// browser does where test runs otherwise differ — hidden pages slowed
@@ -63,9 +168,11 @@ public enum Store {
     /// — moves to the new name the first time the new name runs, and the
     /// settings are copied across. Nothing is left to be lost.
     public static let folder: URL = {
+        _ = discardsAtExit
         let support = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let home = support.appendingPathComponent(world.map { "Eden (\($0))" } ?? "Eden", isDirectory: true)
+        let home = support.appendingPathComponent((throwawayName ?? world).map { "Eden (\($0))" } ?? "Eden",
+                                                  isDirectory: true)
         if !testing {
             let old = support.appendingPathComponent("Office Browser", isDirectory: true)
             let files = FileManager.default
@@ -97,6 +204,7 @@ public enum Store {
     /// Settings live apart too: a test that changes what the tabs wear or
     /// where the tabs go must not change yours.
     public static let settings: UserDefaults = {
+        _ = discardsAtExit
         guard let settingsSuite else {
             carryOver(into: .standard)
             return .standard
@@ -109,7 +217,7 @@ public enum Store {
     /// a world of its own. What clears a test world clears this one.
     public static let settingsSuite: String? = {
         guard testing else { return nil }
-        return world == "test" ? "com.subhajit.eden.beta.test" : "com.subhajit.eden.beta.test.\(world ?? "")"
+        return world == "test" ? "com.subhajit.eden.beta.test" : "com.subhajit.eden.beta.test.\(throwawayName ?? world ?? "")"
     }()
 
     /// The old bundle's defaults, read once and written under the new one.
