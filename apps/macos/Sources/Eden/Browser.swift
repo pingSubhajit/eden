@@ -2080,11 +2080,12 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// A double-click on the pin you are on: back to the page it was pinned
-    /// at, as a pin in Arc goes home (#141). Already there, the double-click
-    /// changes its letter, as it always did.
+    /// at, as a pin in Arc goes home (#141). Already there, or where its home
+    /// sent it as it loaded (Tab.isHome), the double-click changes its
+    /// letter, as it always did.
     func goHome(_ tab: Tab) {
         guard tab.pin != nil else { return }
-        guard let home = tab.home, !Browser.samePage(home, tab.address) else { return editLetter(tab) }
+        guard tab.wandered, let home = tab.home else { return editLetter(tab) }
         tab.go(to: home)
         rememberSession()
     }
@@ -2098,9 +2099,8 @@ final class Browser: NSObject, ObservableObject {
         if editingPin == tab.id { editingPin = nil }
 
         let home = tab.home ?? tab.address
-        let wandered = tab.home != nil && tab.address != nil && !Browser.samePage(tab.home!, tab.address)
 
-        if wandered, let home {
+        if tab.wandered, let home {
             objectWillChange.send()
             let letter = tab.pin
             let pinID = tab.pinID
@@ -2507,6 +2507,8 @@ final class Browser: NSObject, ObservableObject {
         let id = UUID()
         let url: URL
         let title: String
+        /// Whether the title was the page's own words (Tab.titleIsOwn).
+        var titleIsOwn = false
         /// Its place in the row as it closed; moved on one by Clear when
         /// the empty tab it leaves comes in before it (see clear).
         var index: Int
@@ -2710,15 +2712,18 @@ final class Browser: NSObject, ObservableObject {
             Sync.shared.start()
             // An icon that arrives is looked for again by every tab showing
             // that site, in every window, not only the one that asked for it:
-            // each puts on its own page's, or its nearest neighbour's.
+            // each puts on its own page's, or its nearest neighbour's. A pin
+            // away from a home on that site puts on its home's too.
             Favicons.shared.arrived = { site in
                 let lower = site.lowercased()
+                func on(_ url: URL?) -> Bool {
+                    guard let host = url.flatMap(Favicons.site) else { return false }
+                    return host == lower || host == "www." + lower || lower == "www." + host
+                }
                 for browser in Browsers.all {
                     for tab in browser.tabs + browser.parkedTabs {
-                        guard let tabHost = tab.address.flatMap(Favicons.site) else { continue }
-                        if tabHost == lower || tabHost == "www." + lower || lower == "www." + tabHost {
-                            tab.adoptIcon()
-                        }
+                        if on(tab.address) { tab.adoptIcon() }
+                        if tab.pin != nil, on(tab.home) { tab.adoptHomeIcon() }
                     }
                 }
             }
@@ -3208,9 +3213,16 @@ final class Browser: NSObject, ObservableObject {
         row.compactMap { tab -> PinDef? in
             guard let letter = tab.pin, !tab.shy else { return nil }
             if tab.pinID == nil { tab.pinID = UUID() }
-            return PinDef(id: tab.pinID ?? UUID(), letter: letter,
-                          home: (tab.home ?? tab.pending ?? tab.address)?.absoluteString ?? "",
-                          title: tab.title, name: tab.name, listed: tab.listed ? true : nil,
+            let home = (tab.home ?? tab.pending ?? tab.address)?.absoluteString ?? ""
+            // Its home's title as kept (Pins.retitle) while the home is the
+            // same; a new pin, or one with a new home, takes this page's own
+            // title if it is there, untranslated, or none until the page
+            // names itself.
+            let kept = tab.pinID.flatMap(Pins.def(_:)).flatMap { $0.home == home ? $0.title : nil }
+            let title = kept ?? (tab.titleIsOwn && tab.isHome(tab.address) ? tab.title : "")
+            return PinDef(id: tab.pinID ?? UUID(), letter: letter, home: home, title: title,
+                          name: tab.name,
+                          listed: tab.listed ? true : nil,
                           group: tab.listed && !tab.everywhere ? tab.keptGroupID : nil)
         }
     }
@@ -3256,7 +3268,10 @@ final class Browser: NSObject, ObservableObject {
             if tab.name != def.name { tab.name = def.name }
             if tab.listed != (def.listed == true) { tab.listed = def.listed == true }
             tab.keptGroupID = def.group
-            tab.home = URL(string: def.home)
+            // Only when it moved: each setting redraws the row, and every
+            // window reconciles its pins whenever one of them changes.
+            let home = URL(string: def.home)
+            if tab.home != home { tab.home = home }
             out.append(tab)
         }
         for gone in pinned { gone.close() }
@@ -3277,7 +3292,7 @@ final class Browser: NSObject, ObservableObject {
     /// page already there, and a cancelled import left that behind.
     private func pinTab(_ def: PinDef, space: UUID, prepared: Bool = true) -> Tab {
         let tab = Tab(configuration: Web.configuration(space: space))
-        tab.restore(url: URL(string: def.home) ?? URL(string: "about:blank")!, title: def.title, name: def.name)
+        tab.restore(url: URL(string: def.home) ?? URL(string: "about:blank")!, title: def.title, vouched: true, name: def.name)
         if prepared { prepare(tab) }
         return tab
     }
@@ -3533,7 +3548,8 @@ final class Browser: NSObject, ObservableObject {
         tabs += new.map { page in
             let tab = Tab(configuration: Web.configuration(space: spaceID))
             prepare(tab)
-            tab.restore(url: page.url, title: page.title)
+            // A title from elsewhere, which may have been translated there.
+            tab.restore(url: page.url, title: page.title, vouched: false)
             tab.groupID = group(page.group)
             return tab
         }
@@ -3709,6 +3725,7 @@ final class Browser: NSObject, ObservableObject {
                 letGo: tab.pin == nil ? tab.letGo : nil,
                 listed: tab.pin != nil && tab.listed ? true : nil,
                 muted: tab.muted,
+                foreignTitle: tab.titleIsOwn || tab.title.isEmpty ? nil : true,
                 // Asked for only when the window goes: reading it for every
                 // tab at every save would be work for nothing.
                 keepsake: keeping ? tab.keepsake.map(Keepsake.init) : nil
@@ -4838,7 +4855,7 @@ final class Browser: NSObject, ObservableObject {
             tab.groupID = group.id
             regrouped = regrouped || group.back
             tab.muted = ghost.muted
-            tab.restore(url: ghost.url, title: ghost.title, state: ghost.keepsake?.state)
+            tab.restore(url: ghost.url, title: ghost.title, vouched: ghost.titleIsOwn, state: ghost.keepsake?.state)
             tabs.insert(tab, at: safeInsertionIndex(ghost.index))
             if let was = ghost.was { back[was] = tab }
             if ghost.front { front = tab }
@@ -4900,7 +4917,7 @@ final class Browser: NSObject, ObservableObject {
         // was on, Back and Forward, its place on the page. Without (a page
         // still arriving when it closed), from its address.
         if let keepsake = ghost.keepsake {
-            tab.restore(url: ghost.url, title: ghost.title, state: keepsake.state)
+            tab.restore(url: ghost.url, title: ghost.title, vouched: ghost.titleIsOwn, state: keepsake.state)
             _ = tab.wake()
         } else {
             tab.go(to: ghost.url)
@@ -4935,7 +4952,7 @@ final class Browser: NSObject, ObservableObject {
         // by that, so ⇧⌘T after closing History brings History back rather
         // than the tab closed before it.
         guard !tab.shy, let url = tab.address ?? tab.page?.url else { return }
-        ghosts.append(Ghost(url: url, title: tab.title, index: index, groupID: tab.groupID,
+        ghosts.append(Ghost(url: url, title: tab.title, titleIsOwn: tab.titleIsOwn, index: index, groupID: tab.groupID,
                             partner: partner, onLeft: onLeft, was: tab.id, batch: batching?.id,
                             kind: batching?.kind ?? .clear, muted: tab.muted,
                             keepsake: tab.keepsake.map(Keepsake.init)))
@@ -5307,7 +5324,7 @@ final class Browser: NSObject, ObservableObject {
         let original = tabGroups[at]
         let members = tabs(in: id)
         let pages = members.filter { !$0.shy }
-            .compactMap { tab in (tab.restAddress ?? tab.address).map { (url: $0, title: tab.title) } }
+            .compactMap { tab in (tab.restAddress ?? tab.address).map { (url: $0, title: tab.title, own: tab.titleIsOwn) } }
             .filter { InternalPage(url: $0.url) == nil }
         guard !pages.isEmpty else { return }
         let copy = TabGroup(id: UUID(), name: original.name, collapsed: original.collapsed,
@@ -5317,7 +5334,7 @@ final class Browser: NSObject, ObservableObject {
         for page in pages {
             let tab = Tab(configuration: Browser.extensionConfiguration(for: page.url) ?? Web.configuration(space: spaceID))
             prepare(tab)
-            tab.restore(url: page.url, title: page.title)
+            tab.restore(url: page.url, title: page.title, vouched: page.own)
             tab.groupID = copy.id
             tabs.insert(tab, at: safeInsertionIndex(place))
             place = (tabs.firstIndex { $0.id == tab.id } ?? place) + 1
@@ -5984,7 +6001,7 @@ final class Browser: NSObject, ObservableObject {
         tabs.insert(tab, at: atEnd ? tabs.count : link ? placeForLink(from: source) : apart ? placeForFront() : placeForNew())
         if link, !atEnd, !foreground || frontLinksBeside { noteLink(tab, from: source) }
         if mayWait, !foreground, prefs.lazyTabs, page == nil {
-            tab.restore(url: url, title: "")
+            tab.restore(url: url, title: "", vouched: false)
         } else {
             tab.go(to: url)
         }
@@ -6289,9 +6306,18 @@ final class Browser: NSObject, ObservableObject {
             // taken since.
             let home = Browser.home(of: entry, at: saved)
             let url = home ?? saved
+            // A pin comes back by its home's title as kept with the pins, or
+            // with none kept by its host, never by what the tab last said:
+            // it may have been away, or translated. Only a pin with nothing
+            // kept at all, from before pins were kept apart, goes by that.
+            let kept = entry.pin == nil ? nil : entry.pinID.flatMap(Pins.def(_:))?.title
+            let title = kept.map { $0.isEmpty ? url.host ?? "" : $0 } ?? (url == saved ? entry.title : url.host ?? "")
+            // Vouched for: a kept title, or what the session had when it said
+            // that was the page's own; never a host standing in.
+            let vouched = kept.map { !$0.isEmpty } ?? (url == saved && entry.foreignTitle != true)
             let tab = Tab(configuration: Web.configuration(space: space))
             prepare(tab)
-            tab.restore(url: url, title: url == saved ? entry.title : url.host ?? "", name: entry.name,
+            tab.restore(url: url, title: title, vouched: vouched, name: entry.name,
                         state: url == saved ? entry.keepsake?.state : nil)
             // Never later than now: a clock set wrong once would keep the tab forever.
             if let touched = entry.touched { tab.touch(at: min(touched, Date())) }
@@ -6754,6 +6780,10 @@ final class Browser: NSObject, ObservableObject {
         // With two pages up, the keys going to the other one — Tab walked
         // past the last field of this one — make it the focused page, so the
         // outline, ⌘L and the site card follow what is being typed into.
+        tab.onHomeTitle = { [weak self] tab, title in
+            guard let self, let id = tab.pinID else { return }
+            Pins.retitle(id, title, from: self)
+        }
         tab.onKeys = { [weak self] tab in
             guard let self, let pair = activeSplit, pair.contains(tab.id), activeID != tab.id else { return }
             focusPane(tab)

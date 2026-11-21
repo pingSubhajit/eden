@@ -3450,6 +3450,41 @@ final class Bench {
             window.appearance = NSApp.effectiveAppearance
             window.contentView = host
             host.layoutSubtreeIfNeeded()
+            // "frames": that many pictures, `every` seconds apart, as a film
+            // of what the column does after "back" or "forward" on the tab of
+            // that id, or "go" there with "url": path-00.png, path-01.png and
+            // on, for a motion looked at frame by frame.
+            if let count = request["frames"] as? Int, count > 0 {
+                let every = request["every"] as? Double ?? 1.0 / 60
+                let base = (path as NSString).deletingPathExtension
+                let back = (request["back"] as? String).flatMap { find(["id": $0], in: browser) }
+                let forward = (request["forward"] as? String).flatMap { find(["id": $0], in: browser) }
+                let going = (request["go"] as? String).flatMap { find(["id": $0], in: browser) }
+                let url = (request["url"] as? String).flatMap(URL.init(string:))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    if let back { back.back() }
+                    else if let forward { forward.forward() }
+                    else if let going, let url { going.go(to: url) }
+                    let start = ProcessInfo.processInfo.systemUptime
+                    var saved: [[String: Any]] = []
+                    func shoot(_ index: Int) {
+                        guard index < count else {
+                            window.contentView = nil
+                            answer(["frames": saved])
+                            return
+                        }
+                        let file = base + String(format: "-%02d.png", index)
+                        if let picture = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                            host.cacheDisplay(in: host.bounds, to: picture)
+                            try? picture.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: file))
+                            saved.append(["path": file, "at": ProcessInfo.processInfo.systemUptime - start])
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + every) { shoot(index + 1) }
+                    }
+                    shoot(0)
+                }
+                return
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 guard let picture = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { answer(["error": "nothing drawn"]); return }
                 host.cacheDisplay(in: host.bounds, to: picture)
@@ -4461,6 +4496,8 @@ final class Bench {
             "noisy": tab.noisy,
             "stilled": tab.stilled,
             "muted": tab.muted,
+            // A pin gone on from its home, whose row says so (SideRow).
+            "wandered": tab.wandered,
             // Darkened by Eden, as the page last said, and what the page
             // was seen to be: dark by itself, light, or not looked at (see
             // Dusk.swift).

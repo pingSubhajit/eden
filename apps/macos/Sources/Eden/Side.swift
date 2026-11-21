@@ -1606,6 +1606,8 @@ private struct SideRow: View, Equatable {
     @State private var selectedOnPress = false
     @State private var shake: CGFloat = 0
     @State private var pressed = false
+    /// The pointer on the home's icon of a pin away from it (HomeDoor).
+    @State private var homeHovering = false
 
     /// The ring, which stays for as long as the page loads and so keeps a
     /// place of its own at the end of the row. The cross is only there under
@@ -1622,6 +1624,19 @@ private struct SideRow: View, Equatable {
     private var warning: AtRest? { live ? AtRest.warning(tab.restAddress) : nil }
     /// A pin already put down has nothing left to put down: no minus (#1050).
     private var closable: Bool { tab.pin == nil || !tab.asleep }
+    /// A pin gone on from its page (Tab.wandered): its home's icon at the
+    /// start, which takes it back there, then a slash and the page it is on.
+    private var away: Bool { !editing && tab.wandered }
+    /// How far the speaker sits from the row's start: after the icon, and
+    /// after the slash too while the pin is away.
+    private var speakerInset: CGFloat {
+        if away { return Metrics.rowInset + prefs.sideMark + Self.slashPlace + Metrics.rowSpacing }
+        return Metrics.rowInset + (tab.isBlank ? 0 : prefs.sideMark + Metrics.rowSpacing)
+    }
+    /// The slash's width, and its place after the icon, the space before it
+    /// included: fixed, so the speaker laid over the row knows where to sit.
+    private static let slashWidth: CGFloat = 4
+    private static let slashPlace: CGFloat = 11
     /// A grouped tab holding no page, above the line or under it — put away
     /// or put down with its minus (Browser.putAway, Browser.close), put to
     /// sleep, or not opened since launch: the row stays, dimmed, so the
@@ -1639,10 +1654,13 @@ private struct SideRow: View, Equatable {
                         .frame(height: 16)
                 } else {
                     // The site's icon, or with Letters its letter: beside the
-                    // title either way, as Settings says (#919).
+                    // title either way, as Settings says (#919). Away, the
+                    // home's, then the slash.
                     if !tab.isBlank {
-                        Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: prefs.sideMark,
-                             dim: putAway)
+                        HStack(spacing: 0) {
+                            mark
+                            if tab.pin != nil { slash }
+                        }
                     }
                     // The speaker's place: it is laid over it below, outside
                     // the row's press, so muting a tab doesn't also go to it.
@@ -1669,7 +1687,11 @@ private struct SideRow: View, Equatable {
                     PopupSign(browser: browser, tab: tab, colour: colour)
                     // The page is translated (Translate.swift).
                     TranslateSign(tab: tab, colour: colour)
-                    TabTitle(label: tab.label, warning: warning, size: prefs.sideTitle, colour: colour)
+                    TabTitle(label: away ? tab.pageLabel : tab.label, warning: warning, size: prefs.sideTitle, colour: colour)
+                        // A new title arriving as the slash comes or goes
+                        // takes its place at once: it moves with the slash,
+                        // and is never laid over the old one as they fade.
+                        .contentTransition(.identity)
                 }
                 Spacer(minLength: 0)
             }
@@ -1684,8 +1706,23 @@ private struct SideRow: View, Equatable {
             .overlay(alignment: .leading) {
                 if speaker {
                     Speaker(tab: tab)
-                        .padding(.leading, Metrics.rowInset + (tab.isBlank ? 0 : prefs.sideMark + Metrics.rowSpacing))
+                        .padding(.leading, speakerInset)
                         .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .leading) {
+                // Over the icon, outside the row's press, so going home
+                // doesn't also go to the row.
+                if away && interactive {
+                    HomeDoor(size: prefs.sideMark, hovering: $homeHovering) {
+                        // A plain click only: with ⌘, ⇧ or ⌥ the click is the
+                        // row's, which picks or splits as anywhere else on it.
+                        guard TabClick.flags.intersection([.command, .shift, .option, .control]).isEmpty else { return }
+                        browser.clearTabSelection()
+                        if !live { browser.select(tab) }
+                        browser.goHome(tab)
+                    }
+                    .padding(.leading, Metrics.rowInset - HomeDoor.margin)
                 }
             }
 
@@ -1747,6 +1784,10 @@ private struct SideRow: View, Equatable {
         .animation(Motion.quick, value: tab.blockedPopups.isEmpty)
         .animation(Motion.quick, value: tab.translation == nil)
         .animation(Motion.quick, value: peeking)
+        // The slash opens its place on the row's spring, the title moving
+        // with it (see `slash`).
+        .animation(Motion.settle, value: away)
+        .onChange(of: away) { _, now in if !now { homeHovering = false } }
         // Lit at once when it comes to the front: nothing glides or fades
         // from the tab that was.
         .background { ground.animation(nil, value: live) }
@@ -1789,6 +1830,36 @@ private struct SideRow: View, Equatable {
     }
 
     private func hover(_ over: Bool) { hovering = over }
+
+    /// The icon, the same view at home and away, so going away or coming
+    /// back changes only its picture where the two differ: away, the home's,
+    /// on the square HomeDoor lights under the pointer.
+    private var mark: some View {
+        Mark(icon: prefs.glyph == .icons ? (away ? tab.homeIcon : tab.icon) : nil,
+             letter: away ? tab.pin ?? tab.monogram : tab.monogram, size: prefs.sideMark, dim: putAway)
+            .background {
+                RoundedRectangle(cornerRadius: RowCross.corner, style: .continuous)
+                    .fill(Palette.ink.opacity(away && homeHovering ? 0.1 : 0))
+                    .padding(-HomeDoor.margin)
+                    .animation(Motion.quick, value: homeHovering)
+            }
+    }
+
+    /// The slash after the icon while the pin is away. Always there, its
+    /// place opening and closing: it keeps to the title's side of that
+    /// place, so it travels with the title as the title makes way or comes
+    /// back, rather than fading where it stands while the title slides
+    /// through it.
+    private var slash: some View {
+        Text("/")
+            .font(.system(size: prefs.sideTitle))
+            .foregroundStyle(Palette.faint)
+            .frame(width: Self.slashWidth)
+            .frame(width: away ? Self.slashPlace : 0, alignment: .trailing)
+            .clipped()
+            .opacity(away ? 1 : 0)
+            .accessibilityHidden(!away)
+    }
 
     @ViewBuilder
     private var ground: some View {
@@ -1978,6 +2049,33 @@ struct KeepLine: View {
         .onAppear { if Store.testing { KeepLine.drawn += 1 } }
         .onDisappear { if Store.testing { KeepLine.drawn -= 1 } }
         .animation(Motion.quick, value: hovering)
+    }
+}
+
+/// A pinned row's way home while it is away from its page: a click on its
+/// home's icon takes the pin back. Nothing of its own to see, so nothing
+/// fades in or out over the icon as the pin goes and comes back; the row
+/// lights the icon's square while the pointer is here (SideRow.mark), as
+/// the row's other small controls light theirs (RowSquare).
+private struct HomeDoor: View {
+    let size: CGFloat
+    @Binding var hovering: Bool
+    let act: () -> Void
+
+    /// How far its square reaches past the icon on each side.
+    static let margin: CGFloat = 3
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: RowCross.corner, style: .continuous)
+        Button(action: act) {
+            Color.clear
+                .frame(width: size + Self.margin * 2, height: size + Self.margin * 2)
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Back to Pinned Page")
+        .accessibilityLabel("Back to Pinned Page")
     }
 }
 

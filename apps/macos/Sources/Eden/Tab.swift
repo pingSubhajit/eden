@@ -340,7 +340,23 @@ final class Tab: ObservableObject, Identifiable {
     /// The stylesheet a page not yet built is to be armed with.
     private var veils = ""
 
-    @Published private(set) var title = ""
+    @Published private(set) var title = "" {
+        didSet {
+            if !title.isEmpty { lastTitle = title }
+            // Vouched for again by whoever set it, if at all: the page
+            // (titled), or what a restored or copied tab was told (restore).
+            titleVouched = false
+        }
+    }
+    /// The title is a page's own words: this tab's page named itself so
+    /// (titled), or a restored or copied tab was told its title was (restore),
+    /// rather than one translated there, or a host standing in.
+    private var titleVouched = false
+    /// The last title the tab had. WebKit empties the title as a load sets
+    /// out, a beat before the new page names itself; the row keeps this one
+    /// until then (pageLabel), rather than flicking to the address between
+    /// the two.
+    private var lastTitle = ""
     @Published private(set) var address: URL?
     /// A page carried on from another device: how it is to be shown once it
     /// has come in (Browser.open(_ offer:), Elsewhere).
@@ -375,6 +391,7 @@ final class Tab: ObservableObject, Identifiable {
     var restAddress: URL? { built == nil ? address : committed }
 
     func didCommit() {
+        owesName = true
         popupGesture.clear()
         // What the old page was refused went with it.
         if !blockedPopups.isEmpty { blockedPopups = [] }
@@ -495,6 +512,21 @@ final class Tab: ObservableObject, Identifiable {
         }
         let host = address?.host()?.replacingOccurrences(of: "www.", with: "") ?? ""
         return host.first.map { String($0).uppercased() } ?? "•"
+    }
+
+    /// For a pin, whether `page` is its home: the page it was pinned at, or
+    /// where its home sent it on to as it loaded (PinLanding).
+    func isHome(_ page: URL?) -> Bool { pin != nil && landing.atHome(home, showing: page) }
+
+    /// A pin gone on from its home to another page: its row says so and
+    /// leads back (SideRow), as Back to Pinned Page does (Browser.goHome).
+    var wandered: Bool { pin != nil && home != nil && address != nil && !isHome(address) }
+
+    /// The home's icon from the cache, set only when it is another picture,
+    /// as `adoptIcon` does.
+    func adoptHomeIcon() {
+        let new = home.flatMap { Favicons.shared.cached(for: $0, shy: shy) }
+        if homeIcon !== new { homeIcon = new }
     }
 
     func adoptIcon() {
@@ -689,7 +721,9 @@ final class Tab: ObservableObject, Identifiable {
     /// there, a private tab's own Always Translate, and the page a tab put
     /// to sleep translated was on. All in memory, gone with the tab.
     @Published var translation: TranslationMark?
-    var translator: PageTranslator?
+    var translator: PageTranslator? {
+        didSet { if translator != nil { wasTranslated = true } }
+    }
     var translateFrames: [WKFrameInfo] = []
     var translateLanguages: Set<String> = []
     var translateOnWake: (url: URL, to: String)?
@@ -737,8 +771,29 @@ final class Tab: ObservableObject, Identifiable {
         didSet { if pin == nil, oldValue != nil { letGo = Date() } }
     }
     /// For a pin, the page it was pinned at: a double-click on it goes back
-    /// there (Browser.goHome).
-    var home: URL?
+    /// there (Browser.goHome). Published for the row, which shows whether
+    /// the pin has left it (SideRow), and a new home is a new place to land.
+    @Published var home: URL? {
+        didSet {
+            guard home != oldValue else { return }
+            landing = PinLanding(home: home, showing: address)
+            adoptHomeIcon()
+        }
+    }
+    /// For a pin, what its home page calls itself, as kept with the pin
+    /// (Pins.retitle): what it comes back with after a relaunch or being put
+    /// down, wherever it had gone since. Read from there, never held here,
+    /// so no tab keeps an older one.
+    var homeTitle: String { pinID.flatMap(Pins.def(_:))?.title ?? "" }
+    /// Told when a pin at its home sees the page name itself, in its own
+    /// words: its window keeps that as the pin's title (Pins.retitle).
+    var onHomeTitle: ((Tab, String) -> Void)?
+    /// For a pin, its home's icon, worn at the start of its row while it is
+    /// away (SideRow): kept here, as `icon` is, so an icon arriving for the
+    /// home's site reaches the row whatever site the tab is on now.
+    @Published private(set) var homeIcon: NSImage?
+    /// For a pin, where its last trip home came to rest (PinLanding).
+    private(set) var landing = PinLanding()
     /// For a pin, which of the pins it is, in every window (see Pins.swift).
     var pinID: UUID?
     /// For a pin, one every space shows (see Pins.shared). Set when the row
@@ -893,14 +948,54 @@ final class Tab: ObservableObject, Identifiable {
     /// can't find your way back to.
     var label: String {
         if let name, !name.isEmpty { return name }
+        return pageLabel
+    }
+
+    /// The label as the page has it, with no name given to the tab: what a
+    /// pin that has left its home shows after the slash (SideRow), the name
+    /// being its home's.
+    var pageLabel: String {
         if let page { return page.title }
         if popup, let host = address?.host(), !host.isEmpty {
             return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         }
         if !title.isEmpty { return title }
+        if loading, !lastTitle.isEmpty { return lastTitle }
         if let address { return Address.pretty(address) }
         return "New Tab"
     }
+
+    /// The page named itself: what the tab says, and for a pin at its home
+    /// what its home is called (homeTitle). Never from an address standing
+    /// in for a title, and not while it is translated: the title is then
+    /// the page's in your words, which history doesn't keep either
+    /// (Translate.swift).
+    ///
+    /// Only the title each page arrives with: one that keeps changing after
+    /// it, an inbox counting its mail, would rewrite the pins and tell every
+    /// window and device each time.
+    private func titled(_ new: String) {
+        title = new
+        titleVouched = !new.isEmpty
+        guard !new.isEmpty, owesName else { return }
+        owesName = false
+        if titleIsOwn, pin != nil, isHome(address), homeTitle != new { onHomeTitle?(self, new) }
+    }
+    /// A page has arrived that hasn't named itself yet (titled).
+    private var owesName = false
+    /// A page in this tab has been translated. Its translated words can
+    /// outlive the translator: kept in the back-forward cache under any of
+    /// the places the page made in history, and in the title of a tab put
+    /// to sleep. So from then on, for the rest of the tab's life, nothing
+    /// it shows is taken for a page's own title (titleIsOwn). A pin of such
+    /// a tab keeps the title it was kept by, and learns its home's anew in
+    /// another window or after a relaunch.
+    private var wasTranslated = false
+    /// Whether the title can be taken for the page's own words: vouched for
+    /// (titleVouched), and never in a tab that has been translated
+    /// (wasTranslated). What a pin may learn and be kept by, and what a
+    /// session or a copied tab passes on as its own.
+    var titleIsOwn: Bool { titleVouched && !wasTranslated }
 
     init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil) {
         self.shy = shy
@@ -934,6 +1029,7 @@ final class Tab: ObservableObject, Identifiable {
         web.onPull = { [weak self] pull in self?.pull = pull }
         web.leave = leave
         web.onTouch = { [weak self] in self?.uncover() }
+        web.onHand = { [weak self] in self?.landing.touched() }
         web.onMenuClosed = { [weak self] in self?.popupGesture.menuClosed() }
         web.onKeys = { [weak self] in if let self { self.onKeys?(self) } }
         web.searchName = { [weak self] in self?.searchName?() }
@@ -1003,7 +1099,7 @@ final class Tab: ObservableObject, Identifiable {
 
         watch = [
             web.observe(\.title, options: [.new]) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.title = self?.built?.title ?? "" }
+                MainActor.assumeIsolated { self?.titled(self?.built?.title ?? "") }
             },
             web.observe(\.url, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated {
@@ -1023,6 +1119,9 @@ final class Tab: ObservableObject, Identifiable {
                     // the same host may be another app, with one of its own.
                     let moved = Favicons.site(fresh) != self.address.flatMap(Favicons.site)
                         || fresh.path() != self.address?.path()
+                    // Before the address, which redraws the row: the row
+                    // asks the landing whether this is still home.
+                    self.landing.moved(to: fresh, home: self.pin == nil ? nil : self.home)
                     self.address = fresh
                     // Within the same origin — history.pushState, a fragment —
                     // the page on screen is the one at the new address.
@@ -1441,6 +1540,8 @@ final class Tab: ObservableObject, Identifiable {
     }
 
     func go(to url: URL) {
+        // Sent somewhere from Eden, not by the page: yours (PinLanding).
+        landing.touched()
         if let own = InternalPage(url: url) {
             show(own)
             return
@@ -1491,7 +1592,10 @@ final class Tab: ObservableObject, Identifiable {
     /// and nothing fetched.
     /// Given `state`, a closed tab's keepsake, the view built to wake it
     /// opens with that history, as a tab that slept does.
-    func restore(url: URL, title: String, name: String? = nil, state: Any? = nil) {
+    /// `vouched`: the title is the page's own words, as far as whoever kept
+    /// it knows (titleIsOwn), rather than a translation or a stand-in. Each
+    /// caller in the app says which; true is what a test's made-up tab means.
+    func restore(url: URL, title: String, vouched: Bool = true, name: String? = nil, state: Any? = nil) {
         if let own = InternalPage(url: url) {
             self.name = name
             show(own)
@@ -1499,6 +1603,7 @@ final class Tab: ObservableObject, Identifiable {
         }
         address = url
         self.title = title
+        titleVouched = vouched && !title.isEmpty
         self.name = name
         pending = url
         memory = state
@@ -1516,11 +1621,17 @@ final class Tab: ObservableObject, Identifiable {
     /// that goes back to its pinned page once closed.
     func rest(at home: URL? = nil) {
         guard let url = home ?? address else { return }
-        // The title was the page it is leaving; the host stands in until the
-        // pinned page is woken and names itself.
-        if let home, address != home {
-            address = home
-            title = home.host ?? ""
+        // Asleep it is named as its home is kept (homeTitle), even put down
+        // there: the page it shows may be translated, or another window may
+        // have seen it named anew. With none kept, the host stands in for a
+        // page it is leaving, or one not in its own words, until the pinned
+        // page is woken and names itself.
+        if let home {
+            let moved = address != home
+            if moved { address = home }
+            let kept = homeTitle
+            if !kept.isEmpty { title = kept }
+            else if moved || !titleIsOwn { title = home.host ?? "" }
         }
         pending = url
         memory = nil
@@ -1976,6 +2087,7 @@ final class Tab: ObservableObject, Identifiable {
     /// Straight through, every time. A page that has to be fetched again is
     /// fetched again — nothing is kept behind to make that look otherwise.
     func back() {
+        landing.touched()
         if let page {
             guard let last = trail.popLast() else { return }
             ahead.append(page)
@@ -1994,6 +2106,7 @@ final class Tab: ObservableObject, Identifiable {
         web.goBack()
     }
     func forward() {
+        landing.touched()
         if let page {
             guard let next = ahead.popLast() else { return }
             trail.append(page)
@@ -2016,6 +2129,7 @@ final class Tab: ObservableObject, Identifiable {
     }
     /// Straight to a page several steps away, as one step.
     func go(to item: WKBackForwardListItem) {
+        landing.touched()
         loadGeneration &+= 1
         web.go(to: item)
     }
@@ -2142,6 +2256,7 @@ final class Tab: ObservableObject, Identifiable {
         web.onPull = nil
         web.leave = nil
         web.onTouch = nil
+        web.onHand = nil
         web.onKeys = nil
         web.searchName = nil
         web.translating = nil
@@ -2613,6 +2728,10 @@ final class PageView: WKWebView {
     /// Told the moment the page is reached for — a click, a scroll — so the
     /// picture of a tab waking up never stands between you and the page.
     var onTouch: (() -> Void)?
+    /// Told whenever a hand reaches the page: any button pressed on it, a
+    /// key, a scroll, a swipe. Where the page goes after that is yours,
+    /// not its pinned home's redirects (PinLanding).
+    var onHand: (() -> Void)?
     /// The page's first frame is on screen (see showFirstFrame).
     var onFirstFrame: (() -> Void)?
     /// Told when the keys come to this page, however they got here — a
@@ -2639,6 +2758,7 @@ final class PageView: WKWebView {
             return
         }
         onTouch?()
+        onHand?()
         super.mouseDown(with: event)
     }
 
@@ -2796,6 +2916,7 @@ final class PageView: WKWebView {
 
     override func rightMouseDown(with event: NSEvent) {
         if underCover(event) { return }
+        onHand?()
         super.rightMouseDown(with: event)
     }
 
@@ -2806,6 +2927,7 @@ final class PageView: WKWebView {
     /// is tuned to send.
     override func otherMouseDown(with event: NSEvent) {
         if underCover(event) { return }
+        onHand?()
         switch event.buttonNumber {
         case 3 where canGoBack: goBack()
         case 4 where canGoForward: goForward()
@@ -2816,6 +2938,7 @@ final class PageView: WKWebView {
     /// Logi Options+ sends its Back/Forward buttons as a swipe, not buttons
     /// 3 and 4 — deltaX 1 for back, -1 for forward, as Safari reads it.
     override func swipe(with event: NSEvent) {
+        onHand?()
         if event.deltaX > 0, canGoBack { goBack() }
         else if event.deltaX < 0, canGoForward { goForward() }
         else { super.swipe(with: event) }
@@ -2846,6 +2969,7 @@ final class PageView: WKWebView {
             return
         }
         handed.append(event)
+        onHand?()
         // A key the page did use never comes back: only the latest few are
         // kept, and none older than a couple of seconds.
         let now = event.timestamp
@@ -3058,6 +3182,7 @@ final class PageView: WKWebView {
 
     override func scrollWheel(with event: NSEvent) {
         onTouch?()
+        onHand?()
         if event.phase == .mayBegin || event.phase == .began {
             went = false
             Swipe.calm(self)

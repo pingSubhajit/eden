@@ -23,10 +23,13 @@ import Foundation
 @MainActor
 enum Pins {
     /// Pins by space, in their order.
-    private(set) static var bySpace: [UUID: [PinDef]] = [:]
+    private(set) static var bySpace: [UUID: [PinDef]] = [:] { didSet { byID = nil } }
     /// The pins every space of a profile shows before its own (see
     /// Browser.reconcilePins), by profile.
-    private static var sharedBy: [UUID: [PinDef]] = [:]
+    private static var sharedBy: [UUID: [PinDef]] = [:] { didSet { byID = nil } }
+    /// Every pin by its id, made again when first asked after either list
+    /// changes: a window writing its pins asks after each of them.
+    private static var byID: [UUID: PinDef]?
     private static var loaded = false
     /// Each space's kept groups, in order (KeptGroups.swift).
     private(set) static var groupsBySpace: [UUID: [TabGroup]] = [:]
@@ -44,6 +47,41 @@ enum Pins {
     static func defs(_ space: UUID) -> [PinDef] {
         load()
         return bySpace[space] ?? []
+    }
+
+    /// The pin of that id, in whichever space or profile it is kept.
+    static func def(_ id: UUID) -> PinDef? {
+        load()
+        if let byID { return byID[id] }
+        var made: [UUID: PinDef] = [:]
+        for defs in bySpace.values { for def in defs { made[def.id] = def } }
+        for defs in sharedBy.values { for def in defs { made[def.id] = def } }
+        byID = made
+        return made[id]
+    }
+
+    /// What a pin's home calls itself, as a window has just seen it there
+    /// (Tab.onHomeTitle): kept with the pin, wherever it is kept, and passed
+    /// to the other windows. The one place a pin's title is learnt, so no
+    /// window holds an older one to write back over it. This Mac's own: sync
+    /// keeps it here rather than sending it (SyncItems.applyPins).
+    static func retitle(_ id: UUID, _ title: String, from browser: Browser) {
+        load()
+        if let space = bySpace.first(where: { $0.value.contains { $0.id == id } })?.key,
+           var defs = bySpace[space], let at = defs.firstIndex(where: { $0.id == id }) {
+            guard defs[at].title != title else { return }
+            defs[at].title = title
+            bySpace[space] = defs
+            save()
+            NotificationCenter.default.post(name: changed, object: browser, userInfo: ["space": space])
+        } else if let profile = sharedBy.first(where: { $0.value.contains { $0.id == id } })?.key,
+                  var defs = sharedBy[profile], let at = defs.firstIndex(where: { $0.id == id }) {
+            guard defs[at].title != title else { return }
+            defs[at].title = title
+            sharedBy[profile] = defs
+            save()
+            NotificationCenter.default.post(name: changed, object: browser, userInfo: ["shared": true, "profile": profile])
+        }
     }
 
     /// The pins every space of a profile shows, in their order.
