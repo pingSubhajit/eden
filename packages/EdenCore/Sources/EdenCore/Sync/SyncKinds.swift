@@ -257,12 +257,17 @@ public struct AskRetries: Sendable {
         waits[key].map { now >= $0.until } ?? true
     }
 
-    /// Tried, and their tabs didn't land.
-    public mutating func failed(_ keys: some Sequence<String>, now: Double) {
+    /// Tried, and their tabs didn't land: how long the longest of them
+    /// now waits.
+    @discardableResult
+    public mutating func failed(_ keys: some Sequence<String>, now: Double) -> Double {
+        var longest: Double = 0
         for key in keys {
             let wait = waits[key].map { min($0.wait * 2, Self.longest) } ?? Self.first
             waits[key] = (now + wait, wait)
+            longest = max(longest, wait)
         }
+        return longest
     }
 
     /// Done, or gone: nothing more to wait for.
@@ -337,13 +342,35 @@ extension SyncItems {
     /// again each time, not only as `act` changes something: tried again
     /// after a write that failed, `act` finds the page already open, or
     /// gone, and changes nothing, and the tabs as they are must still land.
-    /// False, and the asks stand, to be done again at the next pass.
+    /// False, and the asks stand, to be done again at the next pass. Only
+    /// the files `rewrite` writes have a say: a file of something else that
+    /// failed meanwhile — the pages closed a while ago, say, written as a tab
+    /// closes — kept every ask standing for as long as it went on failing.
     @MainActor
     public static func answer(_ act: () -> Void, rewrite: () -> Void) -> Bool {
         let mark = Disk.mark()
         act()
-        rewrite()
-        return Disk.drain(since: mark)
+        let rewritten = Disk.recording(rewrite)
+        return Disk.drain(since: mark, only: rewritten)
+    }
+
+    /// An ask's key as the logs say it: what it asks and its id, never the
+    /// device's id with it, nor the page.
+    public static func askLabel(_ key: String) -> String {
+        let parts = key.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3 else { return key }
+        return parts[0] + " " + parts[2]
+    }
+
+    /// Asks' keys as the logs say them, in one line.
+    public static func askLabels(_ keys: some Sequence<String>) -> String {
+        keys.map(askLabel).sorted().joined(separator: ", ")
+    }
+
+    /// The asks of `device` among `agreed` that it has done (`answered`):
+    /// the ones its snapshot leaves out, to go everywhere.
+    public static func answeredAsks(_ agreed: [String: String], of device: String, answered: Set<String>) -> [String] {
+        agreed.keys.filter { asks($0, of: device) && answered.contains($0) }.sorted()
     }
 
     /// Whether `key` asks something of any device.
@@ -368,6 +395,123 @@ extension SyncItems {
             }
             return SyncMerge.value(OpenAsk.self, text).map { now - $0.at <= CloseAsk.life } ?? false
         }
+    }
+}
+
+extension SyncItems {
+    /// The rule every device keeps for asks about one device's pages, to
+    /// close one or to open one: for each page (`page`, History.identity)
+    /// only the newest ask decides. A close after an open leaves the page
+    /// closed, an open after a close opens it; the older asks for that page
+    /// count for nothing, and are answered along with the newest. Two asks
+    /// of the same moment go to the greater key, so every device picks the
+    /// same one. Each page's newest ask with the older ones for it, the
+    /// pages in the order of their newest asks.
+    public static func newestPerPage<Ask>(_ asks: [Ask], page: (Ask) -> String, at: (Ask) -> Double,
+                                          key: (Ask) -> String) -> [(newest: Ask, older: [Ask])] {
+        func newer(_ a: Ask, _ b: Ask) -> Bool { at(a) != at(b) ? at(a) > at(b) : key(a) > key(b) }
+        let groups = Dictionary(grouping: asks, by: page).values.map { group -> (newest: Ask, older: [Ask]) in
+            let sorted = group.sorted(by: newer)
+            return (sorted[0], Array(sorted.dropFirst()))
+        }
+        return groups.sorted { newer($1.newest, $0.newest) }
+    }
+
+    /// What another device asked of `device` to do now, by the rule above:
+    /// for each page, its newest ask standing, unless it is being done
+    /// (`answering`), was done already (`answered`), or waits to be tried
+    /// again (not `ready`); and with it, the older asks for that page not
+    /// already done or being done, answered in the same step. A page whose
+    /// newest ask was done already has nothing left to do: only its older
+    /// asks, ones heard of since, which go with it.
+    public static func dueAsks(_ live: [String: String], on device: String, now: Double,
+                               answered: Set<String>, answering: Set<String>,
+                               ready: (String) -> Bool) -> DueAsks {
+        enum Asked {
+            case close(CloseAsk)
+            case open(OpenAsk)
+        }
+        struct Standing {
+            let key: String
+            let page: String
+            let at: Double
+            let ask: Asked
+        }
+        // A page whose address doesn't read is a page of its own.
+        let page = { (url: String, key: String) in URL(string: url).map(History.identity(for:)) ?? key }
+        let standing = closeAsks(live, on: device, now: now).map { key, ask in
+            Standing(key: key, page: page(ask.url, key), at: ask.at, ask: .close(ask))
+        } + openAsks(live, on: device, now: now).map { key, ask in
+            Standing(key: key, page: page(ask.page.url, key), at: ask.at, ask: .open(ask))
+        }
+        var due = DueAsks()
+        let open = { (key: String) in !answered.contains(key) && !answering.contains(key) }
+        for (newest, older) in newestPerPage(standing, page: \.page, at: \.at, key: \.key) {
+            guard !answering.contains(newest.key), ready(newest.key) else { continue }
+            for ask in older where open(ask.key) { due.overtaken[ask.key] = newest.key }
+            guard !answered.contains(newest.key) else { continue }
+            switch newest.ask {
+            case .close(let ask): due.closing[newest.key] = ask
+            case .open(let ask): due.opening[newest.key] = ask
+            }
+        }
+        return due
+    }
+}
+
+/// The asks of a device to do now (SyncItems.dueAsks): the pages to close
+/// and to open, each its page's newest ask, and the older asks they
+/// overtake, done with them.
+public struct DueAsks: Equatable, Sendable {
+    public var closing: [String: CloseAsk] = [:]
+    public var opening: [String: OpenAsk] = [:]
+    /// Each older ask, with the newest ask for its page that overtakes it.
+    public var overtaken: [String: String] = [:]
+
+    public init() {}
+
+    public var isEmpty: Bool { closing.isEmpty && opening.isEmpty && overtaken.isEmpty }
+
+    /// Every ask taken up, to close, to open or overtaken.
+    public var keys: Set<String> { Set(closing.keys).union(opening.keys).union(overtaken.keys) }
+
+    /// The asks done once the pages are closed and, if `opened`, opened:
+    /// an open that waits (a Mac with no window to open it in) keeps the
+    /// asks it overtakes standing with it, so none goes before what
+    /// decides its page is done.
+    public func done(opened: Bool) -> Set<String> {
+        var out = Set(closing.keys)
+        if opened { out.formUnion(opening.keys) }
+        for (older, newest) in overtaken where opened || opening[newest] == nil { out.insert(older) }
+        return out
+    }
+
+    /// The pages to close, by History.identity.
+    public var pagesToClose: Set<String> {
+        Set(closing.values.compactMap { URL(string: $0.url).map(History.identity(for:)) })
+    }
+
+    /// The pages to open, the ones asked first first.
+    public var pagesToOpen: [DeviceTabs.Page] {
+        opening.values.sorted { $0.at < $1.at }.map(\.page)
+    }
+}
+
+extension SyncItems {
+    /// When an ask about `page` (History.identity) of `device`, written
+    /// now, says it was asked: now, or just after the newest ask about that
+    /// page among `items` if that is later. The device that asks second
+    /// has seen the first ask, so its ask stays the newer one even when
+    /// the first came from a device whose clock runs ahead: the later
+    /// choice is the one that counts (newestPerPage).
+    public static func askTime(for page: String, of device: String, among items: [String: String],
+                               now: Double) -> Double {
+        let newest = (closeAsks(items, on: device, now: now).values.compactMap { ask -> Double? in
+            URL(string: ask.url).map(History.identity(for:)) == page ? ask.at : nil
+        } + openAsks(items, on: device, now: now).values.compactMap { ask -> Double? in
+            URL(string: ask.page.url).map(History.identity(for:)) == page ? ask.at : nil
+        }).max()
+        return newest.map { max(now, $0 + 0.001) } ?? now
     }
 }
 
@@ -422,17 +566,20 @@ extension Elsewhere {
     /// `devices` as asked of them — without the pages asked closed there,
     /// with those asked opened at the end of the list — while each ask
     /// stands (`standing`: the asks among the items, and those written here
-    /// and not yet sent); and the asks still waiting. Its device deletes an
-    /// ask in the same pass as it says the tabs that answer it, so the list
-    /// never shows the page as it was in between. Not by when the device
-    /// last said its tabs: that may be before the ask reached it, or by a
-    /// clock that runs ahead.
+    /// and not yet sent); and the asks still waiting. For each page only
+    /// its newest ask counts (SyncItems.newestPerPage), as on the device
+    /// itself: a page sent there and then closed is gone, one closed and
+    /// sent again is there. Its device deletes an ask in the same pass as
+    /// it says the tabs that answer it, so the list never shows the page as
+    /// it was in between. Not by when the device last said its tabs: that
+    /// may be before the ask reached it, or by a clock that runs ahead.
     public static func asAsked(_ devices: [DeviceTabs], asked: [Asked], standing: Set<String>,
                                now: Double) -> (devices: [DeviceTabs], waiting: [Asked]) {
         let waiting = asked.filter { ask in now - ask.at <= CloseAsk.life && standing.contains(ask.key) }
         guard !waiting.isEmpty else { return (devices, []) }
         let shown = devices.map { device -> DeviceTabs in
-            let mine = waiting.filter { $0.device == device.device }
+            let mine = SyncItems.newestPerPage(waiting.filter { $0.device == device.device },
+                                               page: \.page, at: \.at, key: \.key).map(\.newest)
             guard !mine.isEmpty else { return device }
             let gone = Set(mine.filter { $0.opening == nil }.map(\.page))
             var kept = device
