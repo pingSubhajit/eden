@@ -493,8 +493,7 @@ struct SideBar: View {
             devices: devices.map { device in
                 (device.device, browser.pages(device.tabs, in: space).count, elsewhereOpened.contains(device.device))
             },
-            line: showsLine(kept: squares + listed.count + groups.count + devices.count,
-                            rows: !kept.isEmpty || !devices.isEmpty, below: open.count),
+            line: showsLine(kept: squares + listed.count + groups.count + devices.count),
             newTabOnTop: newTabOnTop)
         let splits = row.splits
         return ColumnLayout(shape, metrics: metrics, width: width - 20, id: \.id, lines: { lines(of: $0, splits: splits) })
@@ -565,17 +564,14 @@ struct SideBar: View {
     }
 
     /// The one line between what is kept and what comes and goes (#6), with
-    /// the pinned rows on: under the pins, their folders and your other
-    /// devices' groups, over the New Tab row when new tabs go to the top
-    /// and over your tabs and groups, Clear on it for the tabs in no group
-    /// under it. Only with something kept above it — no line until the
-    /// first pin (idea 444), as the row across the top has it
-    /// (TabBar.showsPinLine) — and something under it: tabs or groups, or,
-    /// under lines that are kept (rows, folders, a device's group), at the
-    /// least the New Tab row, which would otherwise read as one of them.
-    /// Squares alone over nothing need none: their grid ends on its own.
-    private func showsLine(kept: Int, rows: Bool, below: Int) -> Bool {
-        prefs.showsPinRows && kept > 0 && (below > 0 || rows)
+    /// the pinned rows on: under the pins, square or row, their folders and
+    /// your other devices' groups, over the New Tab row when new tabs go to
+    /// the top and over your tabs and groups, Clear on it for the tabs in no
+    /// group under it. Whenever something is kept above it, whatever is
+    /// under it, so it doesn't come and go as the last tab closes; and no
+    /// line until the first pin or device (idea 444).
+    private func showsLine(kept: Int) -> Bool {
+        prefs.showsPinRows && kept > 0
     }
 
     /// What stands above the line in this space: its pins, square or row,
@@ -584,12 +580,6 @@ struct SideBar: View {
     private var keptCount: Int {
         browser.squarePins.count + browser.listedPins.count + devicesHere.count
             + (prefs.showsPinRows ? browser.keptGroups.count : 0)
-    }
-
-    /// Whether lines are kept above the line, not squares alone: pinned
-    /// rows, their folders, or your other devices' groups.
-    private var keptRows: Bool {
-        !browser.listedPins.isEmpty || !devicesHere.isEmpty || browser.drawsKeptGroups
     }
 
     private var devicesHere: [DeviceTabs] { devices(in: browser.spaceID) }
@@ -714,7 +704,7 @@ struct SideBar: View {
             devices: devicesHere.map { device in
                 (device.device, browser.pages(device.tabs, in: browser.spaceID).count, elsewhereOpened.contains(device.device))
             },
-            line: showsLine(kept: keptCount, rows: keptRows, below: open.count),
+            line: showsLine(kept: keptCount),
             newTabOnTop: newTabOnTop)
         let splits = browser.splits
         return ColumnLayout(shape, metrics: metrics, width: width - 20, carry: carry, id: \.id,

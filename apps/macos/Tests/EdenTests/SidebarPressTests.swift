@@ -231,6 +231,25 @@ final class SidebarPressTests: XCTestCase {
         try await send(.leftMouseUp, at: title, in: window)
     }
 
+    /// The line comes with the first thing kept, a square alone with no
+    /// tab under it too, and goes with the last.
+    func testTheLineShowsWhileSomethingIsKeptAboveIt() async throws {
+        let browser = makeBrowser()
+        let window = makeWindow(browser)
+        try await settle()
+        XCTAssertEqual(KeepLine.drawn, 0, "nothing kept: no line")
+        for tab in browser.tabs { browser.pin(tab) }
+        try await settle()
+        XCTAssertTrue(browser.tabs.allSatisfy { $0.pin != nil })
+        XCTAssertEqual(KeepLine.drawn, 1, "squares alone, no tab under them: the line")
+        for tab in browser.tabs { browser.unpin(tab) }
+        // Settled twice: the line fades out before it is gone.
+        try await settle()
+        try await settle()
+        XCTAssertEqual(KeepLine.drawn, 0, "nothing kept again: no line")
+        _ = window
+    }
+
     /// One line between what is kept and the tabs (#6): with new tabs
     /// going to the top, the New Tab row comes straight under the line, the
     /// line under the pins, and no second line under the New Tab row.
