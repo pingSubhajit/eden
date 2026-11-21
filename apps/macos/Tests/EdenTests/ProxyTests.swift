@@ -81,7 +81,7 @@ final class ProxyTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let proxy = BrowserProxy(defaults: defaults, password: "", keep: { _ in }, forget: {})
 
-        let space = WKWebsiteDataStore(forIdentifier: UUID())
+        let space = WKWebsiteDataStore(forIdentifier: Self.madeStore())
         let shy = WKWebsiteDataStore.nonPersistent()
         proxy.attach(space)
         proxy.attach(shy)
@@ -104,7 +104,7 @@ final class ProxyTests: XCTestCase {
         let proxy = BrowserProxy(defaults: defaults, password: "", keep: { _ in }, forget: {})
         try proxy.save(ProxySettingsValue(mode: .http, host: "127.0.0.1", port: "7890"), password: "")
 
-        let later = WKWebsiteDataStore(forIdentifier: UUID())
+        let later = WKWebsiteDataStore(forIdentifier: Self.madeStore())
         proxy.attach(later)
         XCTAssertEqual(later.proxyConfigurations.count, 1)
     }
@@ -151,7 +151,7 @@ final class ProxyTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let proxy = BrowserProxy(defaults: defaults, password: "",
                                  keep: { _ in throw CocoaError(.fileWriteUnknown) }, forget: {})
-        let store = WKWebsiteDataStore(forIdentifier: UUID())
+        let store = WKWebsiteDataStore(forIdentifier: Self.madeStore())
         proxy.attach(store)
 
         XCTAssertThrowsError(try proxy.save(
@@ -201,5 +201,13 @@ final class ProxyTests: XCTestCase {
         let withOne = ProxyNetwork.session
         try proxy.save(named, password: "two")
         XCTAssertFalse(withOne === ProxyNetwork.session)
+    }
+
+    /// A store of the test's own, written down so a later run takes it
+    /// away (Store.madeStore, #20).
+    private static func madeStore() -> UUID {
+        let id = UUID()
+        Store.madeStore(id)
+        return id
     }
 }

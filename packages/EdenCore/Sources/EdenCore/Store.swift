@@ -93,6 +93,7 @@ public enum Store {
     /// Settings written while the process is on its way out may still land
     /// after this; the next run sweeps them.
     private static func discardWorld() {
+        if !noteWritten { _ = writeNote() }
         try? FileManager.default.removeItem(at: folder)
         guard let settingsSuite else { return }
         CFPreferencesAppSynchronize(settingsSuite as CFString)
@@ -114,6 +115,7 @@ public enum Store {
         where name.hasPrefix("Eden (") && name.hasSuffix(")") && ended(String(name.dropFirst(6).dropLast())) {
             try? files.removeItem(at: support.appendingPathComponent(name))
         }
+        sweepStores()
         let preferences = files.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Preferences")
         let prefix = "com.subhajit.eden.beta.test."
         for name in (try? files.contentsOfDirectory(atPath: preferences.path)) ?? []
@@ -121,6 +123,123 @@ public enum Store {
             && ended(String(name.dropFirst(prefix.count).dropLast(".plist".count))) {
             try? files.removeItem(at: preferences.appendingPathComponent(name))
         }
+    }
+
+    // MARK: - a throwaway world's WebKit stores (#20)
+
+    /// Where throwaway worlds write down the WebKit stores they make, one
+    /// note each, named as the world's folder is. A space or a profile a
+    /// test makes is new each run, and so is its store, in WebKit's folder
+    /// for the test runner, which every test run shares: only a note says
+    /// whose a store is. Kept apart from the world's folder, which goes at
+    /// exit and which tests may empty, so the note outlives the run.
+    private static var storeNotes: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Eden test stores", isDirectory: true)
+    }
+
+    /// A throwaway world's stores: the folder WebKit keeps them in, and
+    /// their identifiers.
+    private struct StoreNote: Codable {
+        var folder: String
+        var stores: [UUID]
+    }
+
+    /// This run's stores, and whether the note on disk says all of them.
+    nonisolated(unsafe) private static var note: StoreNote?
+    nonisolated(unsafe) private static var noteWritten = true
+
+    /// The folder WebKit keeps stores made by identifier in, for this
+    /// process: Library/WebKit/<program>/WebsiteDataStore, or without the
+    /// program in a sandbox's container, as WebKit makes the path.
+    private static var webKitStores: URL? {
+        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        if ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil {
+            return library.appendingPathComponent("WebKit/WebsiteDataStore", isDirectory: true)
+        }
+        return Bundle.main.bundleIdentifier.map {
+            library.appendingPathComponent("WebKit/\($0)/WebsiteDataStore", isDirectory: true)
+        }
+    }
+
+    /// A space's or a profile's WebKit store made with identifier `id`
+    /// (WKWebsiteDataStore(forIdentifier:)), or a test's own: in a throwaway
+    /// world, written down before WebKit has written anything to it, so the
+    /// sweep of a later run takes it away once this one has ended, however
+    /// it ended. A note that couldn't be written is tried again with the
+    /// next store and at exit. Nothing anywhere else.
+    public static func madeStore(_ id: UUID) {
+        _ = discardsAtExit
+        guard throwawayName != nil, let folder = webKitStores else { return }
+        var made = note ?? StoreNote(folder: folder.path, stores: [])
+        guard !made.stores.contains(id) || !noteWritten else { return }
+        if !made.stores.contains(id) { made.stores.append(id) }
+        note = made
+        noteWritten = writeNote()
+    }
+
+    /// This run's note, on disk; whether it got there.
+    private static func writeNote() -> Bool {
+        guard let throwawayName, let note, let data = try? JSONEncoder().encode(note) else { return false }
+        do {
+            try FileManager.default.createDirectory(at: storeNotes, withIntermediateDirectories: true)
+            try data.write(to: storeNotes.appendingPathComponent(throwawayName), options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// The stores of throwaway worlds whose run has ended (ended), taken
+    /// from WebKit's folder by the identifiers their note gives. One written
+    /// to in the last two minutes is left for a later run: WebKit's own
+    /// processes may still be writing it out after the run itself has gone.
+    /// So is one that wouldn't go. A note goes only with its last store.
+    private static func sweepStores() {
+        let files = FileManager.default
+        for name in (try? files.contentsOfDirectory(atPath: storeNotes.path)) ?? [] where ended(name) {
+            let file = storeNotes.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: file), var made = try? JSONDecoder().decode(StoreNote.self, from: data) else {
+                try? files.removeItem(at: file)
+                continue
+            }
+            let stores = URL(fileURLWithPath: made.folder, isDirectory: true)
+            made.stores = made.stores.filter { !removeStore($0, from: stores) }
+            if made.stores.isEmpty {
+                try? files.removeItem(at: file)
+            } else {
+                try? JSONEncoder().encode(made).write(to: file, options: .atomic)
+            }
+        }
+    }
+
+    /// The store `id` taken from `stores`, if it is quiet: true once it is
+    /// gone, or was never written.
+    private static func removeStore(_ id: UUID, from stores: URL) -> Bool {
+        let files = FileManager.default
+        let candidates = [id.uuidString.lowercased(), id.uuidString].map { stores.appendingPathComponent($0, isDirectory: true) }
+        guard let folder = candidates.first(where: { files.fileExists(atPath: $0.path) }) else { return true }
+        guard !written(folder, within: 120) else { return false }
+        do {
+            try files.removeItem(at: folder)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Whether anything in `folder`, or the folder itself, was written to
+    /// in the last `seconds`.
+    private static func written(_ folder: URL, within seconds: TimeInterval) -> Bool {
+        let since = Date().addingTimeInterval(-seconds)
+        let key = URLResourceKey.contentModificationDateKey
+        func recent(_ url: URL) -> Bool {
+            ((try? url.resourceValues(forKeys: [key]))?.contentModificationDate).map { $0 > since } ?? false
+        }
+        if recent(folder) { return true }
+        let all = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [key])
+        while let url = all?.nextObject() as? URL { if recent(url) { return true } }
+        return false
     }
 
     /// Whether `name` is a throwaway world's ("<world>-<pid>.<start>") whose
