@@ -366,4 +366,93 @@ final class ElsewhereTests: XCTestCase {
         XCTAssertEqual(outer, [tabs], "a recording inside another counts for both")
         Disk.drain()
     }
+
+    // MARK: - asks made from tabs out of date (#13)
+
+    private func ask(_ kind: String, _ name: String, at: Double, seen: Double?, id: String) -> [String: String] {
+        kind == "close"
+            ? SyncItems.ask(close: page(name).url, on: "phone", now: at, seen: seen, id: id)
+            : SyncItems.ask(open: page(name), on: "phone", now: at, seen: seen, id: id)
+    }
+
+    func testALateAskMadeBeforeTheLastDoingIsAnsweredNotDone() {
+        // The phone's tabs were stamped 100 when a Mac went offline and sent
+        // page a; another Mac closed a from tabs stamped 200, done at 300.
+        var pages = AnsweredPages()
+        pages.done([identity("a")], at: now - 300)
+        let late = ask("open", "a", at: now - 10, seen: now - 400, id: "1")
+        let due = SyncItems.dueAsks(late, on: "phone", now: now, answered: [], answering: [], pages: pages, ready: { _ in true })
+        XCTAssertEqual(due.opening, [:], "not opened again")
+        XCTAssertEqual(due.outdated, [SyncItems.openKey("phone", id: "1")], "but answered, to go everywhere")
+        XCTAssertEqual(due.done(opened: false), due.outdated)
+        XCTAssertEqual(due.pagesDone(due.done(opened: true)), [], "nothing was done about the page")
+    }
+
+    func testAnAskMadeAfterSeeingTheDoingIsDone() {
+        var pages = AnsweredPages()
+        pages.done([identity("a")], at: now - 300)
+        let after = ask("open", "a", at: now - 10, seen: now - 300, id: "1")
+        let due = SyncItems.dueAsks(after, on: "phone", now: now, answered: [], answering: [], pages: pages, ready: { _ in true })
+        XCTAssertEqual(due.opening.keys.sorted(), [SyncItems.openKey("phone", id: "1")])
+        XCTAssertEqual(due.pagesDone(due.done(opened: true)), [identity("a")])
+    }
+
+    func testAnAskMadeFromLaterTabsWinsWhateverTheClocks() {
+        // A Mac whose clock runs ahead asked first, from older tabs; the one
+        // asking after it had seen newer tabs, by a clock that runs behind.
+        var live = ask("close", "a", at: now + 600, seen: now - 200, id: "1")
+        live.merge(ask("open", "a", at: now - 5, seen: now - 100, id: "2")) { a, _ in a }
+        let due = SyncItems.dueAsks(live, on: "phone", now: now, answered: [], answering: [], ready: { _ in true })
+        XCTAssertEqual(due.opening.keys.sorted(), [SyncItems.openKey("phone", id: "2")])
+        XCTAssertEqual(due.overtaken, [SyncItems.closeKey("phone", id: "1"): SyncItems.openKey("phone", id: "2")])
+    }
+
+    func testAnAskFromAnEdenFromBeforeIsWeighedAsItWas() {
+        var pages = AnsweredPages()
+        pages.done([identity("a")], at: now - 300)
+        let old = ask("open", "a", at: now - 10, seen: nil, id: "1")
+        let due = SyncItems.dueAsks(old, on: "phone", now: now, answered: [], answering: [], pages: pages, ready: { _ in true })
+        XCTAssertEqual(due.opening.keys.sorted(), [SyncItems.openKey("phone", id: "1")])
+        XCTAssertEqual(due.outdated, [])
+    }
+
+    func testTabsAreStampedAfreshAfterAnAskIsDone() {
+        var pages = AnsweredPages()
+        XCTAssertEqual(pages.stamp(kept: now - 500, published: nil, now: now), now - 500,
+                       "nothing done: the same tabs keep their stamp")
+        pages.done([identity("a")], at: now - 100)
+        XCTAssertEqual(pages.stamp(kept: now - 500, published: nil, now: now), now, "stamped before an ask was done: stamped now")
+        XCTAssertEqual(pages.stamp(kept: now, published: nil, now: now), now)
+    }
+
+    func testAClockPutBackKeepsStampsAndDoingsInOrder() {
+        var pages = AnsweredPages()
+        pages.done([identity("a")], at: now)
+        let after = pages.stamp(kept: nil, published: nil, now: now - 100)
+        XCTAssertGreaterThan(after, now, "tabs stamped after the doing, though the clock went back")
+        XCTAssertFalse(pages.outdated(identity("a"), seen: after), "an ask made from them saw the doing")
+        pages.done([identity("b")], at: now - 50)
+        XCTAssertTrue(pages.outdated(identity("b"), seen: after), "and one made from them came before the next")
+    }
+
+    func testAfterARelaunchStampsComeAfterTheLastOnesPublished() {
+        // Nothing kept of the stamps themselves: the last one the other
+        // devices had says where to go on from.
+        var pages = AnsweredPages()
+        let stamp = pages.stamp(kept: nil, published: now + 500, now: now)
+        XCTAssertGreaterThan(stamp, now + 500)
+        pages.done([identity("a")], at: now)
+        XCTAssertTrue(pages.outdated(identity("a"), seen: now + 500), "an ask made from the published tabs came before")
+    }
+
+    func testDoingsAreKeptLongerThanAnyAskStands() {
+        // A clock of today: a month before it is a time a clock can show.
+        let now: Double = 1_800_000_000
+        var pages = AnsweredPages()
+        pages.done([identity("a")], at: now - AnsweredPages.life - 1)
+        pages.done([identity("b")], at: now - CloseAsk.life - 1)
+        pages.prune(now: now)
+        XCTAssertEqual(Set(pages.pages.keys), [identity("b")],
+                       "an ask from a device whose clock runs days ahead may still arrive about b")
+    }
 }
