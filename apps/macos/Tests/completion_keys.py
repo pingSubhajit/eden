@@ -59,7 +59,8 @@ SITE = f"http://127.0.0.1:{srv.server_port}"
 
 
 def marks(path):
-    """Bookmarks beginning with "we", as in the report, and one that doesn't."""
+    """Bookmarks beginning with "we", as in the report, and one that doesn't:
+    pinned rows once brought in (#6), open tabs the field also offers."""
     rows = "\n".join(
         f'<DT><A HREF="{u}" ADD_DATE="1700000000">{n}</A>'
         for n, u in [("Motto work", "https://wearemotto.com/work"), ("Noiced", "https://noiced.com/"),

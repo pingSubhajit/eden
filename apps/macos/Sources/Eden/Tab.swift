@@ -73,7 +73,7 @@ enum Web {
     /// could begin: 41 to 59 ms from a bookmark or Return to the load
     /// starting, the window stuck meanwhile. Sharing one lets WebKit have
     /// the next process ready: 9 to 10 ms, for the same memory and the same
-    /// number of processes (measured with ./bench bookmark URL new, 24 Sep 2026).
+    /// number of processes (measured on a new tab, 24 Sep 2026).
     /// It also carries Eden's geolocation provider (see SiteLocation),
     /// which asks macOS nothing until a page you allowed wants a position.
     static let pool: WKProcessPool = {
@@ -750,13 +750,15 @@ final class Tab: ObservableObject, Identifiable {
     var peeked: (site: String, at: Date)?
     /// For a pin, kept as a row under the squares rather than as a square:
     /// Arc's pinned list, below its favourites. Still a pin in every other
-    /// way: put down by ⌘W, the same in every window, never in a group.
-    /// Drawn as a square while Settings › Tabs › Pinned rows is off, or
-    /// with the tabs across the top.
+    /// way: put down by ⌘W, the same in every window, never in one of the
+    /// window's own tab groups (groupID); a row of this space's own may be
+    /// in a kept group, a TabGroup above the line (keptGroupID, Column.swift).
+    /// Drawn as a square with the tabs across the top.
     @Published var listed = false
-    /// For a pinned row, the folder among the rows that holds it (see
-    /// PinFolders.swift). Set when the row is built, from pins.json.
-    var pinFolder: UUID?
+    /// For a pinned row, the kept group that holds it (see Column.swift):
+    /// a row's group, as groupID is an open tab's. Set when the row is
+    /// built, from pins.json (PinDef.group).
+    var keptGroupID: UUID?
 
     /// The group that holds this ordinary tab in the sidebar.
     @Published var groupID: UUID? {
@@ -1511,7 +1513,7 @@ final class Tab: ObservableObject, Identifiable {
     /// address is remembered; everything the page was holding is let go, so a
     /// pin you are not reading costs a line in a file and nothing else.
     /// Given `home`, it is put down there instead of where it was: Arc's pin
-    /// that goes back to its pinned page once closed (see Preferences.pinsGoHome).
+    /// that goes back to its pinned page once closed.
     func rest(at home: URL? = nil) {
         guard let url = home ?? address else { return }
         // The title was the page it is leaving; the host stands in until the

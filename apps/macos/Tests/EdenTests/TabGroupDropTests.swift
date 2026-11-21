@@ -9,6 +9,13 @@ final class TabGroupDropTests: XCTestCase {
         super.setUp()
     }
 
+    /// From a space as a new install has it, whatever the suites before
+    /// left in this process's world (CleanWorld).
+    override func setUp() async throws {
+        try await super.setUp()
+        CleanWorld.reset()
+    }
+
     func testPositionalMovesAndSourceCleanup() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
@@ -73,8 +80,17 @@ final class TabGroupDropTests: XCTestCase {
         XCTAssertEqual(browser.tabs.first?.id, tabs[1].id)
         XCTAssertEqual(browser.tabs.last?.id, tabs[0].id)
         XCTAssertNil(browser.split(for: tabs[1]))
-        let saved = try XCTUnwrap(browser.record.rows[browser.spaceID.uuidString])
-        let restored = Browser(record: browser.record)
+        // Read back from wherever this window keeps its rows: the session
+        // files when it is the first window of its profile this run, as it
+        // is when this test runs alone, else its own record. Read from the
+        // record alone, the test failed whenever it ran first.
+        browser.writeSession(now: true)
+        let saved = browser.readRow(browser.spaceID)
+        XCTAssertEqual(saved.tabs.count, tabs.count)
+        var record = browser.record
+        record.rows[browser.spaceID.uuidString] = saved
+        let restored = Browser(record: record)
+        defer { restored.closeAll() }
         XCTAssertEqual(restored.tabs.map { $0.address?.absoluteString }, saved.tabs.map { Optional($0.url) })
         XCTAssertEqual(restored.tabs.map(\.groupID), saved.tabs.map(\.groupID))
     }
@@ -132,7 +148,7 @@ final class TabGroupDropTests: XCTestCase {
         let groups = [first, second]
         // Below "b": nothing, until a gap opens there.
         XCTAssertNil(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true))
-        frames[RowGap.frameKey] = GroupDropFrame(group: second.id, rect: rect(110, 28))
+        frames[ColumnCarry.frameKey] = GroupDropFrame(group: second.id, rect: rect(110, 28))
         XCTAssertEqual(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true),
                        GroupDropTarget(group: second.id, member: b, after: true))
         // The top of a heading is the place before its group, not in it.

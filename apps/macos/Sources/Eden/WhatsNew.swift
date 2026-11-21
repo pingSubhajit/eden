@@ -46,9 +46,6 @@ enum WhatsNew {
                since: "0.1.0", get: { $0.commandBar }, set: { $0.commandBar = $1 }),
         Toggle(title: "Capture", detail: "View › Capture… takes a picture of part of a page, or all of it.",
                since: "0.1.0", get: { $0.capturesPages }, set: { $0.capturesPages = $1 }),
-        Toggle(title: "Folders in pinned rows", detail: "Pinned rows in folders that fold, as in Arc.",
-               since: "0.1.0", get: { $0.pinFolders }, set: { $0.pinFolders = $1 },
-               shown: { $0.listsPins }),
 
         Toggle(title: "Send links to a space", detail: "Links to the sites you choose open in their space, with its sign-ins, as in Arc.",
                since: "0.1.0", get: { $0.sendsLinksToSpaces }, set: { $0.sendsLinksToSpaces = $1 },
@@ -73,15 +70,11 @@ enum WhatsNew {
 
         Toggle(title: "Suggestions from your search engine", detail: "Searches suggested as you type. What you type is sent to your engine; never from a private tab.",
                since: "0.1.0", get: { $0.engineSuggests }, set: { $0.engineSuggests = $1 }),
-        Toggle(title: "Pins keep their site", detail: "Links elsewhere open in a peek, and ⌘W takes a pin back to its page, as in Arc.",
-               since: "0.1.0", get: { $0.pinsKeepSite }, set: { $0.pinsKeepSite = $1 }),
         Toggle(title: "Darken light pages", detail: "While Eden is dark, pages with no dark look of their own are darkened.",
                since: "0.1.0", get: { $0.darkensPages }, set: { $0.darkensPages = $1 }),
         Toggle(title: "Roomier tabs", detail: "Taller rows and larger titles in the sidebar.",
                since: "0.1.0", get: { $0.roomyTabs }, set: { $0.roomyTabs = $1 }),
 
-        Toggle(title: "Pinned rows", detail: "Pins as rows with their names, under the squares, as in Arc. Right-click a tab to pin it as a row.",
-               since: "0.1.0", get: { $0.listsPins }, set: { $0.listsPins = $1 }),
         Toggle(title: "Start with a fresh window", detail: "Your pinned tabs, tab groups and named tabs, and none of last time's others.",
                since: "0.1.0", get: { $0.startsFresh }, set: { $0.startsFresh = $1 }),
 
@@ -104,8 +97,6 @@ enum WhatsNew {
                    if on { prefs.sidebar = true }
                    prefs.sideHides = on
                }),
-        Toggle(title: "Bookmarks bar", detail: "Your bookmarks in a row above the page.",
-               since: "0.1.0", get: { $0.bookmarksBar }, set: { $0.bookmarksBar = $1 }),
         Toggle(title: "Float the video when you switch apps", detail: "A playing video follows you out into a small window.",
                since: "0.1.0", get: { $0.floatsAway }, set: { prefs, on in if on { prefs.floatOwn = .tabsOrApps } else { prefs.floatsAway = false } }),
         Toggle(title: "Pages at 120 Hz", detail: "Smoother scrolling and animations on screens that can. Uses more battery.",

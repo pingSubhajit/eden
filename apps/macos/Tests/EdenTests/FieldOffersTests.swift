@@ -15,10 +15,13 @@ final class FieldOffersTests: XCTestCase {
 
     private var browsers: [Browser] = []
 
-    override func tearDown() {
+    override func tearDown() async throws {
         browsers.forEach { $0.closeAll() }
         browsers = []
-        super.tearDown()
+        // Its pins, folders and groups out of the world the next suite
+        // shares, the saved window with them (CleanWorld).
+        CleanWorld.reset()
+        try await super.tearDown()
     }
 
     private func browser() -> Browser {
@@ -60,11 +63,34 @@ final class FieldOffersTests: XCTestCase {
         XCTAssertEqual(browser.context(for: try XCTUnwrap(browser.offers.dropFirst().first)), .init())
     }
 
+    /// Pins are where pages are kept (#6), and the field finds them as the
+    /// open tabs they are: one asleep, in a folded kept group, as well.
+    func testAPinnedRowAsleepInAFoldedFolderIsOffered() throws {
+        let browser = browser()
+        let kept = try page(browser, "https://kept-row.example/notes", title: "Kept notes")
+        browser.pin(kept, listed: true)
+        let folder = try XCTUnwrap(browser.newKeptGroup(named: "Work", holding: kept, rename: false))
+        browser.setGroupFolded(folder, true)
+        defer {
+            browser.unpin(kept)
+            browser.removeTabGroup(folder)
+        }
+        try page(browser, "https://front.example/", title: "Front")
+        XCTAssertTrue(kept.asleep)
+        XCTAssertFalse(browser.keptLines().contains { if case .tab(let tab, _) = $0 { tab === kept } else { false } },
+                       "not drawn while its group is folded")
+        browser.launch()
+        browser.typed = "kept notes"
+        XCTAssertTrue(browser.offers.contains { $0.kind == .open && $0.tab == kept.id }, "offered as the tab it is")
+    }
+
     /// A tab in a group wears its group's name; a group's own row is Open
     /// with that name, never first and only once two letters are typed, and
     /// taking it goes to the group's tab.
     func testGroupRowsAndLabels() throws {
         let browser = browser()
+        let wereOn = browser.prefs.usesTabGroups
+        defer { browser.prefs.usesTabGroups = wereOn }
         browser.prefs.usesTabGroups = true
         let grouped = try page(browser, "https://alpha.example/", title: "Alpha")
         let group = browser.addTabGroup(containing: grouped)
@@ -92,10 +118,10 @@ final class FieldOffersTests: XCTestCase {
     func testReturnOnTheEmptyFieldLeavesTheCopiedLinkAlone() throws {
         let browser = browser()
         try page(browser, "https://alpha.example/", title: "Alpha")
-        browser.copiedLink = CopiedLink(change: NSPasteboard.general.changeCount,
+        browser.copiedLink = CopiedLink(change: Clipboard.board.changeCount,
                                         url: URL(string: "https://copied.example/"), seen: Date())
         browser.launch()
-        XCTAssertEqual(browser.offers.first?.command, .copiedLink(change: NSPasteboard.general.changeCount))
+        XCTAssertEqual(browser.offers.first?.command, .copiedLink(change: Clipboard.board.changeCount))
         XCTAssertEqual(browser.context(for: try XCTUnwrap(browser.offers.first)).action, "Visit from clipboard")
 
         let refused = browser.refusals
@@ -108,7 +134,7 @@ final class FieldOffersTests: XCTestCase {
     func testACopiedLinkGoesStale() throws {
         let browser = browser()
         try page(browser, "https://alpha.example/", title: "Alpha")
-        let change = NSPasteboard.general.changeCount
+        let change = Clipboard.board.changeCount
         browser.copiedLink = CopiedLink(change: change, url: URL(string: "https://copied.example/"),
                                         seen: Date().addingTimeInterval(-(Browser.copiedLinkLife + 1)))
         browser.launch()
@@ -126,7 +152,7 @@ final class FieldOffersTests: XCTestCase {
     func testACopyMadeSinceIsNeverOpenedInItsPlace() throws {
         let browser = browser()
         try page(browser, "https://alpha.example/", title: "Alpha")
-        let since = NSPasteboard.general.changeCount
+        let since = Clipboard.board.changeCount
         XCTAssertNil(browser.copiedLinkURL(since - 1))
         XCTAssertNil(browser.copiedLinkTaken)
     }
@@ -154,7 +180,7 @@ final class FieldOffersTests: XCTestCase {
         let browser = browser()
         try page(browser, "https://alpha.example/", title: "Alpha")
         let bravo = try page(browser, "https://bravo.example/", title: "Bravo")
-        browser.copiedLink = CopiedLink(change: NSPasteboard.general.changeCount,
+        browser.copiedLink = CopiedLink(change: Clipboard.board.changeCount,
                                         url: URL(string: "https://copied.example/"), seen: Date())
         browser.launch()
         let fromT = browser.offers.map(\.id)

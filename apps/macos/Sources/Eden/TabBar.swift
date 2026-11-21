@@ -176,8 +176,7 @@ struct TabBar: View {
 
                     Spacer(minLength: 0)
 
-                    // Back, forward, reload, and the bookmarks, at the far end
-                    // of the row. The dropdown hangs from the last one.
+                    // Back, forward and reload, at the far end of the row.
                     HStack(spacing: Metrics.tabGap) {
                         // Only while a download is running, and a moment after.
                         FetchDoor(browser: browser, fetches: browser.fetches)
@@ -185,7 +184,6 @@ struct TabBar: View {
                         if !browser.prefs.navigationLeft {
                             Helm(browser: browser).padding(.trailing, 8)
                         }
-                        BookmarkDoor(browser: browser, arrowEdge: .bottom)
                     }
                     .background {
                         GeometryReader { box in
@@ -286,7 +284,7 @@ struct TabBar: View {
                                     width: each, room: strip - lights - 12,
                                     height: Metrics.strip, interactive: false)
                         case .group(let drawn):
-                            GroupHeading(browser: browser, group: drawn.group, horizontal: true)
+                            GroupHeading(browser: browser, group: drawn.group, horizontal: true, interactive: false)
                             ForEach(drawn.tabs) { tab in
                                 rowItem(tab, in: row.tabs, splits: row.splits, activeID: row.active,
                                         width: each, room: strip - lights - 12,
@@ -497,10 +495,10 @@ struct TabBar: View {
 
     /// The strip, less the lights, the helm when it leads, the plus, the
     /// doors at the far end and the air around them. The doors are measured;
-    /// until they have been, the helm and the bookmarks stand in for them —
-    /// unless the helm leads, when nothing at the far end may be a real zero.
+    /// until they have been, the helm stands in for them — unless the helm
+    /// leads, when nothing at the far end may be a real zero.
     private func room(in strip: CGFloat) -> CGFloat {
-        let far = doors > 0 || browser.prefs.navigationLeft ? doors : Metrics.helm + 26
+        let far = doors > 0 || browser.prefs.navigationLeft ? doors : Metrics.helm
         return max(0, strip - lights - dot - leading - 12 - Metrics.plusWidth - far - 3 * Metrics.tabGap)
     }
 
@@ -1033,11 +1031,12 @@ private struct TabPill: View, Equatable {
 /// What was let go into a gap (Carried.placed): the row carried, the page
 /// picked up with it — either half of a pair — and whether that half leaves
 /// its pair, as it does once the pair has been shown letting go of it (see
-/// TabDrag.separate); else the pair goes whole. `drawn`: the row's leading
-/// edge under the hand, in the run's space.
+/// TabDrag.separate); else the pair goes whole. Neither for a group carried
+/// by its heading. `drawn`: the leading edge of what is carried, under the
+/// hand, in the run's space.
 struct CarriedDrop {
-    let row: Tab
-    let source: Tab
+    let row: Tab?
+    let source: Tab?
     let detaching: Bool
     let drawn: CGFloat?
 }
@@ -1052,6 +1051,9 @@ enum CarryGap {
     /// A gap is open for it elsewhere, and it is kept here as well — sent
     /// to another device: the row goes back to where it was picked up.
     case copy
+    /// It is over a run that won't take it: nothing opens, and it holds
+    /// still where it is.
+    case held
 }
 
 /// A tab picked up and carried along its row, the others making way as it
@@ -1100,14 +1102,20 @@ struct Carried: ViewModifier {
     /// or cancelled: the row it is carried along can show its tabs' shapes.
     var holding: ((Bool) -> Void)? = nil
     /// Asked at every move (nil: no longer anywhere the rows could open
-    /// for it): whether a gap is open for it in another run — a group, the
-    /// tabs in none, another device (the column's RowGap) — and the row
-    /// then holds still, or goes back to its place, rather than moving
-    /// along its own. Given, it takes the place of the old rule that a tab
-    /// of a group, or one over a group, only landed when let go.
-    var gap: ((Tab, CGPoint?) -> CarryGap)? = nil
+    /// for it): whether a gap is open for it in another run — either area
+    /// of the column, a group in either, another device (ColumnCarry) — and
+    /// what is carried then holds still, or goes back to its place, rather
+    /// than moving along its own. Given, it takes the place of the old rule
+    /// that a tab of a group, or one over a group, only landed when let go.
+    /// A group carried by its heading is asked too.
+    var gap: ((CGPoint?) -> CarryGap)? = nil
     /// Let go: true when it went into the gap that was open for it.
     var placed: ((CarriedDrop) -> Bool)? = nil
+    /// Down the column: the part of the run's space that is in sight, which
+    /// what is carried is kept within however far the hand goes. Carried
+    /// past the last row, or above the first, it was drawn outside the
+    /// scrolling column and cut off at its edge where it went.
+    var within: ClosedRange<CGFloat>? = nil
     let move: (Int) -> Void
 
     @State private var held = false
@@ -1149,11 +1157,14 @@ struct Carried: ViewModifier {
             // place has given it is where the place is drawn this frame, not
             // where the spring will end. Taken from the end, the tab fell a
             // place behind the hand at every tab it passed and drifted back.
-            .visualEffect { [held, origin, travel, shift, vertical, space] content, proxy in
+            .visualEffect { [held, origin, travel, shift, vertical, space, within, length] content, proxy in
                 var moved = shift
                 if held, let origin {
                     let frame = proxy.frame(in: .named(space))
                     moved = origin + travel - (vertical ? frame.minY : frame.minX)
+                    if vertical, let within {
+                        moved = Carried.kept(moved, top: frame.minY, length: length, within: within)
+                    }
                 }
                 return content.offset(x: vertical ? 0 : moved, y: vertical ? moved : 0)
             }
@@ -1209,16 +1220,16 @@ struct Carried: ViewModifier {
                         // under the pointer knows to light, and to stop.
                         let over = tab.flatMap { groupDestination?($0, value.location) }
                         if splitting || crossed {
-                            if let tab { _ = gap?(tab, nil) }
+                            _ = gap?(nil)
                             return
                         }
-                        if let tab, let gap {
+                        if let gap {
                             // Along its own run it moves as it goes; out of
                             // it, the run it is over opens a gap for it.
-                            switch gap(tab, value.location) {
+                            switch gap(value.location) {
                             case .none:
                                 break
-                            case .away:
+                            case .away, .held:
                                 return
                             case .copy:
                                 // Kept where it was: the places it took on
@@ -1283,8 +1294,8 @@ struct Carried: ViewModifier {
                                 }
                             }
                         } else if land?(value.location) != true, outside?() != true {
-                            if let tab, placed?(CarriedDrop(row: tab, source: tab, detaching: false,
-                                                            drawn: origin.map { $0 + travel })) == true {}
+                            if placed?(CarriedDrop(row: tab, source: tab, detaching: false,
+                                                   drawn: origin.map { $0 + travel })) == true {}
                             else if let onDropTab, let tab { onDropTab(tab, value.location) }
                             else { onDrop?(value.location) }
                         }
@@ -1318,6 +1329,22 @@ struct Carried: ViewModifier {
                 travel = 0
                 reordered = false
             }
+    }
+
+    /// How long what is carried is drawn: its place less the gap after it.
+    /// Read from the steps, not its frame, which is nothing while its place
+    /// is closed for a gap elsewhere (RowGapSource).
+    private var length: CGFloat {
+        steps.indices.contains(index) ? max(0, steps[index] - SideBar.gap) : 0
+    }
+
+    /// The offset that moves what is carried, `length` long and starting at
+    /// `top`, by `moved`, kept within `within`: never past either end of
+    /// what is in sight. Too long to fit, its top stays in sight.
+    nonisolated static func kept(_ moved: CGFloat, top: CGFloat, length: CGFloat, within: ClosedRange<CGFloat>) -> CGFloat {
+        let highest = within.lowerBound - top
+        let lowest = within.upperBound - length - top
+        return max(highest, min(moved, max(highest, lowest)))
     }
 
     /// Where the item at `index` starts in the row: the places before it.
@@ -1653,20 +1680,20 @@ struct TabMenu: View {
             if rows {
                 Button(tab.listed ? "Show as Square" : "Show as Row") { browser.setListed(tab, !tab.listed) }
             }
-            // Settings › Tabs › Folders in pinned rows: a row of this
-            // space's own into a folder, a new one or one there is.
-            if browser.prefs.showsPinFolders && browser.takesFolder(tab) {
-                Button("New Folder") { browser.newPinFolder(holding: tab) }
-                let folders = browser.pinFolders
-                if !folders.isEmpty {
+            // A row of this space's own into a kept group, a new one or one
+            // there is.
+            if rows && browser.fitsKeptGroup(tab) {
+                Button("New Folder") { browser.newKeptGroup(holding: tab) }
+                let groups = browser.keptGroups
+                if !groups.isEmpty {
                     Menu("Move to Folder") {
-                        ForEach(PinFolderMenu.entries(folders), id: \.folder.id) { entry in
-                            Button(entry.title) { browser.movePin(tab, into: entry.folder.id) }
-                                .disabled(tab.pinFolder == entry.folder.id)
+                        ForEach(groups) { group in
+                            Button(group.name) { browser.move(tab, to: ColumnPlace(area: .kept, group: group.id)) }
+                                .disabled(tab.keptGroupID == group.id)
                         }
-                        if tab.pinFolder != nil {
+                        if browser.keptGroup(of: tab) != nil {
                             Divider()
-                            Button("Remove from Folder") { browser.movePin(tab, into: nil) }
+                            Button("Remove from Folder") { browser.move(tab, to: ColumnPlace(area: .kept)) }
                         }
                     }
                 }

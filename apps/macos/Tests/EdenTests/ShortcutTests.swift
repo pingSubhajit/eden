@@ -125,8 +125,8 @@ final class ShortcutTests: XCTestCase {
         let browser = Browser(record: WindowRecord())
         let tab = try XCTUnwrap(browser.active)
         tab.show(InternalPage(.history))
-        tab.show(InternalPage(.bookmarks))
-        XCTAssertEqual(tab.page?.kind, .bookmarks)
+        tab.show(InternalPage(.downloads))
+        XCTAssertEqual(tab.page?.kind, .downloads)
         XCTAssertTrue(tab.canGoBack)
         let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 900, height: 600),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -158,16 +158,16 @@ final class ShortcutTests: XCTestCase {
 
         let inField = try arrow(123, in: window)
         XCTAssertTrue(take(inField) === inField, "⌘← is the field's while it is editing")
-        XCTAssertEqual(tab.page?.kind, .bookmarks)
+        XCTAssertEqual(tab.page?.kind, .downloads)
         let forwardInField = try arrow(124, in: window)
         XCTAssertTrue(take(forwardInField) === forwardInField)
-        XCTAssertEqual(tab.page?.kind, .bookmarks)
+        XCTAssertEqual(tab.page?.kind, .downloads)
 
         tab.typing = true
         XCTAssertTrue(window.makeFirstResponder(window.contentView))
         let onPage = try arrow(123, in: window)
         XCTAssertTrue(take(onPage) === onPage, "A page's own field keeps ⌘← too")
-        XCTAssertEqual(tab.page?.kind, .bookmarks)
+        XCTAssertEqual(tab.page?.kind, .downloads)
 
         tab.typing = false
         XCTAssertNil(take(try arrow(123, in: window)))
@@ -178,7 +178,7 @@ final class ShortcutTests: XCTestCase {
         XCTAssertEqual(tab.page?.kind, .history)
         tab.typing = false
         XCTAssertNil(take(try arrow(124, in: window)))
-        XCTAssertEqual(tab.page?.kind, .bookmarks)
+        XCTAssertEqual(tab.page?.kind, .downloads)
     }
 
     private func arrow(_ code: UInt16, in window: NSWindow) throws -> NSEvent {

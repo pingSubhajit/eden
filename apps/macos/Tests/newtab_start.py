@@ -93,7 +93,10 @@ def main():
         cmd_t()
         # What was typed a moment ago comes back with ⌘T, for 45 seconds.
         t.ok("⌘T brings back what was typed into the last one put away", sv.cmd({"do": "suggest"})["typed"] == "alph")
-        sv.cmd({"do": "field", "text": ""}); time.sleep(0.6)
+        # Emptied as a hand would, all of it chosen and deleted: the bench's
+        # own `field` takes words, never nothing.
+        sv.cmd({"do": "press", "code": 0, "chars": "a", "mods": ["cmd"]}); time.sleep(0.3)
+        bare(51, "\x7f")
         s = sv.cmd({"do": "suggest"})
         t.ok("from a private tab: no history offered", not any(o[1] == "visited" for o in s["offers"]), s["offers"])
     finally:

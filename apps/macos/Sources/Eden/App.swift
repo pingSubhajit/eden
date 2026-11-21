@@ -295,11 +295,10 @@ struct EdenApp: App {
                         Button("Pin Tab") { browser.pin(tab) }
                             .shortcut("tabs.pin")
                             .disabled(!tab.isWeb || tab.shy)
-                        if rows {
-                            Button("Pin Tab as Row") { browser.pin(tab, listed: true) }
-                                .shortcut("tabs.pinRow")
-                                .disabled(!tab.isWeb || tab.shy)
-                        }
+                        // ⌘D, as in Arc: the way a page is kept (#6).
+                        Button("Pin Tab as Row") { browser.togglePinRow() }
+                            .shortcut("tabs.pinRow")
+                            .disabled(!tab.isWeb || tab.shy)
                     } else {
                         if rows {
                             Button(tab.listed ? "Show Pin as Square" : "Show Pin as Row") { browser.setListed(tab, !tab.listed) }
@@ -307,8 +306,9 @@ struct EdenApp: App {
                         if !(rows && tab.listed) {
                             Button("Change Letter") { browser.editLetter(tab) }
                         }
+                        // ⌘D unpins any pin; a key of Pin Tab's own shows on a square.
                         Button("Unpin Tab") { browser.unpin(tab) }
-                            .shortcut(rows && tab.listed ? "tabs.pinRow" : "tabs.pin")
+                            .shortcut(!tab.listed && shortcuts.key(for: "tabs.pin") != nil ? "tabs.pin" : "tabs.pinRow")
                     }
                 }
                 Button("Rename Tab") { if let tab = browser.active { browser.beginTabRename(tab) } }
@@ -331,20 +331,6 @@ struct EdenApp: App {
                     .disabled(browser.tabs.count < 2)
                 Button("Stop Sound in Tab") { browser.pauseMedia() }
                     .shortcut("tabs.mute")
-            }
-            CommandMenu("Bookmarks") {
-                Button(browser.pageKept ? "Edit Bookmark\u{2026}" : "Add This Page") { browser.bookmarkCurrent() }
-                    .shortcut("bookmarks.add")
-                    .disabled(!(browser.active?.isWeb ?? false))
-                Button("Show Bookmarks…") { browser.bookmarking = true }
-                    .shortcut("bookmarks.show")
-                Toggle("Show Bookmarks Bar", isOn: Binding(
-                    get: { browser.prefs.bookmarksBar },
-                    set: { on in withAnimation(Motion.glide) { browser.prefs.bookmarksBar = on } }
-                ))
-                .shortcut("bookmarks.bar")
-                // The bookmarks themselves follow, put in by AppKit (see
-                // BookmarkMenu in Bookmarks.swift).
             }
             CommandMenu("History") {
                 Section("Recently Visited") {
@@ -542,16 +528,6 @@ struct ContentView: View {
                 TabBar(browser: browser)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-
-            // The bookmarks bar, under the strip or beside the column's top —
-            // there on the window's ground above the page's card, and no wider.
-            if barShown {
-                BookmarksBar(browser: browser, bookmarks: browser.bookmarks, onFrame: cards)
-                    .padding(.leading, sideOnRight ? farGap : chrome.width)
-                    .padding(.trailing, sideOnRight ? chrome.width : farGap)
-                    .padding(.top, band)
-                    .transition(.opacity)
-            }
         }
         .ignoresSafeArea()
         .background { fullscreenWatch }
@@ -610,15 +586,12 @@ struct ContentView: View {
 
     /// What the column and the strip take from the page right now: animated
     /// as they come and go. With the page as a card, the column folded away
-    /// still leaves the card's gap, and so does the top, unless the bookmarks
-    /// bar is there.
+    /// still leaves the card's gap, and so does the top.
     private var chrome: CGSize {
-        let bar = barShown ? BookmarksBar.height : 0
         if cards {
-            return CGSize(width: sidebar ? sideWidth : Metrics.cardGap,
-                          height: barShown ? bar : Metrics.cardGap)
+            return CGSize(width: sidebar ? sideWidth : Metrics.cardGap, height: Metrics.cardGap)
         }
-        return CGSize(width: sidebar ? sideWidth : 0, height: band + bar)
+        return CGSize(width: sidebar ? sideWidth : 0, height: band)
     }
 
     /// The column's width: the setting, or where its edge is while held.
@@ -664,13 +637,6 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity,
                    alignment: sideOnRight ? .topLeading : .topTrailing)
             .transition(.opacity)
-    }
-
-    /// The bookmarks bar is up: asked for, there are bookmarks, and the tabs
-    /// aren't folded away or under a video filling the screen.
-    private var barShown: Bool {
-        browser.prefs.bookmarksBar && !browser.bookmarks.isEmpty && !browser.folded
-            && fullscreenTab == nil
     }
 
     /// The room the page is laid out to leave them, which is not animated.
@@ -756,7 +722,7 @@ struct ContentView: View {
     }
 
     /// What still comes over the page. Settings, History, Downloads,
-    /// Bookmarks, Passwords, Bring Things Over and the release notes are
+    /// Passwords, Bring Things Over and the release notes are
     /// tabs of their own now (see InternalPages.swift); what is left here
     /// either comes before there are tabs (Welcome) or comes once by itself
     /// and goes (What's New).
@@ -829,8 +795,8 @@ struct ContentView: View {
             // The window's passing messages, dropping in at the top (Toasts).
             .overlay(alignment: .top) { ToastHost(browser.toasts) }
             .overlay {
-                // Over the page only: the column, the strip and the bookmarks
-                // bar stay as they are, uncovered and in reach.
+                // Over the page only: the column and the strip stay as they
+                // are, uncovered and in reach.
                 PeekLayer(browser: browser)
                     .padding(.leading, sideOnRight ? 0 : chrome.width)
                     .padding(.trailing, sideOnRight ? chrome.width : 0)
@@ -935,7 +901,6 @@ struct ContentView: View {
             handBack()
             // Addresses from other apps have somewhere to go from here on.
             Links.hand(to: browser)
-            BookmarkMenu.shared.start(for: browser)
             Browsers.watchFrames()
         }
     }
@@ -1038,7 +1003,7 @@ struct ContentView: View {
 
     /// A page going full screen or coming back: everything around it at
     /// once, in one transaction and without animation — the column, the
-    /// strip, the card's gap and corners, the bookmarks bar, the side panel,
+    /// strip, the card's gap and corners, the side panel,
     /// Split View's other page, and the room the page leaves them, given
     /// with them rather than after a slide (see `make(room:after:)`). WebKit's
     /// window covers ours both ways when this happens (see Tab.immersed), so
@@ -1393,7 +1358,7 @@ struct ContentView: View {
         // Settings, History and the rest are tabs, and ⌃Tab goes to and
         // from them like any other.
         return !browser.welcoming &&
-            !browser.reviewing && !browser.bookmarksOpen &&
+            !browser.reviewing &&
             !browser.veiling && !browser.makingSpace &&
             !browser.peekInFront && browser.editingTab == nil &&
             browser.asking == nil && browser.offering == nil && browser.suggesting == nil
@@ -1716,8 +1681,9 @@ struct ContentView: View {
             browser.reopen()
         case "c" where shifted:
             browser.copyAddress()
+        // Pinned as a row, or unpinned, as in Arc (#6).
         case "d" where !shifted:
-            browser.duplicate()
+            browser.togglePinRow()
         // Dark pages, the site you're on (see Dusk.swift). Off, the key is
         // the page's.
         case "d" where shifted:
@@ -1761,8 +1727,6 @@ struct ContentView: View {
         case "s" where !shifted:
             // The column or the strip, folded away (see Fold.swift).
             browser.toggleFold()
-        case "b" where shifted:
-            browser.bookmarkCurrent()
         case "," where !shifted:
             browser.tuning = true
         case "h" where shifted:

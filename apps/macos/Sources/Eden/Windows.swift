@@ -8,7 +8,7 @@ import SwiftUI
 //
 // Each window has a Browser of its own: its tabs, the space it shows, its
 // field and panels. What every window shares lives in `Shared` — settings,
-// History, bookmarks, downloads — and the spaces and pins are the same
+// History, downloads — and the spaces and pins are the same
 // everywhere: each window shows one space at a time, of its own choosing.
 //
 // The first window is SwiftUI's scene, as it always was; any other is an
@@ -259,7 +259,7 @@ enum Browsers {
         window.makeKeyAndOrderFront(nil)
         // The window just opened is the one in front from now on. Its own
         // didBecomeKey goes by before its view knows its window (WindowSetup
-        // waits a turn), so the menus, Bookmarks among them, went on acting
+        // waits a turn), so the menus went on acting
         // on the window behind until you clicked away and back (#1146).
         becameKey(browser)
         // Never in a test run: full screen would put a probe's window on a screen.

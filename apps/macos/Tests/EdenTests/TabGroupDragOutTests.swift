@@ -24,6 +24,13 @@ final class TabGroupDragOutTests: XCTestCase {
         super.setUp()
     }
 
+    /// From a space as a new install has it, whatever the suites before
+    /// left in this process's world (CleanWorld).
+    override func setUp() async throws {
+        try await super.setUp()
+        CleanWorld.reset()
+    }
+
     override class func tearDown() {
         if let world = Store.world, world.hasPrefix("group-drag-out-") {
             try? FileManager.default.removeItem(at: Store.folder)
@@ -172,8 +179,10 @@ final class TabGroupDragOutTests: XCTestCase {
         let window = makeWindow(browser)
         try await settle()
         TabDrag.testPointer = NSPoint(x: window.frame.midX, y: window.frame.midY)
-        // Down the rows from their top: the heading 0–28, one 30–58, two
-        // 60–88, then three, four, five and New tab; empty from about 190.
+        // Down the rows from their top: no line over them, nothing being
+        // kept above it (a group is among the tabs, #6). The heading 0–28,
+        // one 30–58, two 60–88, then three, four, five and New tab; empty
+        // from about 210.
         let grab: CGFloat = 44
 
         // A hand that barely moves leaves it where it was.
@@ -219,16 +228,15 @@ final class TabGroupDragOutTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs, prefs.sideIcons, prefs.newTabPlace)
+        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.sideIcons, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs, prefs.sideIcons, prefs.newTabPlace) = previous
+            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.sideIcons, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
         browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = true
         browser.prefs.splitView = true
-        browser.prefs.listsPins = false
         browser.prefs.roomyTabs = false
         browser.prefs.sideIcons = false
         // Each new tab after the last, so they stand in the order made.

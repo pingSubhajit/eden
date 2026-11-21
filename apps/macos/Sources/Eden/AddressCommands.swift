@@ -20,7 +20,6 @@ enum AddressCommand: Equatable {
     case newTab
     case newPrivateTab
     case newSpace
-    case bookmarks
     case history
     case downloads
     case passwords
@@ -48,7 +47,6 @@ enum AddressCommand: Equatable {
         case .newTab: return .init("newTab")
         case .newPrivateTab: return .init("newPrivateTab")
         case .newSpace: return .init("newSpace")
-        case .bookmarks: return .init("bookmarks")
         case .history: return .init("history")
         case .downloads: return .init("downloads")
         case .passwords: return .init("passwords")
@@ -92,7 +90,7 @@ enum AddressCommand: Equatable {
 
     /// The words, which run on Return when typed whole.
     static let allCases: [AddressCommand] = [
-        .settings, .newTab, .newPrivateTab, .newSpace, .bookmarks, .history, .downloads, .passwords, .toggleSidebar,
+        .settings, .newTab, .newPrivateTab, .newSpace, .history, .downloads, .passwords, .toggleSidebar,
     ]
 
     /// What you'd type to reach it. The first is what the list shows.
@@ -102,7 +100,6 @@ enum AddressCommand: Equatable {
         case .newTab: return ["new tab"]
         case .newPrivateTab: return ["new private tab", "private tab"]
         case .newSpace: return ["new space"]
-        case .bookmarks: return ["bookmarks"]
         case .history: return ["history"]
         case .downloads: return ["downloads"]
         case .passwords: return ["passwords"]
@@ -129,7 +126,6 @@ enum AddressCommand: Equatable {
         case .settings: return "app.settings"
         case .newTab: return "file.newTab"
         case .newPrivateTab: return "file.newPrivateTab"
-        case .bookmarks: return "bookmarks.show"
         case .history: return "history.show"
         case .downloads: return "history.downloads"
         case .passwords: return "app.passwords"
@@ -161,7 +157,6 @@ enum AddressCommand: Equatable {
         case .newTab: Task { @MainActor in browser.launch() }
         case .newPrivateTab: browser.newShyTab()
         case .newSpace: browser.askForSpace()
-        case .bookmarks: browser.bookmarking = true
         case .history: browser.recalling = true
         case .downloads: browser.showDownloads()
         case .passwords: browser.managing = true
@@ -211,12 +206,14 @@ enum AddressCommand: Equatable {
     /// Those the menu greys out without a web page in front.
     private static let needsPage: Set<String> = [
         "file.share", "file.savePage", "file.exportPDF", "file.print", "edit.copyCleanLink", "view.reader",
-        "view.summarize", "view.ask", "tabs.duplicate", "tabs.copyAddress", "tabs.copyMarkdown", "bookmarks.add",
+        "view.summarize", "view.ask", "tabs.duplicate", "tabs.copyAddress", "tabs.copyMarkdown", "tabs.pinRow",
     ]
     /// More words for a few, the ones other browsers use.
     private static let alsoCalled: [String: String] = [
         "view.reader": "reader view", "tabs.mute": "mute", "view.float": "picture in picture pip",
-        "view.inspector": "devtools developer tools", "bookmarks.add": "bookmark", "view.hide": "zapper",
+        "view.inspector": "devtools developer tools", "view.hide": "zapper",
+        // Pins are where pages are kept (#6): "bookmark" finds ⌘D.
+        "tabs.pinRow": "bookmark this page",
     ]
 
     /// A menu command, offered only where the menu has it, and enabled.
@@ -233,7 +230,6 @@ enum AddressCommand: Equatable {
         if Command.archive.contains(id), prefs.tabLife == .never { return false }
         if Command.capture.contains(id), !prefs.capturesPages { return false }
         if id == "view.sitePanel", !prefs.sitesInPanel { return false }
-        if id == "tabs.pinRow", !prefs.showsPinRows { return false }
         if id == "view.foldGroups", !browser.canFoldAllGroups { return false }
         if id == "view.unfoldGroups", !browser.canUnfoldAllGroups { return false }
         if needsPage.contains(id), browser.active?.isWeb != true { return false }

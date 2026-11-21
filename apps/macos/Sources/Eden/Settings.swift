@@ -550,7 +550,6 @@ struct SettingsPanel: View {
         case "glyph": Segmented(options: Glyph.allCases.map { ($0, $0.title) }, selection: $prefs.glyph)
         case "tabs.reading": Switch(on: $prefs.showsReading)
         case "tabs.give": Switch(on: $prefs.tabsGive)
-        case "bookmarks.bar": Switch(on: $prefs.bookmarksBar)
         case "motion.light": Switch(on: $prefs.lightMotion)
         case "motion.instant": Switch(on: $prefs.instantMotion)
         case "note.split": Always()
@@ -686,9 +685,6 @@ struct SettingsPanel: View {
         case "profiles": Pill("New Profile…") { ProfileMenu.askNew() }
         case "profiles.oneWindow": Switch(on: $prefs.profilesInOneWindow)
         case "spaces.links": Switch(on: $prefs.sendsLinksToSpaces)
-        case "pins.keep": Switch(on: $prefs.pinsKeepSite)
-        case "pins.list": Switch(on: $prefs.listsPins)
-        case "pins.folders": Switch(on: $prefs.pinFolders)
         case "pins.commandNewTab": Switch(on: $prefs.pinCommandOpensTab)
         case "commandbar": Switch(on: $prefs.commandBar)
         case "start.fresh": Switch(on: $prefs.startsFresh)

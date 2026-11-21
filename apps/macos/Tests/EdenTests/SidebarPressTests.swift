@@ -12,7 +12,14 @@ final class SidebarPressTests: XCTestCase {
 
     override func tearDown() async throws {
         for window in windows { window.contentView = nil; window.close() }
-        for browser in browsers { browser.cancelTabEdit(); browser.closeAll() }
+        // Pins are kept for the space in every window (Pins.swift): put
+        // down, or the next test's window would hold them too, its rows
+        // under their grid.
+        for browser in browsers {
+            browser.cancelTabEdit()
+            for tab in browser.tabs where tab.pin != nil { browser.unpin(tab) }
+            browser.closeAll()
+        }
         restorePreferences?()
         if let activationPolicy { NSApp.setActivationPolicy(activationPolicy) }
         windows.removeAll()
@@ -24,6 +31,13 @@ final class SidebarPressTests: XCTestCase {
     override class func setUp() {
         setenv("EDEN_PROBE", "sidebar-press-\(getpid())", 1)
         super.setUp()
+    }
+
+    /// From a space as a new install has it, whatever the suites before
+    /// left in this process's world (CleanWorld).
+    override func setUp() async throws {
+        try await super.setUp()
+        CleanWorld.reset()
     }
 
     func testSelectsOnPressWithoutEditingOnRelease() async throws {
@@ -187,14 +201,21 @@ final class SidebarPressTests: XCTestCase {
     // What else a press in the column does, checked when it landed (#625).
 
     func testPressOnTheCrossLeavesTheRowAlone() async throws {
-        // The cross itself answers only under a real pointer (onHover), which
-        // a hidden test can't give; that it closes is checked by hand. Here:
-        // its place at the end of the row takes the press, so the row isn't
-        // selected under a click meant for the cross.
+        // The cross is there only under the pointer (onHover), which a
+        // hidden test gives the row through the bench (Bench.hoverRows), as
+        // IconColumnTests does. Under it, its place at the end of the row
+        // takes the press, so the row isn't selected under a click meant for
+        // the cross, and the click closes the tab. (Before, the cross's reach
+        // took a press with no pointer on the row too, and the test pressed
+        // there unhovered; since the cross became one that wears its square
+        // under the pointer, its reach comes and goes with it.)
         let browser = makeBrowser()
-        let first = browser.tabs[0], before = browser.activeID
+        let first = browser.tabs[0], second = browser.tabs[1], before = browser.activeID
         XCTAssertNotEqual(before, first.id)
+        XCTAssertNotEqual(before, second.id)
         let window = makeWindow(browser)
+        try await settle()
+        Bench.hoverRows[first.id]?(true)
         try await settle()
         let cross = NSPoint(x: browser.prefs.sideWidth - 24, y: rowPoint(0, in: window).y)
         try await send(.leftMouseDown, at: cross, in: window)
@@ -202,11 +223,32 @@ final class SidebarPressTests: XCTestCase {
         try await send(.leftMouseUp, at: cross, in: window)
         try await settle()
         XCTAssertEqual(browser.activeID, before)
-        XCTAssertTrue(browser.tabs.contains { $0 === first })
+        XCTAssertFalse(browser.tabs.contains { $0 === first }, "its click closes the tab")
+        // The next row, now the first, still selects on press.
         let title = rowPoint(0, in: window)
         try await send(.leftMouseDown, at: title, in: window)
-        XCTAssertEqual(browser.activeID, first.id, "The rest of the row still selects on press")
+        XCTAssertEqual(browser.activeID, second.id, "The rest of the row still selects on press")
         try await send(.leftMouseUp, at: title, in: window)
+    }
+
+    /// One line between what is kept and the tabs (#6): with new tabs
+    /// going to the top, the New Tab row comes straight under the line, the
+    /// line under the pins, and no second line under the New Tab row.
+    func testTheNewTabRowIsUnderTheOneLine() async throws {
+        let browser = makeBrowser()
+        browser.prefs.newTabPlace = .top
+        browser.pin(browser.tabs[0])
+        let before = browser.tabs.count
+        let window = makeWindow(browser)
+        try await settle()
+        XCTAssertEqual(KeepLine.drawn, 1, "one line")
+        // The grid, 34 and 10 under it, then the line: New tab.
+        let y = window.frame.height - Metrics.strip - 44 - KeepLine.height - SideBar.gap - 14
+        try await send(.leftMouseDown, at: NSPoint(x: 70, y: y), in: window)
+        try await send(.leftMouseUp, at: NSPoint(x: 70, y: y), in: window)
+        try await settle()
+        XCTAssertTrue(browser.launching || browser.tabs.count > before, "New tab, under the line")
+        if browser.launching { browser.launch() }
     }
 
     func testRenameFieldKeepsItsClicks() async throws {
@@ -331,17 +373,21 @@ final class SidebarPressTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs)
+        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs) = previous
+            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
         browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = false
-        browser.prefs.listsPins = false
         browser.prefs.roomyTabs = false
+        // Each new tab after the last, so they stand in the order made and
+        // the rows start at the column's top, the New Tab row under them:
+        // new tabs go to the top unless told otherwise, and a second blank
+        // one there would be the first one reused.
+        browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three"] {
             if browser.tabs.last?.isBlank == false { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)

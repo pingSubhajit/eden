@@ -1,174 +1,89 @@
 import SwiftUI
 
-// A pin folder's heading among the pinned rows (see PinFolders.swift): a
-// fold mark, a folder and its name, set in by how deep it is. A click folds
-// or opens it; its menu renames, nests, makes one inside, or deletes it.
-// With icons only, the name's first letter and the fold mark, the name in
-// its tooltip, as a group's heading has it.
+// What a kept group draws of its own (see Column.swift). Its heading,
+// surface, fold and menu are any group's (GroupLook.swift, GroupHeading);
+// until an icon is chosen it shows a folder whose front tilts open as the
+// group unfolds, and closes as it folds, as Arc's pinned folders do.
 
-struct PinFolderHeading: View {
-    @Environment(\.greys) private var greys
-    @ObservedObject var browser: Browser
-    let folder: PinFolder
-    let depth: Int
-    var compact = false
-    /// Not to be pressed: another space's rows passing in a swipe.
-    var interactive = true
-    /// A pin carried over it would go in.
-    var target = false
-
-    @State private var draft = ""
-    @State private var hovering = false
-    @FocusState private var focused: Bool
-
-    /// Set in by each level, as a group's tabs are under its name.
-    static let indent: CGFloat = 14
-
-    private var editing: Bool { interactive && browser.editingPinFolder == folder.id }
+/// A folder's icon until one is chosen: its back, and its front, which
+/// tilts open on the fold's spring while the folder is open. In the
+/// folder's ink, the back a shade lighter, so the open front reads against
+/// it at a tab's icon size.
+struct PinFolderIcon: View {
+    let open: Bool
+    let ink: Color
+    let size: CGFloat
 
     var body: some View {
-        Group {
-            if compact { short } else { long }
+        ZStack {
+            FolderBack()
+                .fill(ink.opacity(0.45))
+            FolderFront(open: open ? 1 : 0)
+                .fill(ink)
         }
-        .background(RoundedRectangle(cornerRadius: compact ? 6 : 9, style: .continuous)
-            .fill(target ? greys.wash : (hovering ? greys.hover : (compact ? greys.tile : .clear))))
-        .contentShape(RoundedRectangle(cornerRadius: compact ? 6 : 9, style: .continuous))
-        .onTapGesture { if interactive && !editing { browser.togglePinFolder(folder.id) } }
-        .onHover { hovering = interactive && $0 }
-        .contextMenu { if interactive { menu } }
-        .accessibilityLabel(folder.name)
-        .accessibilityHint(folder.collapsed ? "Folded folder" : "Folder")
-    }
-
-    private var short: some View {
-        HStack(spacing: 2) {
-            Text(folder.name.first.map { String($0).uppercased() } ?? "•")
-                .font(.system(size: 9.5, weight: .semibold))
-            Image(systemName: "chevron.down")
-                .font(.system(size: 6.5, weight: .bold))
-                .rotationEffect(.degrees(folder.collapsed ? -90 : 0))
-        }
-        .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.muted)
-        .frame(maxWidth: .infinity)
-        .frame(height: GroupHeading.compactHeight)
-        .help(folder.collapsed ? "\(folder.name) — folded" : folder.name)
-        .popover(isPresented: Binding(get: { editing }, set: { if !$0 { browser.editingPinFolder = nil } }),
-                 arrowEdge: browser.prefs.sidePosition == .right ? .leading : .trailing) {
-            field
-                .frame(width: 160)
-                .padding(10)
-                .onAppear {
-                    draft = folder.name
-                    DispatchQueue.main.async { focused = true }
-                }
-        }
-    }
-
-    private var long: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 8.5, weight: .semibold))
-                .rotationEffect(.degrees(folder.collapsed ? 0 : 90))
-                .frame(width: 10)
-            Image(systemName: folder.collapsed ? "folder" : "folder.fill")
-                .font(.system(size: 11))
-            if editing {
-                field
-            } else {
-                Text(folder.name)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(Palette.muted)
-        .padding(.horizontal, 10)
-        .padding(.leading, CGFloat(depth) * Self.indent)
-        .frame(height: GroupHeading.height)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: editing) { _, now in
-            if now {
-                draft = folder.name
-                DispatchQueue.main.async { focused = true }
-            }
-        }
-        .onAppear {
-            if editing {
-                draft = folder.name
-                DispatchQueue.main.async { focused = true }
-            }
-        }
-    }
-
-    private var field: some View {
-        TextField("Folder name", text: $draft)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12.5, weight: .medium))
-            .focused($focused)
-            .onSubmit(commit)
-            .onExitCommand { browser.editingPinFolder = nil }
-    }
-
-    private func commit() {
-        browser.renamePinFolder(folder.id, to: draft)
-        browser.editingPinFolder = nil
-    }
-
-    @ViewBuilder
-    private var menu: some View {
-        let folders = browser.pinFolders
-        Button("Rename Folder") { browser.editingPinFolder = folder.id }
-        Button(folder.collapsed ? "Expand Folder" : "Collapse Folder") { browser.togglePinFolder(folder.id) }
-        Button("New Folder Inside") { browser.newPinFolder(in: folder.id) }
-            .disabled(!PinTree.canMake(in: folder.id, in: folders))
-        Menu("Move Folder To") {
-            Button("Top of Pinned Rows") { browser.movePinFolder(folder.id, into: nil) }
-                .disabled(folder.parent == nil)
-            let others = PinFolderMenu.entries(folders).filter { $0.folder.id != folder.id }
-            if !others.isEmpty { Divider() }
-            ForEach(others, id: \.folder.id) { entry in
-                Button(entry.title) { browser.movePinFolder(folder.id, into: entry.folder.id) }
-                    .disabled(folder.parent == entry.folder.id || !PinTree.canMove(folder.id, into: entry.folder.id, in: folders))
-            }
-        }
-        Divider()
-        Button("Delete Folder") { browser.deletePinFolder(folder.id) }
+        .frame(width: size * 0.9, height: size * 0.9)
+        .frame(width: size, height: size)
+        // On the fold's spring however it was folded, here, from the menu
+        // or in another window; at once with Reduce Motion, where the fold
+        // has none (GroupLook.fold).
+        .animation(GroupLook.fold, value: open)
+        .accessibilityHidden(true)
     }
 }
 
-/// The folders as a menu lists them: in drawn order, each set in under the
-/// one that holds it.
-enum PinFolderMenu {
-    struct Entry { let folder: PinFolder; let title: String }
-
-    static func entries(_ folders: [PinFolder]) -> [Entry] {
-        let open = folders.map { folder -> PinFolder in
-            var folder = folder
-            folder.collapsed = false
-            return folder
-        }
-        return PinTree.lines(pins: [], folders: open).compactMap { line in
-            guard case .folder(let folder, let depth) = line else { return nil }
-            return Entry(folder: folder, title: String(repeating: "    ", count: depth) + folder.name)
-        }
+/// The folder's back, its tab at the top left: a unit square's drawing,
+/// scaled to the frame.
+private struct FolderBack: Shape {
+    func path(in rect: CGRect) -> Path {
+        let corners = [
+            CGPoint(x: 0, y: 0.1), CGPoint(x: 0.38, y: 0.1), CGPoint(x: 0.47, y: 0.2),
+            CGPoint(x: 1, y: 0.2), CGPoint(x: 1, y: 0.9), CGPoint(x: 0, y: 0.9),
+        ]
+        return Path.rounded(corners.map { rect.unit($0) }, radius: rect.width * 0.08)
     }
 }
 
-/// Where a carried pin would go beside another: a thin line over or under
-/// that row.
-struct PinFolderMark: View {
-    var body: some View {
-        Capsule()
-            .fill(Color.accentColor)
-            .frame(height: 2)
-            .padding(.horizontal, 6)
-            .allowsHitTesting(false)
+/// The folder's front, closed over the back's lower part, or tilted open:
+/// its top edge lower and leaning out, its foot where it was.
+private struct FolderFront: Shape {
+    /// 0 closed, 1 open.
+    var open: CGFloat
+
+    var animatableData: CGFloat {
+        get { open }
+        set { open = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let top = 0.32 + 0.16 * open, lean = 0.13 * open
+        let corners = [
+            CGPoint(x: lean, y: top), CGPoint(x: 1, y: top),
+            CGPoint(x: 1 - lean * 0.4, y: 0.9), CGPoint(x: 0, y: 0.9),
+        ]
+        return Path.rounded(corners.map { rect.unit($0) }, radius: rect.width * 0.08)
     }
 }
 
-/// Where each line of the pinned rows was drawn, for where a pin let go
-/// among them goes. Kept outside SwiftUI's state: measuring redraws nothing.
-final class PinLineFrames {
-    var rects: [UUID: CGRect] = [:]
+private extension CGRect {
+    /// A point of a unit square's drawing in this frame.
+    func unit(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: minX + point.x * width, y: minY + point.y * height)
+    }
+}
+
+private extension Path {
+    /// A closed outline through `corners`, each rounded by `radius`.
+    static func rounded(_ corners: [CGPoint], radius: CGFloat) -> Path {
+        var path = Path()
+        guard let first = corners.first, let last = corners.last, corners.count > 2 else { return path }
+        // From between the last corner and the first, so every corner,
+        // the first too, is rounded as the outline turns it.
+        path.move(to: CGPoint(x: (last.x + first.x) / 2, y: (last.y + first.y) / 2))
+        for (index, corner) in corners.enumerated() {
+            let next = corners[(index + 1) % corners.count]
+            path.addArc(tangent1End: corner, tangent2End: next, radius: radius)
+        }
+        path.closeSubpath()
+        return path
+    }
 }

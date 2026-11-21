@@ -1,12 +1,12 @@
-"""Arc's pinned list: what it keeps loose becomes a row, what it filed stays
-a tab in a group (#478).
+"""Arc's pinned list: every page becomes a row, what it filed a row in a
+folder of that name (#478).
 
 Build first (`./build.sh`), then `python3 Tests/arc_rows.py`. A made-up Arc
 profile holds a favourite, a page loose in its pinned list, and two filed in a
-folder. With pinned rows on, the loose page has to come in as a row under the
-squares and the filed ones as tabs in a group named after the folder, since a
-pin is never in a group and the folder would be the thing lost. With rows off,
-nothing is split.
+folder. The favourite has to come in as a square, the loose page as a row
+under the squares, and the filed ones as rows in a folder of rows named after
+Arc's, so that neither the keeping nor the folder is lost. Nothing goes into a
+tab group.
 """
 import json
 import os
@@ -54,47 +54,43 @@ def pins():
     return [p for row in json.load(open(path)).values() for p in row]
 
 
-def session():
-    return json.load(open(f"{sv.SUPPORT}/session.json"))
+def folders():
+    """The folders of rows, kept groups now (kept-groups.json), by id, from
+    every space, passing by the moves the file may keep beside them."""
+    path = f"{sv.SUPPORT}/kept-groups.json"
+    if not os.path.exists(path): return {}
+    return {f["id"]: f for row in json.load(open(path)).values() if isinstance(row, list) for f in row}
 
 
 def main():
     t = sv.T()
     try:
-        # Rows on, and tab groups off, to show the folder is kept either way.
-        sv.setup(**{"pins.list": True})
+        sv.setup()
         arc()
         sv.launch()
-        sv.cmd({"do": "import", "from": "Arc", "what": ["spaces"]})
+        out = sv.cmd({"do": "import", "from": "Arc", "what": ["spaces"]})
         for _ in range(25):
-            if len(pins()) >= 2: break
+            if len(pins()) >= 4 and folders(): break
             time.sleep(0.2)
+        t.ok("the import counts every page as a pin, and no tabs",
+             (out.get("arc") or {}).get("pins") == 4 and "tabs" not in (out.get("arc") or {}), out.get("arc"))
 
         rows = [p for p in pins() if p.get("listed")]
         squares = [p for p in pins() if not p.get("listed")]
         t.ok("the favourite is a square", [p["home"] for p in squares] == ["https://example.com/"], squares)
-        t.ok("the page Arc kept loose is a row",
-             [p["home"] for p in rows] == ["https://www.iana.org/"], rows)
+        t.ok("every page of the pinned list is a row",
+             sorted(p["home"] for p in rows)
+             == ["https://www.iana.org/", "https://www.ietf.org/", "https://www.rfc-editor.org/"], rows)
 
-        shape = session()
-        groups = {g["id"]: g["name"] for g in (shape.get("groups") or [])}
-        filed = [t_["url"] for t_ in shape["tabs"] if groups.get(t_.get("groupID")) == "SRE"]
-        t.ok("the two it filed are tabs in a group of that name",
-             sorted(filed) == ["https://www.ietf.org/", "https://www.rfc-editor.org/"], filed)
-        t.ok("and the row is not a tab of its own",
-             all("iana.org" not in t_["url"] or t_.get("pin") for t_ in shape["tabs"]),
-             [t_["url"] for t_ in shape["tabs"]])
-
-        # Rows off: nothing is split, the whole pinned list comes in as tabs.
-        sv.finish()
-        sv.setup(**{"pins.list": False})
-        arc()
-        sv.launch()
-        sv.cmd({"do": "import", "from": "Arc", "what": ["spaces"]})
-        time.sleep(1.5)
-        t.ok("with rows off, no pin is kept as one", not [p for p in pins() if p.get("listed")], pins())
-        loose = [t_["url"] for t_ in session()["tabs"] if "iana.org" in t_["url"]]
-        t.ok("and the page Arc kept loose is a tab again", loose == ["https://www.iana.org/"], loose)
+        made = folders()
+        named = {p["home"]: (made.get(p.get("folder")) or {}).get("name") for p in rows}
+        t.ok("the folder Arc filed two in is a folder of rows", [f["name"] for f in made.values()] == ["SRE"], made)
+        t.ok("the two it filed are rows in it, the loose one at the top",
+             named == {"https://www.iana.org/": None, "https://www.rfc-editor.org/": "SRE",
+                       "https://www.ietf.org/": "SRE"}, named)
+        tabs = sv.cmd({"do": "tabs"}).get("tabs", [])
+        t.ok("and nothing went into a tab group", not [x for x in tabs if x.get("group")],
+             [(x["url"], x["group"]) for x in tabs])
     finally:
         t.done()
         sv.finish()

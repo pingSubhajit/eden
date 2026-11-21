@@ -30,7 +30,7 @@ BEFORE = {
     "downloads.button": "downloads button", "look": "dark mode", "pages.dusk": "darken",
     "sidebar": "sidebar", "sidebar.position": "right", "sidebar.hides": "hide the column",
     "layout.cards": "card", "toolbar.left": "back forward", "sidebar.roomy": "roomier",
-    "glyph": "favicon", "tabs.reading": "how far", "tabs.give": "pressed", "bookmarks.bar": "bookmarks bar",
+    "glyph": "favicon", "tabs.reading": "how far", "tabs.give": "pressed",
     "motion.light": "low power", "tabs.newPlace": "new tab position", "tabs.newAfterLast": "last tab",
     "tabs.lazy": "background tabs", "tabs.popupWindows": "pop-ups", "tabs.sleep": "sleep",
     "tabs.sleep.pace": "sleep", "tabs.close.after": "close tabs", "tabs.shortcuts": "numbers",
@@ -39,7 +39,6 @@ BEFORE = {
     "reader.twins": "markdown", "reader.follows": "reading mode", "float.style": "picture in picture",
     "float.leave": "float", "float.away": "switch apps", "media.click": "autoplay",
     "fullscreen.escapeTwice": "esc", "fullscreen.keepsWindow": "desktop", "pageZoom": "zoom", "pages.120.mode": "120", "spaces": "spaces",
-    "pins.home": "pins", "pins.peek": "pins", "pins.list": "pinned rows",
     "commandbar": "commands", "start.fresh": "fresh window", "passwords.save": "save passwords",
     "passwords.fill": "fill", "passkeys": "passkeys", "passwords.apple": "apple passwords",
     "shield": "ads", "sites.keep": "tracking", "notifications.ask": "notifications",
@@ -97,32 +96,31 @@ def case_defaults(t):
     """new defaults reach only untouched keys; nothing written just by reading"""
     sv.setup(); sv.launch()
     v = settings()["values"]
-    t.ok("pins keep their site, untouched", v["pins.keep"] is True and v["pins.home"] and v["pins.peek"], v)
     t.ok("120 Hz on power, untouched", v["pages.120"] == "onPower", v["pages.120"])
     t.ok("hold a swipe on, untouched", v["swipe.history"] is True)
     t.ok("links shown and flicks on, as before", v["links.show"] is True and v["float.flicks"] is True)
     t.ok("sleep Normal, float on switching tabs, peek with Shift", (v["tabs.sleep"], v["float.own"], v["links.peek"]) == ("normal", "tabs", "shift"), v)
     t.ok("every always-on feature is on", all(v["always"].values()), v["always"])
-    for key in ["pins.home", "pins.peek", "pages.120.mode", "swipe.history"]:
+    for key in ["pages.120.mode", "swipe.history"]:
         t.ok(f"{key} not written by reading it", read(key) is None, read(key))
 
 
 def case_explicit(t):
-    """explicit choices stand: offs on removed switches, old 120 Hz, pins"""
+    """explicit choices stand: offs on removed switches, old 120 Hz; old pin switches go"""
     sv.setup(**{"links.show": False, "float.flicks": False, "pages.120": False, "swipe.history": False,
-                "pins.home": False, "splitView": False, "tabs.groups": False, "panel.sites": False})
+                "splitView": False, "tabs.groups": False, "panel.sites": False,
+                "pins.list": False, "pins.folders": False, "pins.home": False, "pins.peek": False})
     sv.launch()
     v = settings()["values"]
     t.ok("show where links go stays off", v["links.show"] is False)
     t.ok("flick stays off", v["float.flicks"] is False)
     t.ok("an old 120 Hz off is Never", v["pages.120"] == "never", v["pages.120"])
     t.ok("hold a swipe stays off", v["swipe.history"] is False)
-    t.ok("one pin key off, the other unset: off", v["pins.keep"] is False, v)
     t.ok("an old off on a command-only switch is on now", all(v["always"].values()), v["always"])
-    sv.quit(); time.sleep(0.5)
-    sv.setup(**{"pins.peek": True, "pins.home": False}); sv.launch()
-    v = settings()["values"]
-    t.ok("either pin key on: on, both kept in step", v["pins.keep"] and v["pins.home"] and v["pins.peek"], v)
+    # Pinned rows, their folders and pins keeping their site are always on:
+    # an old off is let go at launch, not kept.
+    gone = {key: read(key) for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"]}
+    t.ok("old pin switches are removed at launch", all(value is None for value in gone.values()), gone)
 
 
 def case_merged(t):
@@ -147,16 +145,13 @@ def case_merged(t):
     t.ok("Float: Tabs or apps writes both on", (read("float.leave"), read("float.away")) == ("1", "1"))
     put("float.own", "never")
     t.ok("Float: Never writes both off", (read("float.leave"), read("float.away")) == ("0", "0"))
-    put("pins.keep", False)
-    t.ok("Pins keep their site off writes both keys", (read("pins.home"), read("pins.peek")) == ("0", "0"))
     put("links.peek", "optionShift")
     t.ok("Peek: Option-Shift writes on and the click", (read("links.peek"), read("links.peekClick")) == ("1", "optionShift"))
     put("links.peek", "off")
     t.ok("Peek: Off writes links.peek off, keeps the click", (read("links.peek"), read("links.peekClick")) == ("0", "optionShift"))
     v = put("arc.setup", True)
-    t.ok("Set Up Like Arc: left, spaces, rows, pins",
-         v["arc"] and v["tabs.layout"] == "left" and read("spaces") == "1" and read("pins.list") == "1"
-         and v["pins.keep"], v)
+    t.ok("Set Up Like Arc: left, spaces",
+         v["arc"] and v["tabs.layout"] == "left" and read("spaces") == "1", v)
     # And it survives a relaunch, read back from the keys alone.
     sv.quit(); time.sleep(0.5); sv.launch()
     v = settings()["values"]

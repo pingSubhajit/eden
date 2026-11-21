@@ -393,42 +393,42 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(Array(back.bySpace.keys), [mine])
     }
 
-    /// Which folder holds a row is this Mac's own, never synced: a rename or
+    /// Which kept group holds a row is this Mac's own, never synced: a rename or
     /// a new order from another device leaves it there; shared, moved to
     /// another space or made a square, it is in none.
-    func testARowKeepsItsFolderHereThroughAnEditFromElsewhere() {
-        let s = UUID(), other = UUID(), folder = UUID()
+    func testARowKeepsItsGroupHereThroughAnEditFromElsewhere() {
+        let s = UUID(), other = UUID(), group = UUID()
         var mail = pin("M", "https://mail.example/", listed: true)
-        mail.folder = folder
+        mail.group = group
         let cal = pin("C", "https://cal.example/", listed: true)
         let local = [s: [mail, cal]]
 
-        // Renamed and moved to the end elsewhere: still in its folder.
+        // Renamed and moved to the end elsewhere: still in its group.
         var renamed = mail
         renamed.name = "Post"
-        renamed.folder = nil
+        renamed.group = nil
         let edited = SyncItems.pins(bySpace: [s: [cal, renamed]], shared: [], base: [:])
         let back = SyncItems.applyPins(edited, spaces: [s], local: local, localShared: [])
         XCTAssertEqual(back.bySpace[s]?.map(\.id), [cal.id, mail.id])
-        XCTAssertEqual(back.bySpace[s]?.last?.folder, folder)
+        XCTAssertEqual(back.bySpace[s]?.last?.group, group)
         XCTAssertEqual(back.bySpace[s]?.last?.name, "Post")
 
-        // Made a square: no folder.
+        // Made a square: no group.
         var square = renamed
         square.listed = nil
         let squared = SyncItems.applyPins(SyncItems.pins(bySpace: [s: [square]], shared: [], base: [:]),
                                           spaces: [s], local: local, localShared: [])
-        XCTAssertNil(squared.bySpace[s]?.first?.folder)
+        XCTAssertNil(squared.bySpace[s]?.first?.group)
 
-        // Shared: no folder.
+        // Shared: no group.
         let shared = SyncItems.applyPins(SyncItems.pins(bySpace: [:], shared: [renamed], base: [:]),
                                          spaces: [s], local: local, localShared: [])
-        XCTAssertNil(shared.shared.first?.folder)
+        XCTAssertNil(shared.shared.first?.group)
 
-        // Moved to another space: no folder there.
+        // Moved to another space: no group there.
         let moved = SyncItems.applyPins(SyncItems.pins(bySpace: [other: [renamed]], shared: [], base: [:]),
                                         spaces: [s, other], local: local, localShared: [])
-        XCTAssertNil(moved.bySpace[other]?.first?.folder)
+        XCTAssertNil(moved.bySpace[other]?.first?.group)
     }
 
     // MARK: - bookmarks
@@ -484,7 +484,11 @@ final class SyncTests: XCTestCase {
         prefs.look = .dark
         let items = SyncSettings.items(prefs)
         XCTAssertEqual(items["set:look"], "\"dark\"")
-        XCTAssertEqual(Set(items.keys), Set(SyncSettings.known.map { "set:" + $0 }))
+        // Every setting the Mac has, each one any device can read; the
+        // iPhone's pin switches are carried for it, never written here (#6).
+        XCTAssertEqual(Set(items.keys), Set(SyncSettings.all.map { "set:" + $0.key }))
+        XCTAssertTrue(Set(SyncSettings.all.map(\.key)).isSubset(of: SyncSettings.known.subtracting(SyncSettings.carried)))
+        XCTAssertNil(items["set:bookmarks.bar"], "the bookmarks bar left the Mac")
         prefs.look = .light
         SyncSettings.apply(items, to: prefs)
         XCTAssertEqual(prefs.look, .dark)

@@ -4,13 +4,13 @@ hidden probe.
 
 Build first (`./build.sh`), then `python3 Tests/pin_drag.py`. It uses the
 split suite's harness: started hidden, no window made or shown, everything
-removed afterwards. The column's drop calls Browser.pinDropped and
-Browser.unpinDropped; `pin … at` calls the same two, so what is checked here
-is what a drop does: the place, the kind, the page kept (no reload), the
-pins file, shared pins, groups and pairs. The drag itself — the hand, the
-grid making room, the line opened among the rows — is driven in
-PinDragTests (`swift test --filter PinDragTests`), in a window off every
-screen, and looked at by hand on a release candidate.
+removed afterwards. The column's drop on the squares calls Browser.square,
+and a carry into the rows ends in Browser.move(_:to:); `pin … at` calls the
+same, so what is checked here is what a drop does: the place, the kind, the
+page kept (no reload), the pins file, shared pins, groups and pairs. The
+drag itself — the hand, the grid making room, the rows parting — is driven
+in PinDragTests and RowCarryTests (`swift test --filter PinDragTests`), in a
+window off every screen, and looked at by hand on a release candidate.
 """
 import json
 import subprocess
@@ -39,7 +39,11 @@ def mark(id, value): sv.ev(id, f"window.__pd = '{value}'; document.title")
 def marked(id): return sv.ev(id, "window.__pd || 'gone'")
 
 try:
-    sv.setup(sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(sidebar=True, **{"tabs.groups": False})
+    # New tabs at the end, in the order made: a world without the setting
+    # puts them at the top now, and the checks read the row in that order.
+    subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", "end"], check=True)
+    sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d"); e = sv.page("e")
     pin(a); pin(b)
     st = state()
@@ -95,7 +99,7 @@ try:
 
     # Pinned rows: a tab onto the rows, a square onto the rows and back.
     sv.quit()
-    sv.setup(sidebar=True, **{"pins.list": True}); sv.launch()
+    sv.setup(sidebar=True); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d")
     pin(a); pin(b, listed=True)
     pin(c, at=0, listed=True); st = state()

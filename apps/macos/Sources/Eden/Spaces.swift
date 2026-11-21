@@ -11,7 +11,7 @@ import WebKit
 // turning spaces on signs nobody out.
 //
 // A space's sites live in its profile's WebKit store, or one of its own
-// made by identifier; history and bookmarks are its profile's (see
+// made by identifier; history is its profile's (see
 // Profiles.swift); the passwords in the keychain, settings and extensions
 // are shared by every space. Switching swaps the row of tabs:
 // the ones left behind are parked, still playing, and they sleep
@@ -661,8 +661,9 @@ enum SpaceMenu {
             if at > 0 { menu.addItem(item("Move Left") { browser.moveSpace(here.id, to: at - 1) }) }
             if at < browser.spaces.count - 1 { menu.addItem(item("Move Right") { browser.moveSpace(here.id, to: at + 1) }) }
         }
-        // Every group of this space, folded or opened at once, as in Arc.
-        if browser.prefs.usesTabGroups, !browser.tabGroups.isEmpty {
+        // Every group of this space, above the line and under it, folded
+        // or opened at once, as in Arc.
+        if browser.hasColumnGroups {
             menu.addItem(.separator())
             let fold = item("Fold All Groups") { browser.foldAllGroups(true) }
             fold.isEnabled = browser.canFoldAllGroups
@@ -689,7 +690,7 @@ enum SpaceMenu {
         if !here.isFirst, here.id != browser.homeSpaceID {
             menu.addItem(.separator())
             menu.addItem(item("Delete “\(here.name)”…") {
-                Ask.sure("Delete “\(here.name)”?", detail: "Its tabs close, and its cookies and sign-ins are erased from this Mac. History and bookmarks stay.", confirm: "Delete") {
+                Ask.sure("Delete “\(here.name)”?", detail: "Its tabs close, and its cookies and sign-ins are erased from this Mac. History stays.", confirm: "Delete") {
                     browser.deleteSpace(here.id)
                 }
             })
@@ -698,17 +699,15 @@ enum SpaceMenu {
     }
 }
 
-/// The few questions a space's menu asks, as sheets on the window. The
-/// bookmarks list borrows `name` for Rename….
+/// The few questions a space's menu asks, as sheets on the window.
 @MainActor
 enum Ask {
     /// A test run's answer to `sure`, in place of a sheet that a probe
     /// started hidden can't show (`ui confirm on|off`). Never set otherwise.
     @MainActor static var testing: Bool?
 
-    /// `empty`: an empty name is an answer too (a bookmark's, see
-    /// Bookmarks.askRename); otherwise it is taken as no answer.
-    static func name(_ title: String, detail: String? = nil, placeholder: String, initial: String = "", confirm: String, empty: Bool = false, then: @escaping (String) -> Void) {
+    /// An empty name is taken as no answer.
+    static func name(_ title: String, detail: String? = nil, placeholder: String, initial: String = "", confirm: String, then: @escaping (String) -> Void) {
         let alert = NSAlert()
         alert.messageText = title
         if let detail { alert.informativeText = detail }
@@ -721,7 +720,7 @@ enum Ask {
         alert.window.initialFirstResponder = field
         show(alert) { ok in
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if ok, empty || !name.isEmpty { then(name) }
+            if ok, !name.isEmpty { then(name) }
         }
     }
 

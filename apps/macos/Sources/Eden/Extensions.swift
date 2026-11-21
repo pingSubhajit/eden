@@ -1473,7 +1473,7 @@ final class Extensions: NSObject, ObservableObject {
     /// extension do.
     static let edenAnswered: [(String, String)] = [
         ("userScripts", "Run scripts you add to it on websites"), ("history", "Read and change your history"),
-        ("bookmarks", "Read and change your bookmarks"), ("downloads", "Manage your downloads"),
+        ("bookmarks", "Read and change your pinned rows"), ("downloads", "Manage your downloads"),
         ("privacy", "Change your privacy settings"), ("browsingData", "Clear your browsing data"),
         ("management", "See your other extensions"), ("notifications", "Show notifications"),
         ("sessions", "See your recently closed tabs"), ("topSites", "See your most visited sites"),

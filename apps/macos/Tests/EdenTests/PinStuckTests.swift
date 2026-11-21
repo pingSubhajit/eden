@@ -21,6 +21,13 @@ final class PinStuckTests: XCTestCase {
         super.setUp()
     }
 
+    /// From a space as a new install has it, whatever the suites before
+    /// left in this process's world (CleanWorld).
+    override func setUp() async throws {
+        try await super.setUp()
+        CleanWorld.reset()
+    }
+
     override class func tearDown() {
         if let world = Store.world, world.hasPrefix("pin-stuck-") {
             try? FileManager.default.removeItem(at: Store.folder)
@@ -79,6 +86,13 @@ final class PinStuckTests: XCTestCase {
 
     /// Called off out over the rows: the line it opened among them closes,
     /// it stays a pin, and the rows take clicks where they are.
+    ///
+    /// Called off the way SwiftUI's call-off ends a carry (CarryGuard), not
+    /// by an icon arriving as above: out over the rows, the icon arriving
+    /// doesn't call the drag off (seen on macOS 27.2, every run), so the
+    /// release dropped the square among the rows, and the test failed on
+    /// when SwiftUI calls a drag off rather than on what the column does
+    /// once it has.
     func testASquareCalledOffOverTheRowsLeavesNoLineOpen() async throws {
         let browser = makeBrowser(count: 6)
         let t = browser.tabs
@@ -86,12 +100,15 @@ final class PinStuckTests: XCTestCase {
         browser.select(t[2])
         let window = makeWindow(browser)
         try await settle()
+        // The grid, then the line a pin keeps above the rest (#6).
+        let top = Metrics.strip + 44 + KeepLine.height + SideBar.gap
         let room = browser.prefs.sideWidth - 20
         let last = try await carry(from: point(x: 10 + room / 6, y: Metrics.strip + 17, in: window), through: [
             point(x: 10 + room / 6, y: Metrics.strip + 40, in: window),
-            point(x: 80, y: Metrics.strip + 44 + 30 + 30 + 4, in: window),
+            point(x: 80, y: top + 30 + 30 + 4, in: window),
         ], in: window)
-        iconArrives(t[0], in: browser)
+        XCTAssertEqual(CarryGuard.count, 1, "carried")
+        CarryGuard.endAll()
         try await settle()
         try await send(.leftMouseUp, at: last, in: window)
         try await settle()
@@ -100,7 +117,7 @@ final class PinStuckTests: XCTestCase {
         XCTAssertEqual(browser.squarePins.map(\.id), [t[0], t[1]].map(\.id))
         let loose = browser.tabs.filter { $0.pin == nil }
         for row in [1, 2, 0] {
-            try await click(point(x: 160, y: Metrics.strip + 44 + 14 + CGFloat(row) * 30, in: window), in: window)
+            try await click(point(x: 160, y: top + 14 + CGFloat(row) * 30, in: window), in: window)
             XCTAssertEqual(browser.activeID, loose[row].id, "row \(row) where it was before the carry")
         }
     }
@@ -115,7 +132,8 @@ final class PinStuckTests: XCTestCase {
         browser.select(t[5])
         let window = makeWindow(browser)
         try await settle()
-        let top = Metrics.strip + 44
+        // The grid, then the line a pin keeps above the rest (#6).
+        let top = Metrics.strip + 44 + KeepLine.height + SideBar.gap
         let room = browser.prefs.sideWidth - 20
         let last = try await carry(from: point(x: 70, y: top + 14, in: window), through: [
             point(x: 70, y: Metrics.strip + 30, in: window),
@@ -175,10 +193,10 @@ final class PinStuckTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs,
+        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs,
                         prefs.usesSpaces, prefs.sharesPins, prefs.glyph, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.listsPins, prefs.roomyTabs,
+            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs,
              prefs.usesSpaces, prefs.sharesPins, prefs.glyph, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
@@ -186,7 +204,6 @@ final class PinStuckTests: XCTestCase {
         browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = false
-        browser.prefs.listsPins = false
         browser.prefs.roomyTabs = false
         browser.prefs.sharesPins = false
         browser.prefs.glyph = .letters

@@ -28,8 +28,15 @@ struct CopiedLink: Equatable {
 /// when you choose to visit it (Browser.copiedLinkURL).
 @MainActor
 enum Clipboard {
+    /// The clipboard the field looks at: the Mac's, or in a test run
+    /// (Store.testing) one of its own, so a probe never reads, or offers to
+    /// visit, whatever the person running the tests last copied.
+    nonisolated static var board: NSPasteboard {
+        Store.testing ? NSPasteboard(name: NSPasteboard.Name("com.subhajit.eden.test.clipboard")) : .general
+    }
+
     static func look(_ answer: @escaping @MainActor (CopiedLink?) -> Void) {
-        let board = NSPasteboard.general
+        let board = Clipboard.board
         let change = board.changeCount
         func read() -> CopiedLink? {
             link(in: board).map { CopiedLink(change: change, url: $0, seen: Date()) }
@@ -51,7 +58,7 @@ enum Clipboard {
     }
 
     /// The clipboard's text as a web address, if that is all it is.
-    static func link(in board: NSPasteboard = .general) -> URL? {
+    static func link(in board: NSPasteboard = Clipboard.board) -> URL? {
         guard let text = board.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty, !text.contains(where: \.isWhitespace),
               let url = Address.url(from: text), ["http", "https"].contains(url.scheme?.lowercased() ?? "")
@@ -179,7 +186,7 @@ extension Browser {
     /// minute, not visited yet, and not the page in front (copied from it
     /// with ⇧⌘C, say).
     private var offerableCopiedLink: CopiedLink? {
-        guard let link = copiedLink, link.change == NSPasteboard.general.changeCount,
+        guard let link = copiedLink, link.change == Clipboard.board.changeCount,
               link.change != copiedLinkTaken, Date().timeIntervalSince(link.seen) < Self.copiedLinkLife
         else { return nil }
         if let url = link.url, let here = active?.address, History.identity(for: url) == History.identity(for: here) {
@@ -196,7 +203,7 @@ extension Browser {
     /// Looks again once the clipboard has changed since it last looked, and
     /// lists the link when the answer comes, if the field is still empty.
     private func lookAtClipboard() {
-        let change = NSPasteboard.general.changeCount
+        let change = Clipboard.board.changeCount
         guard copiedLink?.change != change, lookingAtClipboard != change else { return }
         lookingAtClipboard = change
         Clipboard.look { [weak self] link in
@@ -216,7 +223,7 @@ extension Browser {
     /// still taken: what matters once it is chosen is that it is still the
     /// same copy, not how long the list stood open.
     func copiedLinkURL(_ change: Int) -> URL? {
-        guard NSPasteboard.general.changeCount == change else {
+        guard Clipboard.board.changeCount == change else {
             announce("The clipboard has changed since", look: .problem)
             return nil
         }

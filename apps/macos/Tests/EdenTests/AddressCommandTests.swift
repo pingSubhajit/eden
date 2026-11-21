@@ -71,13 +71,13 @@ final class AddressCommandTests: XCTestCase {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.commandBar, prefs.splitView, prefs.ai, prefs.bookmarksBar)
-        defer { (prefs.commandBar, prefs.splitView, prefs.ai, prefs.bookmarksBar) = saved }
+        let saved = (prefs.commandBar, prefs.splitView, prefs.ai)
+        defer { (prefs.commandBar, prefs.splitView, prefs.ai) = saved }
         prefs.commandBar = true
 
         // By the words of the name, in any order, from their start.
         XCTAssertEqual(AddressCommand.listed("hide el", in: browser).first, .menu("view.hide"))
-        XCTAssertEqual(AddressCommand.listed("bar bookm", in: browser).first, .menu("bookmarks.bar"))
+        XCTAssertEqual(AddressCommand.listed("page fin", in: browser).first, .menu("edit.find"))
         XCTAssertEqual(AddressCommand.listed("priv tab", in: browser).first, .menu("file.newPrivateTab"))
         XCTAssertEqual(AddressCommand.listed("appear", in: browser).first, .page(.appearance))
         XCTAssertEqual(AddressCommand.listed("privacy", in: browser).first, .page(.privacy))
@@ -110,42 +110,23 @@ final class AddressCommandTests: XCTestCase {
         XCTAssertTrue(AddressCommand.listed("reader", in: browser).isEmpty, "no page to read")
 
         // Under the search, so Return still searches; the menu's action runs.
-        let offers = browser.placeOffers(for: "bookmarks bar").offers
+        let offers = browser.placeOffers(for: "find on page").offers
         XCTAssertFalse(offers.first?.kind.isCommand ?? true)
-        XCTAssertEqual(offers.last?.command, .menu("bookmarks.bar"))
-        let before = prefs.bookmarksBar
-        AddressCommand.menu("bookmarks.bar").run(on: browser)
-        XCTAssertNotEqual(prefs.bookmarksBar, before, "the menu's own action")
+        XCTAssertEqual(offers.last?.command, .menu("edit.find"))
+        // Find needs a page; Hide Sidebar or Tab Bar does not.
+        let folded = browser.folded
+        AddressCommand.menu("view.fold").run(on: browser)
+        XCTAssertNotEqual(browser.folded, folded, "the menu's own action")
+        AddressCommand.menu("view.fold").run(on: browser)
 
         prefs.commandBar = false
-        XCTAssertFalse(browser.placeOffers(for: "bookmarks bar").offers.contains { $0.kind.isCommand }, "off means off")
-    }
-
-    func testABookmarkFoundOnlyThroughATypoGoesUnderHistory() throws {
-        _ = NSApplication.shared
-        let browser = Browser(record: WindowRecord())
-        let slip = try XCTUnwrap(URL(string: "https://dashboards.example/d/nodes"))
-        let mark = try XCTUnwrap(browser.bookmarks.add(slip, title: "Nodes dashboard"))
-        defer { browser.bookmarks.remove(mark.id) }
-
-        // "noda": one letter from "nodes", exact only in history.
-        let alone = browser.placeOffers(for: "noda").offers.filter { $0.kind == .bookmark }
-        XCTAssertEqual(alone.first?.url, slip, "with nothing else, the slip is offered")
-        let page = try XCTUnwrap(URL(string: "https://wiki.example/noda"))
-        browser.history.record(page, title: "Noda")
-        defer { browser.history.forget(History.identity(for: page)) }
-        let offers = browser.placeOffers(for: "noda").offers.filter { $0.kind == .visited || $0.kind == .bookmark }
-        XCTAssertEqual(offers.first?.url, page, "where you have been, as typed, before a bookmark one letter off")
-        XCTAssertTrue(offers.contains { $0.url == slip }, "the bookmark is still offered, under it")
-
-        let exact = browser.placeOffers(for: "nodes").offers.filter { $0.kind == .visited || $0.kind == .bookmark }
-        XCTAssertEqual(exact.first?.url, slip, "a bookmark that fits as typed still leads")
+        XCTAssertFalse(browser.placeOffers(for: "find on page").offers.contains { $0.kind.isCommand }, "off means off")
     }
 
     /// A suggestion carries a command by an identifier of its own
     /// (Suggestion.Command, in EdenCore): every command comes back as itself.
     func testEveryCommandSurvivesASuggestion() {
-        let commands = AddressCommand.allCases + [.menu("bookmarks.bar"), .menu("view.sidebar")]
+        let commands = AddressCommand.allCases + [.menu("tabs.pinRow"), .menu("view.sidebar")]
             + SettingsPanel.Page.allCases.map(AddressCommand.page)
         for command in commands {
             XCTAssertEqual(AddressCommand(command.suggested), command, "\(command)")

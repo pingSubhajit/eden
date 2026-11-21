@@ -145,7 +145,7 @@ struct KeyCombo: Codable, Hashable {
 /// A menu command, and the key it has unless you give it another.
 struct Command: Identifiable {
     enum Section: String, CaseIterable {
-        case app = "Eden", file = "File", edit = "Edit", view = "View", tabs = "Tabs", spaces = "Spaces", bookmarks = "Bookmarks", history = "History"
+        case app = "Eden", file = "File", edit = "Edit", view = "View", tabs = "Tabs", spaces = "Spaces", history = "History"
     }
 
     let id: String
@@ -255,21 +255,19 @@ struct Command: Identifiable {
             guard browser.prefs.splitView, let tab = browser.active else { return }
             browser.detachSplit(tab)
         },
-        // No key until you give one: either unpins a pinned tab, as ⌥⌘N
-        // takes away the split it made. With the rows off every pin is a
-        // square, and so is the row's.
+        // Either unpins a pinned tab, as ⌥⌘N takes away the split it made.
+        // Pin Tab has no key until you give it one; Pin Tab as Row is ⌘D,
+        // as in Arc, where pins took the place of bookmarks (#6).
         Command("tabs.pin", "Pin Tab", .tabs, nil) { browser in
             guard let tab = browser.active else { return }
             if tab.pin != nil { browser.unpin(tab) } else if tab.isWeb { browser.pin(tab) }
         },
-        Command("tabs.pinRow", "Pin Tab as Row", .tabs, nil) { browser in
-            guard let tab = browser.active else { return }
-            if tab.pin != nil { browser.unpin(tab) } else if tab.isWeb { browser.pin(tab, listed: browser.prefs.showsPinRows) }
-        },
+        Command("tabs.pinRow", "Pin Tab as Row", .tabs, KeyCombo("d")) { $0.togglePinRow() },
         Command("tabs.rename", "Rename Tab", .tabs, nil) { browser in
             if let tab = browser.active { browser.beginTabRename(tab) }
         },
-        Command("tabs.duplicate", "Duplicate Tab", .tabs, KeyCombo("d")) { $0.duplicate() },
+        // ⌘D was Duplicate Tab's until it pinned, as in Arc (#6).
+        Command("tabs.duplicate", "Duplicate Tab", .tabs, nil) { $0.duplicate() },
         Command("tabs.copyAddress", "Copy Address", .tabs, KeyCombo("c", shift: true)) { $0.copyAddress() },
         Command("tabs.copyMarkdown", "Copy as Markdown Link", .tabs, nil) { $0.copyMarkdownLink() },
         Command("tabs.pasteAndGo", "Paste and Go", .tabs, KeyCombo("v", shift: true)) { $0.pasteAndGo() },
@@ -277,12 +275,6 @@ struct Command: Identifiable {
             if let tab = browser.active { browser.closeOthers(but: tab) }
         },
         Command("tabs.mute", "Stop Sound in Tab", .tabs, KeyCombo("m", shift: true)) { $0.pauseMedia() },
-
-        Command("bookmarks.add", "Add This Page", .bookmarks, KeyCombo("b", shift: true)) { $0.bookmarkCurrent() },
-        Command("bookmarks.show", "Show Bookmarks…", .bookmarks, nil) { $0.bookmarking = true },
-        Command("bookmarks.bar", "Show Bookmarks Bar", .bookmarks, nil) { browser in
-            withAnimation(Motion.glide) { browser.prefs.bookmarksBar.toggle() }
-        },
 
         Command("history.show", "Show History…", .history, KeyCombo("y")) { $0.recalling = true },
         Command("history.downloads", "Downloads…", .history, KeyCombo("j", shift: true)) { $0.showDownloads() },

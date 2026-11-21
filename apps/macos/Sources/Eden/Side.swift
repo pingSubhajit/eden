@@ -38,22 +38,12 @@ struct SideBar: View {
     var onDrag: (CGFloat?) -> Void = { _ in }
     @State private var onEdge = false
 
-    /// A pin, picked up out of the grid — a separate state from the loose
-    /// rows above, since the two gestures never happen at once but move on
-    /// two different axes.
-
-    @State private var groupFrames: [UUID: GroupDropFrame] = [:]
-    @State private var looseFrames = LooseFrames()
-
-    /// A tab carried over the pins, or a pin over the tabs, and where it
-    /// would land (see PinDrop).
+    /// A tab carried over the squares, and the place opened among them for
+    /// it (see PinDrop).
     @State private var crossing: PinDrop.Crossing?
-    /// Where the blocks are, for working that out.
+    /// Where the grid and the rows are, for taking a point from one to the
+    /// other.
     @State private var frames = ColumnFrames()
-    /// Where each line of the pinned rows is, with pin folders drawn.
-    @State private var pinLineFrames = PinLineFrames()
-    /// Where a pin carried among the folders would go (see PinTree.place).
-    @State private var folderDrop: PinTree.Place?
     /// Whether this space's rows fit under the pins without scrolling: set
     /// only when the answer changes, from the room under the pins and what
     /// the rows add up to, which are kept where changing them draws nothing.
@@ -62,23 +52,24 @@ struct SideBar: View {
     /// Which of your other devices' groups are open (DeviceGroups): folded
     /// until opened, and as left while the window is open.
     @State private var elsewhereOpened: Set<String> = []
-    /// The group a tab carried over it, or something dragged in, would join:
-    /// its surface lights (GroupSurface).
-    @State private var litGroup: UUID?
-    /// The group a tab is being carried out of, drawn over the others so
-    /// the tab passes above them.
+    /// The group a tab is being carried out of, or the group being carried,
+    /// drawn over the others so it passes above them.
     @State private var carryingGroup: UUID?
-    /// Where a tab carried out of its own run would land if let go now: the
-    /// rows there part for it (RowGap), and letting go puts it there.
-    @State private var rowGap: RowGap?
+    /// A row or a group is in hand: the New Tab row, which takes nothing
+    /// carried, neither lights nor answers under it (newTab).
+    @State private var lifting = false
+    /// Where a tab, a pair or a group carried out of its own run would land
+    /// if let go now (ColumnCarry): the rows there part for it, above the
+    /// line or under it, and letting go puts it there.
+    @State private var carry: ColumnCarry?
     /// A folded group a carried tab has rested on, and which it opened to
     /// be placed in: folded again if the tab goes elsewhere.
     @State private var sprung: UUID?
     /// The folded group a carried tab is resting on, before it opens.
     @State private var springing: (group: UUID, work: DispatchWorkItem)?
     @State private var gapFrame = RowGapFrame()
-    @State private var deviceFrames = DeviceFrames()
-    /// A tab just let go into a gap, settling from the hand into its place.
+    /// A tab or a group just let go into a gap, settling from the hand into
+    /// its place.
     @State private var settling: RowLanding?
     /// Whether another device has tabs open: the foot has a door for them
     /// with icons only (SideFoot.doors). Only that, not sync's every change.
@@ -357,6 +348,11 @@ struct SideBar: View {
                                 refit()
                             }
                         }
+                        // Where it is, for what is carried to be kept in
+                        // sight (inSight).
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in
+                            frames.scroll = $0
+                        }
                         // While the rows fit: still, and only as tall as they
                         // are, the room under them the window's to be dragged
                         // by. The same scroll view either way, so rows that
@@ -418,8 +414,8 @@ struct SideBar: View {
                         refit()
                     }
                 }
-                // Every block measured in one space, for a tab carried
-                // from one to another (see PinDrop).
+                // The grid and the rows measured in one space, for a tab
+                // carried from one to the other (see PinDrop).
                 .coordinateSpace(name: "column")
                 .animation(Motion.settle, value: crossing)
             } else {
@@ -439,24 +435,24 @@ struct SideBar: View {
 
     /// What the column last measured, for the bench (`columnscroll`). Test runs only.
     @MainActor static var measured: [String: CGFloat] = [:]
-    /// The pinned rows' lines as last drawn with folders, for the bench
+    /// The kept area's lines as last drawn with kept groups, for the bench
     /// (`pinfolder`): kind, depth, title, folded. Test runs only.
     @MainActor static var drawnPinLines: [[Any]] = []
+    /// The carry under way, where the rows part for it, as last drawn: for
+    /// the tests that pin down how a carry looks before it is let go
+    /// (RowCarryTests). Test runs only.
+    @MainActor static var shownGap: ColumnCarry?
+    /// Where the line was laid out (ColumnLayout) and where it was drawn,
+    /// in the rows' space, for the tests that hold the two together.
+    /// Test runs only.
+    @MainActor static var lineLaid: CGFloat?
+    @MainActor static var lineDrawn: CGFloat?
 
-    /// Another space's rows, drawn with the same pieces as this one's so the
-    /// two read as one column while they pass — and nothing to press until
-    /// it is the one on screen.
+    /// Another space's rows, laid out and drawn by the same code as this
+    /// one's (ColumnLayout, `column`) so the two read as one column while
+    /// they pass — and nothing to press until it is the one on screen.
     private func preview(_ row: Parked, space: UUID) -> some View {
         let pins = row.tabs.filter { $0.pin != nil && !($0.listed && prefs.showsPinRows) }
-        let listed = prefs.showsPinRows ? row.tabs.filter { $0.pin != nil && $0.listed } : []
-        // In their folders, as on screen, with Folders in pinned rows on.
-        let folders = prefs.showsPinFolders ? PinFolders.folders(space) : []
-        let lines = folders.isEmpty ? listed.map { PinRowLine.pin($0, depth: 0) }
-            : Browser.pinRowLines(listed, folders: folders, showing: row.active)
-        let items = row.drawnItems(groupsOn: prefs.usesTabGroups, splitView: prefs.splitView)
-        let groupCount = items.filter { if case .group = $0 { true } else { false } }.count
-        let restCount = items.count - groupCount
-        let devices = devices(in: space)
         let cells = pinCells(pins.count)
         return VStack(alignment: .leading, spacing: 0) {
             if !pins.isEmpty {
@@ -470,58 +466,43 @@ struct SideBar: View {
                 }
                 .padding(.bottom, 10)
             }
-            VStack(spacing: SideBar.gap) {
-                ForEach(lines) { line in
-                    switch line {
-                    case .folder(let folder, let depth):
-                        PinFolderHeading(browser: browser, folder: folder, depth: depth, compact: icons, interactive: false)
-                    case .pin(let tab, let depth):
-                        if icons {
-                            IconTile(browser: browser, prefs: prefs, tab: tab, live: tab.id == row.active, close: {}, interactive: false)
-                        } else {
-                            SideRow(browser: browser, prefs: prefs, tab: tab, live: tab.id == row.active, close: {}, interactive: false)
-                                .padding(.leading, CGFloat(depth) * PinFolderHeading.indent)
-                        }
-                    }
-                }
-                // Your other devices' groups, their line, and the New Tab
-                // row where new tabs go, as on screen.
-                let keepLine = showsLine(kept: pins.count + listed.count + devices.count + groupCount,
-                                         listed: listed.count, loose: restCount)
-                if !devices.isEmpty {
-                    DeviceGroups(browser: browser, prefs: prefs, space: space, opened: $elsewhereOpened)
-                }
-                if showsDeviceLine(devices: devices.count, groups: groupCount, keepLine: keepLine) {
-                    KeepLine(clears: false) {}
-                }
-                if newTabOnTop { newTab }
-                // Over the run, as on screen.
-                if keepLine {
-                    KeepLine(clears: false) {}
-                }
-                // Its tabs and its groups as they stand, the groups folded as
-                // they were left (see Parked.drawnItems).
-                ForEach(items) { item in
-                    switch item {
-                    case .tab(let tab):
-                        rowItem(tab, tabs: row.tabs, splits: row.splits, activeID: row.active,
-                                interactive: false, close: {})
-                    case .group(let drawn):
-                        SideGroup(colour: drawn.group.colour, folded: drawn.tabs.isEmpty,
-                                  indent: icons ? 0 : GroupLook.indent) {
-                            GroupHeading(browser: browser, group: drawn.group, compact: icons)
-                        } rows: {
-                            ForEach(drawn.tabs) { tab in
-                                rowItem(tab, tabs: row.tabs, splits: row.splits, activeID: row.active,
-                                        interactive: false, close: {})
-                            }
-                        }
-                    }
-                }
-            }
-            if !newTabOnTop { newTab.padding(.top, SideBar.gap) }
+            column(parkedLayout(row, space: space),
+                   drawn: Drawn(tabs: row.tabs, splits: row.splits, active: row.active, live: false), space: space)
         }
         .allowsHitTesting(false)
+    }
+
+    /// Another space's column under its squares, laid out as it was left:
+    /// its rows in their kept groups, its tabs and its groups, each folded
+    /// group showing only the tab in front, if it is one of its own.
+    private func parkedLayout(_ row: Parked, space: UUID) -> ColumnLayout<Tab> {
+        let rows = prefs.showsPinRows
+        let listed = rows ? row.tabs.filter { $0.pin != nil && $0.listed } : []
+        let groups = rows ? Pins.groups(space) : []
+        let kept = Browser.keptItems(listed, groups: groups).map { item -> SideItem in
+            guard case .group(let group, let members) = item, group.collapsed else { return item }
+            return .group(group, members.filter { $0.id == row.active })
+        }
+        let open = row.drawnItems(groupsOn: prefs.usesTabGroups, splitView: prefs.splitView).map { item -> SideItem in
+            switch item {
+            case .tab(let tab): .tab(tab)
+            case .group(let drawn): .group(drawn.group, drawn.tabs)
+            }
+        }
+        let devices = devices(in: space)
+        let squares = row.tabs.filter { $0.pin != nil && !($0.listed && rows) }.count
+        let shape = ColumnLayout<Tab>.Shape(
+            kept: kept,
+            keptHead: Self.head(of: kept),
+            open: open,
+            devices: devices.map { device in
+                (device.device, browser.pages(device.tabs, in: space).count, elsewhereOpened.contains(device.device))
+            },
+            line: showsLine(kept: squares + listed.count + groups.count + devices.count,
+                            rows: !kept.isEmpty || !devices.isEmpty, below: open.count),
+            newTabOnTop: newTabOnTop)
+        let splits = row.splits
+        return ColumnLayout(shape, metrics: metrics, width: width - 20, id: \.id, lines: { lines(of: $0, splits: splits) })
     }
 
     /// Where the rows stop and the window's own drag area starts. Added up
@@ -533,52 +514,12 @@ struct SideBar: View {
         return top + pinBlock + rowsHeight
     }
 
-    /// The pinned rows, the loose tabs and the row that makes another, added
-    /// up the same way, with a few points to spare: what decides whether
-    /// they scroll.
+    /// The column under the squares as laid out at rest, the New Tab row
+    /// with it, and a few points to spare: what decides whether it scrolls.
+    /// At rest, so a gap opened mid-carry never turns the scroll on or off
+    /// under the hand.
     private var rowsHeight: CGFloat {
-        let displayed = browser.displayedTabs
-        let listed = browser.listedPins.count
-        let ungrouped = displayed.filter { $0.pin == nil && (!prefs.usesTabGroups || browser.group(of: $0) == nil) }.count
-        let listBlock = listedHeight(listed)
-            + (showsLine(kept: keptCount, listed: listed, loose: ungrouped) ? KeepLine.height + SideBar.gap : 0)
-        let grouped = prefs.usesTabGroups ? browser.tabGroups.map { browser.visibleTabs(in: $0) } : []
-        let rows = prefs.usesTabGroups
-            ? displayed.filter { $0.pin == nil && browser.group(of: $0) == nil } + grouped.flatMap { $0 }
-            : displayed.filter { $0.pin == nil }
-        // A split is a line for each page (see SplitTabItem): the lines
-        // past the first.
-        let pairs = rows.reduce(0) { $0 + max(0, (browser.split(for: $1)?.tabs.count ?? 1) - 1) }
-        // Each group's heading on its surface, which adds its edge above
-        // and below (in the column a tab's line, GroupLook.heading), and the
-        // gap under it.
-        let heading = icons ? GroupHeading.compactHeight + GroupLook.surround : rowHeight
-        // Your other devices' groups too, and the rows of those opened.
-        let devices = devicesHere
-        let deviceRows = devices.filter { elsewhereOpened.contains($0.device) }
-            .reduce(0) { $0 + browser.pages($1.tabs, in: browser.spaceID).count }
-        let headings = CGFloat(grouped.count + devices.count) * (heading + SideBar.gap)
-            + CGFloat(deviceRows) * (rowHeight + SideBar.gap)
-            + (showsDeviceLine(devices: devices.count, groups: grouped.count,
-                               keepLine: showsLine(kept: keptCount, listed: listed, loose: ungrouped))
-                ? KeepLine.height + SideBar.gap : 0)
-        let loose = CGFloat(rows.count) * (rowHeight + SideBar.gap) + CGFloat(pairs) * rowHeight + headings
-        return listBlock + loose + rowHeight + 8
-    }
-
-    /// The pinned rows' height: each row, or with pin folders each line,
-    /// the gap under it, and one more under them all.
-    private func listedHeight(_ listed: Int) -> CGFloat {
-        guard browser.showsPinFolderRows else {
-            return CGFloat(listed) * (rowHeight + SideBar.gap) + (listed > 0 ? SideBar.gap : 0)
-        }
-        let heading = icons ? GroupHeading.compactHeight : GroupHeading.height
-        let lines = browser.pinRowLines()
-        let total = lines.reduce(CGFloat(0)) { sum, line in
-            if case .folder = line { return sum + heading + SideBar.gap }
-            return sum + rowHeight + SideBar.gap
-        }
-        return total + (lines.isEmpty ? 0 : SideBar.gap)
+        layout(carrying: nil).height + 8
     }
 
     @ViewBuilder
@@ -614,13 +555,11 @@ struct SideBar: View {
         }
     }
 
-    /// Each row's place down the column, the gap under it included: a pair
-    /// stands as two lines (see Carried). Worked out once for the list.
-    private func steps(_ rows: [Tab]) -> [CGFloat] {
-        let pairs = prefs.splitView
-            ? Dictionary(browser.splits.filter { $0.left != $0.right }.map { ($0.left, $0.tabs.count) }, uniquingKeysWith: { first, _ in first })
-            : [:]
-        return rows.map { rowHeight * CGFloat(pairs[$0.id] ?? 1) + SideBar.gap }
+    /// How many lines a tab stands as: a pair two, or as many as it holds
+    /// (see SplitTabItem), anything else one.
+    private func lines(of tab: Tab, splits: [TabSplit]) -> Int {
+        guard prefs.splitView, let pair = splits.first(where: { $0.left == tab.id }), pair.left != pair.right else { return 1 }
+        return pair.tabs.count
     }
 
     // MARK: - the pinned squares
@@ -630,21 +569,32 @@ struct SideBar: View {
         browser.displayedTabs.filter { $0.pin == nil && (!prefs.usesTabGroups || browser.group(of: $0) == nil) }
     }
 
-    /// The line between what is kept and what comes and goes, with the
-    /// pinned rows on: over the tabs Clear would close, or under rows with
-    /// nothing below them yet. Not with the rows off, nor with nothing on
-    /// either side of it: nothing kept above it either — no pin of this
-    /// space, square or row, and no group — until the first is pinned
-    /// (idea 444), as the row across the top has it (TabBar.showsPinLine).
-    private func showsLine(kept: Int, listed: Int, loose: Int) -> Bool {
-        prefs.showsPinRows && kept > 0 && listed + loose > 0
+    /// The one line between what is kept and what comes and goes (#6), with
+    /// the pinned rows on: under the pins, their folders and your other
+    /// devices' groups, over the New Tab row when new tabs go to the top
+    /// and over your tabs and groups, Clear on it for the tabs in no group
+    /// under it. Only with something kept above it — no line until the
+    /// first pin (idea 444), as the row across the top has it
+    /// (TabBar.showsPinLine) — and something under it: tabs or groups, or,
+    /// under lines that are kept (rows, folders, a device's group), at the
+    /// least the New Tab row, which would otherwise read as one of them.
+    /// Squares alone over nothing need none: their grid ends on its own.
+    private func showsLine(kept: Int, rows: Bool, below: Int) -> Bool {
+        prefs.showsPinRows && kept > 0 && (below > 0 || rows)
     }
 
-    /// What stands above the line in this space: its pins, your other
-    /// devices' groups and its own groups.
+    /// What stands above the line in this space: its pins, square or row,
+    /// the folders the rows are kept in, and your other devices' groups.
+    /// Not your own groups: they are among your tabs, under it.
     private var keptCount: Int {
         browser.squarePins.count + browser.listedPins.count + devicesHere.count
-            + (prefs.usesTabGroups ? browser.tabGroups.count : 0)
+            + (prefs.showsPinRows ? browser.keptGroups.count : 0)
+    }
+
+    /// Whether lines are kept above the line, not squares alone: pinned
+    /// rows, their folders, or your other devices' groups.
+    private var keptRows: Bool {
+        !browser.listedPins.isEmpty || !devicesHere.isEmpty || browser.drawsKeptGroups
     }
 
     private var devicesHere: [DeviceTabs] { devices(in: browser.spaceID) }
@@ -727,8 +677,8 @@ struct SideBar: View {
                 // (Carried): a move redraws the one square being carried,
                 // not the column (idea 31).
                 .modifier(PinCarried(index: index, cells: cells,
-                                     cross: { cross(tab, $0, from: .pins) },
-                                     land: { land(tab, $0) }) { browser.move(tab, to: $0) })
+                                     cross: { squareOverRows(tab, $0) },
+                                     land: { squareLand(tab, $0) }) { browser.move(tab, to: $0) })
             }
             if let ghost, let tab = crossingTab {
                 PinGhost(tab: tab, width: all[ghost].width, height: all[ghost].height)
@@ -738,209 +688,244 @@ struct SideBar: View {
         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in frames.grid = $0 }
     }
 
-    // MARK: - the rows
+    // MARK: - the column under the squares
 
-    /// The pins kept as rows, under the squares: Arc's pinned list. Each is
-    /// a row like any other to look at, carried only among its own kind.
-    @ViewBuilder
-    private var listed: some View {
-        if browser.showsPinFolderRows { foldered } else { flatListed }
+    /// What a row is drawn from: the space on screen's tabs, pressed and
+    /// carried, or another space's passing in a swipe, drawn alike.
+    private struct Drawn {
+        let tabs: [Tab]
+        let splits: [TabSplit]
+        let active: Tab.ID?
+        /// The space on screen's: pressed, carried and dropped on.
+        let live: Bool
     }
 
-    /// The pinned rows in their folders (see PinFolders.swift): each
-    /// folder's heading, then what it holds, set in. A row carried among
-    /// them goes where it is let go — into the folder whose heading it is
-    /// over, or beside the row it is over — rather than moving along as it
-    /// goes; a mark shows where.
-    private var foldered: some View {
-        let lines = browser.pinRowLines()
-        if Store.testing { SideBar.drawnPinLines = lines.map(\.described) }
-        let heading = icons ? GroupHeading.compactHeight : GroupHeading.height
-        let lineSteps = lines.map { line -> CGFloat in
-            if case .folder = line { return heading + SideBar.gap }
-            return rowHeight + SideBar.gap
+    /// How tall the column's lines are drawn now.
+    private var metrics: ColumnMetrics {
+        ColumnMetrics(row: rowHeight, heading: icons ? GroupHeading.compactHeight : GroupLook.heading(row: rowHeight),
+                      gap: SideBar.gap, inset: GroupLook.inset, line: KeepLine.height)
+    }
+
+    /// The space on screen's column under the squares, laid out
+    /// (ColumnLayout): what is drawn, and where every drop reads. With
+    /// `carry`, the gap open for what is carried and its own place closed.
+    private func layout(carrying carry: ColumnCarry?) -> ColumnLayout<Tab> {
+        let kept = prefs.showsPinRows ? browser.keptItems().map(shown) : []
+        let open = runItems.map(shown)
+        let shape = ColumnLayout<Tab>.Shape(
+            kept: kept,
+            keptHead: Self.head(of: kept),
+            open: open,
+            devices: devicesHere.map { device in
+                (device.device, browser.pages(device.tabs, in: browser.spaceID).count, elsewhereOpened.contains(device.device))
+            },
+            line: showsLine(kept: keptCount, rows: keptRows, below: open.count),
+            newTabOnTop: newTabOnTop)
+        let splits = browser.splits
+        return ColumnLayout(shape, metrics: metrics, width: width - 20, carry: carry, id: \.id,
+                            lines: { lines(of: $0, splits: splits) })
+    }
+
+    /// An item with what it shows: a folded group only the tab in front, if
+    /// it is one of its own, in either area.
+    private func shown(_ item: SideItem) -> SideItem {
+        guard case .group(let group, _) = item else { return item }
+        return .group(group, browser.visibleTabs(in: group))
+    }
+
+    /// How many of the kept area's first items are rows every space shows.
+    private static func head(of kept: [SideItem]) -> Int {
+        kept.prefix { item in
+            if case .tab(let tab) = item { return tab.everywhere }
+            return false
+        }.count
+    }
+
+    /// The column under the squares, which scrolls as one: laid out once
+    /// and drawn from that, the gap a carry opened and all.
+    private var rows: some View {
+        let laid = layout(carrying: carry)
+        if Store.testing {
+            if browser.drawsKeptGroups { SideBar.drawnPinLines = laid.keptLines.map(\.described) }
+            SideBar.lineLaid = laid.line?.minY
         }
-        let drop = folderDrop
-        return VStack(spacing: SideBar.gap) {
-            ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
-                switch line {
-                case .folder(let folder, let depth):
-                    PinFolderHeading(browser: browser, folder: folder, depth: depth, compact: icons,
-                                     target: drop?.folder == folder.id && drop?.anchor == nil)
-                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("listed")) }) { [pinLineFrames] in
-                            pinLineFrames.rects[folder.id] = $0
-                        }
-                case .pin(let tab, let depth):
-                    Group {
-                        if icons {
-                            IconTile(browser: browser, prefs: prefs, tab: tab,
-                                     live: tab.id == browser.liveID,
-                                     close: { browser.close(tab) })
-                        } else {
-                            SideRow(browser: browser, prefs: prefs, tab: tab,
-                                    live: tab.id == browser.liveID,
-                                    close: { browser.close(tab) })
-                                .padding(.leading, CGFloat(depth) * PinFolderHeading.indent)
-                        }
-                    }
-                    .overlay(alignment: drop?.after == true ? .bottom : .top) {
-                        if let drop, drop.anchor == tab.id {
-                            PinFolderMark().offset(y: (drop.after ? 1 : -1) * (SideBar.gap / 2 + 1))
-                        }
-                    }
-                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("listed")) }) { [pinLineFrames] in
-                        pinLineFrames.rects[tab.id] = $0
-                    }
-                    // Carried as rows are, but put down only where let go:
-                    // its place among the lines is no place in the row.
-                    .modifier(Carried(index: index, steps: lineSteps, vertical: true,
-                                      space: "listed",
-                                      cross: { folderCross(tab, $0) },
-                                      land: { folderLand(tab, $0) }, faded: crossing?.tab == tab.id) { _ in })
-                }
-            }
-        }
-        .coordinateSpace(name: "listed")
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in frames.listed = $0 }
-        .padding(.bottom, lines.isEmpty ? 0 : SideBar.gap)
+        return column(laid, drawn: Drawn(tabs: browser.tabs, splits: browser.splits, active: browser.liveID, live: true),
+                      space: browser.spaceID)
+            // Every line measured in one space, the whole column's, for a
+            // tab or a group carried from one to another.
+            .coordinateSpace(name: "rows")
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in frames.rows = $0 }
+            .onChange(of: carry) { _, now in if Store.testing { SideBar.shownGap = now } }
     }
 
-    /// Where a pin let go at `y` in the rows' own space would go.
-    private func folderPlace(for id: UUID, y: CGFloat) -> PinTree.Place? {
-        let lines = browser.pinRowLines()
-        let measured = lines.compactMap { line -> (line: PinTree.Line, frame: CGRect)? in
-            guard let rect = pinLineFrames.rects[line.id] else { return nil }
-            switch line {
-            case .folder(let folder, let depth): return (.folder(folder, depth: depth), rect)
-            case .pin(let tab, let depth): return (.pin(tab.id, depth: depth), rect)
-            }
-        }
-        var folders: [UUID: UUID?] = [:]
-        for line in lines { if case .pin(let tab, _) = line { folders[tab.id] = tab.everywhere ? nil : tab.pinFolder } }
-        return PinTree.place(y: y, lines: measured, folders: folders, carrying: id)
-    }
-
-    private func showFolderDrop(_ place: PinTree.Place?) {
-        if folderDrop != place { withAnimation(Motion.settle) { folderDrop = place } }
-    }
-
-    /// A pinned row carried among the folders: over another block, that
-    /// block's; here, the place it would go.
-    private func folderCross(_ tab: Tab, _ point: CGPoint) -> Bool {
-        if cross(tab, point, from: .listed) {
-            showFolderDrop(nil)
-            return true
-        }
-        showFolderDrop(browser.takesFolder(tab) ? folderPlace(for: tab.id, y: point.y) : nil)
-        return false
-    }
-
-    private func folderLand(_ tab: Tab, _ point: CGPoint?) -> Bool {
-        let place = folderDrop
-        showFolderDrop(nil)
-        if land(tab, point) { return true }
-        guard point != nil, let place else { return false }
-        withAnimation(Motion.settle) { browser.movePin(tab, to: place) }
-        return true
-    }
-
-    /// The pinned rows as they always were, with no folder to draw.
-    private var flatListed: some View {
-        let pins = browser.listedPins
-        let squares = browser.squarePins.count
-        let ghost: Int? = if case .listed(let at)? = crossing?.target { at } else { nil }
-        let pinSteps = steps(pins)
-        return VStack(spacing: SideBar.gap) {
-            ForEach(Array(pins.enumerated()), id: \.element.id) { index, tab in
-                if ghost == index, let carried = crossingTab {
-                    RowGhost(tab: carried, height: rowHeight, size: prefs.sideTitle)
-                }
-                Group {
-                    if icons {
-                        IconTile(browser: browser, prefs: prefs, tab: tab,
-                                 live: tab.id == browser.liveID,
-                                 close: { browser.close(tab) })
-                    } else {
-                        SideRow(browser: browser, prefs: prefs, tab: tab,
-                                live: tab.id == browser.liveID,
-                                close: { browser.close(tab) })
-                    }
-                }
-                    .modifier(Carried(index: index, steps: pinSteps, vertical: true,
-                                      space: "listed",
-                                      cross: { cross(tab, $0, from: .listed) },
-                                      land: { land(tab, $0) }, faded: crossing?.tab == tab.id) {
-                        browser.moveDisplayedTab(tab, to: $0 + squares)
-                    })
-            }
-            if let ghost, ghost >= pins.count, let carried = crossingTab {
-                RowGhost(tab: carried, height: rowHeight, size: prefs.sideTitle)
-            }
-        }
-        .coordinateSpace(name: "listed")
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in frames.listed = $0 }
-        .padding(.bottom, pins.isEmpty && ghost == nil ? 0 : SideBar.gap)
-    }
-
-    private var loose: some View {
-        VStack(spacing: SideBar.gap) {
-            // See the grid: the drag is measured in the column's space, not
-            // the row's, so a row that has just moved keeps its bearings.
-            // Worked out once, not by every row: each look walks the whole
-            // row, and 300 rows asking made redrawing the column quadratic.
-            let loose = looseTabs
-            let devices = devicesHere
-            let keepLine = showsLine(kept: keptCount, listed: browser.listedPins.count, loose: loose.count)
-            // Your other devices' tabs first, groups of the browser's own,
-            // with a line under them over yours, as Dia's Pull Requests
-            // has (Elsewhere.swift); then where new tabs come in.
-            if !devices.isEmpty {
-                DeviceGroups(browser: browser, prefs: prefs, space: browser.spaceID, opened: $elsewhereOpened,
-                             gap: rowGap, gapFrame: gapFrame, frames: deviceFrames)
-            }
-            if showsDeviceLine(devices: devices.count, groups: prefs.usesTabGroups ? browser.tabGroups.count : 0,
-                               keepLine: keepLine) {
-                KeepLine(clears: false) {}
-            }
-            if newTabOnTop { newTab }
-            // Over the run: Clear closes the tabs in no group under it, and
-            // keeps the groups among them, as it keeps the pins above.
-            if keepLine {
-                KeepLine(clears: !loose.isEmpty) { browser.clearTabs() }
-            }
-            // The tabs in no group and the groups, as they stand in the row:
-            // a group anywhere among the tabs, carried along it as a tab is.
-            let items = runItems
-            let ghost: Int? = if case .loose(let at)? = crossing?.target { at } else { nil }
-            let gapBefore: SideItemID?? = if case .loose(let before)? = rowGap?.place { before } else { nil }
-            // In a stack of their own, measured, for where a pin carried
-            // among them would land.
-            if !items.isEmpty || ghost != nil || gapBefore != nil {
-                let itemSteps = steps(of: items)
+    /// The column under the squares as laid out: your other devices'
+    /// groups; the kept area; the one line under all that is kept (#6) —
+    /// Clear on it closes the tabs in no group under it, and keeps the
+    /// groups among them, as it keeps the pins above — and the New Tab row
+    /// where new tabs come in, at the top of your tabs and groups or under
+    /// them all. Both areas drawn by the same code, a group above the line
+    /// as one under it.
+    private func column(_ laid: ColumnLayout<Tab>, drawn: Drawn, space: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Your other devices' tabs first, under the squares: groups of
+            // the browser's own, above what you keep, as Dia's Pull Requests
+            // has (Elsewhere.swift).
+            if !laid.devices.isEmpty {
                 VStack(spacing: SideBar.gap) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        if ghost == index, let carried = crossingTab {
-                            RowGhost(tab: carried, height: rowHeight, size: prefs.sideTitle)
-                        }
-                        if let gap = rowGap, gapBefore == item.id { RowGapSlot(gap: gap, frame: gapFrame) }
-                        switch item {
-                        case .tab(let tab):
-                            looseRow(tab, index: index, steps: itemSteps)
-                        case .group(let group, _):
-                            groupItem(group, index: index, steps: itemSteps)
-                        }
-                    }
-                    if let ghost, ghost >= items.count, let carried = crossingTab {
-                        RowGhost(tab: carried, height: rowHeight, size: prefs.sideTitle)
-                    }
-                    if let gap = rowGap, case .some(.none) = gapBefore { RowGapSlot(gap: gap, frame: gapFrame) }
+                    DeviceGroups(browser: browser, prefs: prefs, space: space, opened: $elsewhereOpened,
+                                 gap: drawn.live ? carry.flatMap { carry in carry.device.map { ($0, carry.height) } } : nil,
+                                 gapFrame: gapFrame)
                 }
-                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in frames.loose = $0 }
+                .padding(.bottom, SideBar.gap)
+            }
+            VStack(spacing: SideBar.gap) {
+                pieces(laid.kept, in: laid, drawn: drawn)
+            }
+            .padding(.bottom, laid.kept.pieces.isEmpty ? 0 : SideBar.gap)
+            VStack(spacing: SideBar.gap) {
+                if laid.line != nil {
+                    KeepLine(clears: drawn.live && !looseTabs.isEmpty) { if drawn.live { browser.clearTabs() } }
+                        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("rows")).minY }) { top in
+                            if Store.testing, drawn.live { SideBar.lineDrawn = top }
+                        }
+                }
+                if newTabOnTop { newTab }
+                if !laid.open.pieces.isEmpty {
+                    VStack(spacing: SideBar.gap) {
+                        pieces(laid.open, in: laid, drawn: drawn)
+                    }
+                }
+            }
+            if !newTabOnTop { newTab.padding(.top, SideBar.gap) }
+        }
+    }
+
+    /// An area's tabs in no group and its groups, and the gap open among
+    /// them, as laid out: in either area, a tab carried along them by hand
+    /// as one is, a group by its heading.
+    private func pieces(_ area: ColumnLayout<Tab>.Area, in laid: ColumnLayout<Tab>, drawn: Drawn) -> some View {
+        let steps = laid.steps(in: area.area)
+        let places = Self.places(area.pieces)
+        return ForEach(area.pieces) { piece in
+            switch piece {
+            case .gap(let rect):
+                RowGapSlot(height: rect.height, frame: gapFrame)
+            case .row(let row):
+                tabRow(row, run: ColumnRun(area: area.area), index: places[piece.id] ?? 0, steps: steps, drawn: drawn)
+            case .group(let held):
+                groupView(held, in: area.area, index: places[piece.id] ?? 0, steps: steps, laid: laid, drawn: drawn)
             }
         }
-        .coordinateSpace(name: "rows")
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("column")) }) { [frames] in frames.rows = $0 }
-        .onPreferenceChange(GroupDropFrames.self) { groupFrames = $0 }
+    }
+
+    /// The part of the rows' space in sight, inside the scrolling column's
+    /// edges, which cut off anything drawn past them: what is carried is
+    /// kept within it (Carried.within), as far as the hand goes past the
+    /// last row or above the first. Read as the column is drawn, which it is
+    /// as a carry starts; nothing scrolls under a carry.
+    private var inSight: ClosedRange<CGFloat>? {
+        guard let scroll = frames.scroll, scroll.height > 0 else { return nil }
+        let top = scroll.minY - frames.rows.minY
+        return top...(top + scroll.height)
+    }
+
+    /// Where each piece stands among those carried along a run, the gap
+    /// left out (Carried's index).
+    private static func places(_ pieces: [ColumnLayout<Tab>.Piece]) -> [ColumnLayout<Tab>.Slot: Int] {
+        var out: [ColumnLayout<Tab>.Slot: Int] = [:]
+        var index = 0
+        for piece in pieces {
+            if case .gap = piece { continue }
+            out[piece.id] = index
+            index += 1
+        }
+        return out
+    }
+
+    /// A tab's row, at the top of an area or in a group, above the line or
+    /// under it: carried along its own run, the others making way, or out
+    /// of it, the run it is over parting for it (`carrying`). Only a tab
+    /// under the line is a pair's or can leave the window (TabDrag, TabLift):
+    /// a pin is one page, and stays.
+    @ViewBuilder
+    private func tabRow(_ row: ColumnLayout<Tab>.Row, run: ColumnRun, index: Int, steps: [CGFloat], drawn: Drawn) -> some View {
+        let tab = row.member
+        let item = rowItem(tab, tabs: drawn.tabs, splits: drawn.splits, activeID: drawn.active,
+                           interactive: drawn.live, close: { browser.closeTab(tab) })
+        if drawn.live {
+            let open = run.area == .open
+            item
+                .modifier(RowGapSource(away: row.away, landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
+                .modifier(Carried(index: index, steps: steps, vertical: true, space: "rows",
+                                  groupDestination: open ? { source, point in openGroup(for: source, at: point) } : nil,
+                                  outside: { browser.dragOut(tab) },
+                                  browser: open ? browser : nil, tab: tab,
+                                  cross: { overSquares(tab, $0) },
+                                  land: { landOnSquares(tab, $0) }, faded: crossing?.tab == tab.id,
+                                  holding: { held in
+                                      carryingGroup = held ? run.group : nil
+                                      lifting = held
+                                      if !held { putDown() }
+                                  },
+                                  gap: { carrying(.tab(tab.id), row: tab, at: $0) },
+                                  placed: { placed($0) }, within: inSight) { shift(tab, along: run, to: $0) })
+        } else {
+            item
+        }
+    }
+
+    /// A group, in either area: its heading and its tabs on its surface,
+    /// carried by its heading along its area as a tab is, the others making
+    /// way, and across the line, where the other area parts for it.
+    @ViewBuilder
+    private func groupView(_ held: ColumnLayout<Tab>.Group, in area: ColumnArea, index: Int, steps: [CGFloat],
+                           laid: ColumnLayout<Tab>, drawn: Drawn) -> some View {
+        let group = held.group
+        let run = ColumnRun(area: area, group: group.id)
+        let rowSteps = laid.steps(of: held)
+        let places = Self.places(held.rows)
+        let members = held.members
+        // Lit while a tab carried over it would join it, which shows where
+        // it would go even folded.
+        let lit = drawn.live && carry?.place.map { ColumnRun(area: $0.area, group: $0.group) == run } == true
+        let surface = SideGroup(colour: group.colour, folded: members.isEmpty, lit: lit, showsRows: held.showsRows,
+                                indent: icons ? 0 : GroupLook.indent) {
+            GroupHeading(browser: browser, group: group, compact: icons, carriedByHand: true, interactive: drawn.live)
+        } rows: {
+            VStack(spacing: SideBar.gap) {
+                ForEach(held.rows) { piece in
+                    switch piece {
+                    case .gap(let rect):
+                        RowGapSlot(height: rect.height, frame: gapFrame)
+                    case .row(let row):
+                        tabRow(row, run: run, index: places[piece.id] ?? 0, steps: rowSteps, drawn: drawn)
+                    case .group:
+                        EmptyView()
+                    }
+                }
+            }
+            // With icons only, the group's tiles held by a thin bracket in
+            // the margin, rather than set in under a name.
+            .overlay(alignment: .leading) {
+                if icons && !members.isEmpty { IconGroupBracket(folded: group.collapsed).offset(x: -6) }
+            }
+        }
+        if drawn.live {
+            surface
+                .modifier(RowGapSource(away: held.away, landing: settling?.tab == group.id ? settling?.offset ?? 0 : 0))
+                .modifier(Carried(index: index, steps: steps, vertical: true, space: "rows",
+                                  holding: { now in
+                                      carryingGroup = now ? group.id : nil
+                                      lifting = now
+                                      if !now { putDown() }
+                                  },
+                                  gap: { carrying(.group(group.id), row: nil, at: $0) },
+                                  placed: { placed($0, group: group.id) }, within: inSight) { shift(group: group.id, in: area, to: $0) })
+                // Over the others while it, or one of its tabs, is carried.
+                .zIndex(carryingGroup == group.id ? 1 : 0)
+        } else {
+            surface
+        }
     }
 
     /// The run under the pins: with groups on, the tabs in no group and the
@@ -949,401 +934,301 @@ struct SideBar: View {
         prefs.usesTabGroups ? browser.sideItems : looseTabs.map(SideItem.tab)
     }
 
-    /// Each place in the run: a tab's line, a pair's two, or a group's
-    /// heading and the lines it shows, and the gap after it.
-    private func steps(of items: [SideItem]) -> [CGFloat] {
-        let lines = steps(items.flatMap { item -> [Tab] in
-            if case .tab(let tab) = item { return [tab] }
-            return []
-        })
-        var next = lines.makeIterator()
-        return items.map { item in
-            switch item {
-            case .tab:
-                return next.next() ?? rowHeight + SideBar.gap
-            case .group(let group, _):
-                let shown = browser.visibleTabs(in: group)
-                return GroupLook.surround + GroupLook.heading(row: rowHeight) + steps(shown).reduce(0, +) + SideBar.gap
-            }
-        }
-    }
+    // MARK: - carried along the column
 
-    /// A group in the run: its heading and its tabs on its surface, carried
-    /// by its heading along the run as a tab is, the others making way.
-    private func groupItem(_ group: TabGroup, index: Int, steps: [CGFloat]) -> some View {
-        let folded = browser.visibleTabs(in: group).isEmpty
-        let pinOver = crossing?.target == .group(group.id)
-        let gapOver = rowGap?.group == group.id
-        // Lit for a tab over it, or a pin carried down onto it, which shows
-        // where it would go even folded.
-        return SideGroup(colour: group.colour, folded: folded, lit: litGroup == group.id || pinOver,
-                         showsRows: !folded || pinOver || gapOver, indent: icons ? 0 : GroupLook.indent) {
-            GroupHeading(browser: browser, group: group, dragSpace: "rows", compact: icons, carriedByHand: true) { over in
-                if over { litGroup = group.id } else if litGroup == group.id { litGroup = nil }
-            }
-        } rows: {
-            groupRows(group)
-        }
-        .modifier(Carried(index: index, steps: steps, vertical: true, space: "rows",
-                          holding: { held in carryingGroup = held ? group.id : nil }) {
-            browser.moveItem(.group(group.id), to: $0)
-        })
-        // Over the others while it, or one of its tabs, is carried.
-        .zIndex(carryingGroup == group.id ? 1 : 0)
-    }
-
-    /// A tab in no group in the run.
-    private func looseRow(_ tab: Tab, index: Int, steps: [CGFloat]) -> some View {
-        rowItem(tab, tabs: browser.tabs, splits: browser.splits,
-                activeID: browser.liveID, interactive: true,
-                close: { browser.closeTab(tab) })
-        .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.empties == true,
-                               landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
-        // Positions here are among the run's places; the pinned block
-        // sits in front of them in the real list.
-        .modifier(Carried(index: index, steps: steps, vertical: true,
-                                          space: "rows", onDropTab: { source, point in drop(source, at: point) },
-                                          groupDestination: { source, point in lighting(destination(source, at: point)) },
-                                          loose: prefs.usesTabGroups ? looseFrames : nil,
-                                          outside: { browser.dragOut(tab) }, browser: browser, tab: tab,
-                                          cross: { cross(tab, $0, from: .rows) },
-                                          land: { land(tab, $0) }, faded: crossing?.tab == tab.id,
-                                          holding: { if !$0 { putDown() } },
-                                          gap: { source, point in preview(source, at: point) },
-                                          placed: { placed($0) }) {
-            if prefs.usesTabGroups {
-                browser.moveItem(.tab(tab.id), to: $0)
+    /// A tab carried along its own run, moved as it goes, the others making
+    /// way (Carried): in its group, or at the top of its area.
+    private func shift(_ tab: Tab, along run: ColumnRun, to index: Int) {
+        switch run.area {
+        case .open:
+            if let group = run.group {
+                browser.move(tab, within: group, to: index)
+            } else if prefs.usesTabGroups {
+                browser.moveItem(.tab(tab.id), to: index)
             } else {
-                browser.moveDisplayedTab(tab, to: $0 + browser.pinnedCount)
+                browser.moveDisplayedTab(tab, to: index + browser.pinnedCount)
             }
-        })
+        case .kept:
+            browser.move(tab, to: ColumnPlace(area: .kept, group: run.group, index: index))
+        }
     }
 
-    private func destination(_ tab: Tab, at point: CGPoint) -> GroupDropTarget? {
-        // What a group can't take isn't offered one (Browser.move(_:toGroup:)).
-        guard prefs.usesTabGroups, tab.pin == nil, !tab.shy, !tab.bench else { return nil }
-        return GroupDropFrames.resolve(point, frames: groupFrames, groups: browser.tabGroups,
-                                       excluding: tab.id, vertical: true,
-                                       holding: rowGap?.group ?? browser.group(of: tab))
+    /// A group carried along its own area, moved as it goes.
+    private func shift(group id: UUID, in area: ColumnArea, to index: Int) {
+        switch area {
+        case .open: browser.moveItem(.group(id), to: index)
+        case .kept: browser.move(group: id, to: ColumnPlace(area: .kept, index: index))
+        }
     }
 
-    // MARK: - the gap a carried tab would land in
+    /// The run something carried is along: a tab's area and its group in
+    /// it, a group's area; none for a square, whose run is the grid's.
+    private func run(of carried: SideItemID) -> ColumnRun? {
+        switch carried {
+        case .tab(let id):
+            guard let tab = browser.tabs.first(where: { $0.id == id }), let area = browser.area(of: tab) else { return nil }
+            switch area {
+            case .kept: return ColumnRun(area: .kept, group: browser.keptGroup(of: tab))
+            case .open: return ColumnRun(area: .open, group: prefs.usesTabGroups ? browser.group(of: tab) : nil)
+            }
+        case .group(let id):
+            return browser.area(ofGroup: id).map { ColumnRun(area: $0) }
+        }
+    }
 
-    /// A tab carried along its own run — its group, or the tabs in none —
-    /// moves as it goes, the others making way (Carried). Carried over
-    /// another, that run parts for it where it would land, its own place
-    /// closing behind it: true while it does. As Arc's and Safari's columns
-    /// show it, so where it will go is always in sight.
-    private func preview(_ tab: Tab, at point: CGPoint?) -> CarryGap {
-        guard let point else {
-            showGap(nil)
+    /// The one carry (ColumnCarry). Something carried along its own run —
+    /// its group, or the top of its area — moves as it goes, the others
+    /// making way (Carried). Carried over another, that run parts for it
+    /// where it would land, its own place closing behind it: above the
+    /// line or under it, in a group in either, at the top of either, or on
+    /// another device. Over one that won't take it, nothing opens and it
+    /// holds still. As Arc's and Safari's columns show it, so where it will
+    /// go is always in sight. `row`: the tab's row, nil for a group.
+    private func carrying(_ carried: SideItemID, row tab: Tab?, at point: CGPoint?) -> CarryGap {
+        guard let point, point.x >= -PinDrop.sideSlack, point.x <= width - 20 + PinDrop.sideSlack else {
+            showCarry(nil)
             return .none
         }
-        var place: RowGap.Place?
+        let laid = layout(carrying: carry)
         // The page picked up — a pair's half, either one — is what another
         // device is sent, and what it may have open already.
-        if let device = device(for: TabDrag.shared.source(of: tab) ?? tab, at: point) {
-            place = .device(device)
-        } else if prefs.usesTabGroups, tab.pin == nil, !tab.shy, !tab.bench {
-            let own = browser.group(of: tab)
-            if let target = destination(tab, at: point) {
-                if target.group != own { place = gapPlace(for: target, carrying: tab) }
-            } else if own != nil, let out = leaving(tab, at: point) {
-                place = .loose(before: out.before)
+        let source = tab.map { TabDrag.shared.source(of: $0) ?? $0 }
+        // A pair's half shown leaving it is carried on its own, one page;
+        // the pair whole, its lines.
+        let half = tab.map { tab in
+            PairSeparation.shared.leaving.map { browser.split(for: tab)?.contains($0) == true } ?? false
+        } ?? false
+        var target: ColumnCarry.Target?
+        var refused = false
+        if let source, let device = device(for: source, at: point, in: laid) {
+            target = .device(device)
+        } else if let source, source.pin == nil, laid.device(at: point.y, holding: nil) != nil {
+            // One of your tabs over a device's group that won't take it —
+            // that device has its page open already, or it is a page the
+            // devices aren't shown: nothing parts, and it holds still, as
+            // it did before the kept area was under the devices. Falling
+            // through to the head of the kept area, letting go there pinned
+            // a tab that was being sent.
+            refused = true
+        } else {
+            let unit = half ? source : tab
+            let heading = unit.map { $0.pin != nil && $0.everywhere } ?? false
+            let aim = laid.aim(for: carried, from: run(of: carried), at: point, holding: carry?.place, heading: heading) { place in
+                switch carried {
+                case .tab: unit.map { browser.takes($0, at: place, detaching: half) } ?? false
+                case .group(let id): browser.takes(group: id, at: place)
+                }
+            }
+            switch aim {
+            case .along: break
+            case .refused: refused = true
+            case .place(let place): target = .place(place)
             }
         }
-        // A pair's half shown leaving it needs a line of its own; the pair
-        // whole, its two.
-        let half = PairSeparation.shared.leaving.map { browser.split(for: tab)?.contains($0) == true } ?? false
-        let length = half ? rowHeight : (steps([tab]).first ?? rowHeight + SideBar.gap) - SideBar.gap
-        let gap = place.map { RowGap(tab: tab.id, place: $0, height: length, whole: !half) }
-        showGap(gap)
-        guard let gap else { return .none }
-        return gap.moves ? .away : .copy
+        let next = target.map { ColumnCarry(carried: carried, target: $0, height: height(of: carried, half: half, in: laid), whole: !half) }
+        showCarry(next)
+        guard let next else { return refused ? .held : .none }
+        return next.moves ? .away : .copy
+    }
+
+    /// The room what is carried needs: a tab's line, a pair's lines, or a
+    /// half's one; a group as tall as it was drawn when it left.
+    private func height(of carried: SideItemID, half: Bool, in laid: ColumnLayout<Tab>) -> CGFloat {
+        switch carried {
+        case .tab(let id):
+            guard !half, let tab = browser.tabs.first(where: { $0.id == id }) else { return rowHeight }
+            return CGFloat(lines(of: tab, splits: browser.splits)) * rowHeight
+        case .group(let id):
+            if let carry, carry.carried == carried { return carry.height }
+            for area in [ColumnArea.kept, .open] {
+                for case .group(let held) in laid[area].pieces where held.group.id == id { return held.frame.height }
+            }
+            return rowHeight
+        }
     }
 
     /// The other device whose group the hand is over, to open the tab there
     /// too: one the other devices can be shown (Sync.page(of:in:)) and that
     /// device hasn't open already. Kept a little past its edge, as a group
     /// keeps a tab (GroupDropFrames.resolve).
-    private func device(for tab: Tab, at point: CGPoint) -> String? {
-        guard Sync.shared.on, let page = Sync.page(of: tab, in: browser.spaceID),
-              let url = URL(string: page.url) else { return nil }
-        let identity = History.identity(for: url)
-        let held = rowGap?.device
-        let over = deviceFrames.rects.first { id, rect in
-            (id == held ? rect.insetBy(dx: 0, dy: -8) : rect).contains(point)
-        }?.key
-        guard let over, let device = Sync.shared.devicesWithTabs.first(where: { $0.device == over }),
-              !device.tabs.contains(where: { URL(string: $0.url).map(History.identity(for:)) == identity })
+    ///
+    /// Only one of your tabs, never a pin, square or row: a pin is on every
+    /// device already, and one gone on from its home would send the page it
+    /// wandered to while it stayed the pin here. Over a device's group a pin
+    /// goes where anything else it won't take does, to the head of the kept
+    /// area under it (ColumnLayout.area(at:)).
+    private func device(for tab: Tab, at point: CGPoint, in laid: ColumnLayout<Tab>) -> String? {
+        guard tab.pin == nil, Sync.shared.on, let page = Sync.page(of: tab, in: browser.spaceID),
+              let url = URL(string: page.url),
+              let over = laid.device(at: point.y, holding: carry?.device),
+              let device = Sync.shared.devicesWithTabs.first(where: { $0.device == over })
         else { return nil }
+        let identity = History.identity(for: url)
+        guard !device.tabs.contains(where: { URL(string: $0.url).map(History.identity(for:)) == identity }) else { return nil }
         return over
     }
 
-    /// Where in a group a tab lands for what the hand is over: before the
-    /// tab whose middle it hasn't passed, or at the end; on the heading of
-    /// an open group, at its top.
-    private func gapPlace(for target: GroupDropTarget, carrying tab: Tab) -> RowGap.Place {
-        if let member = target.member { return .group(target.group, before: target.after ? nil : member) }
-        guard let group = browser.tabGroups.first(where: { $0.id == target.group }), !group.collapsed,
-              let first = browser.visibleTabs(in: group).first(where: { $0.id != tab.id })
-        else { return .group(target.group, before: nil) }
-        return .group(target.group, before: first.id)
+    /// The open group a tab under the line is over, for a pair's half let
+    /// go there with Split View on (Carried, TabDrag): none for what a group
+    /// can't take.
+    private func openGroup(for tab: Tab, at point: CGPoint) -> GroupDropTarget? {
+        guard prefs.usesTabGroups, tab.pin == nil, !tab.shy, !tab.bench else { return nil }
+        let laid = layout(carrying: carry)
+        guard laid.area(at: point.y) == .open else { return nil }
+        return GroupDropFrames.resolve(CGPoint(x: laid.width / 2, y: point.y), frames: laid.dropFrames(in: .open),
+                                       groups: laid.groups(in: .open), excluding: tab.id, vertical: true,
+                                       holding: carry?.group ?? browser.group(of: tab))
     }
 
     /// The gap moved, on the column's settle, the rows between parting and
     /// closing; a tap of the trackpad when it opens in another run.
-    private func showGap(_ gap: RowGap?) {
-        guard gap != rowGap else { return }
-        if let gap, gap.run != rowGap?.run {
+    private func showCarry(_ next: ColumnCarry?) {
+        guard next != carry else { return }
+        if let next, next.run != carry?.run {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         }
-        withAnimation(Motion.settle) { rowGap = gap }
-        spring(toward: gap)
+        withAnimation(Motion.settle) { carry = next }
+        spring(toward: next)
     }
 
-    /// Resting on a folded group, it opens after a moment, as Finder's
-    /// folders spring open, so the tab can be placed among its tabs; one
-    /// opened so and then left folds again.
-    private func spring(toward gap: RowGap?) {
-        let over = gap?.group.flatMap { id in browser.tabGroups.first { $0.id == id && $0.collapsed }?.id }
-        if let sprung, gap?.group != sprung { foldAgain() }
+    /// Resting on a folded group, in either area, it opens after a moment,
+    /// as Finder's folders spring open, so the tab can be placed among its
+    /// tabs; one opened so and then left folds again.
+    private func spring(toward next: ColumnCarry?) {
+        let over = next?.group.flatMap { id in browser.columnGroup(id)?.collapsed == true ? id : nil }
+        if let sprung, next?.group != sprung { foldAgain() }
         guard over != springing?.group else { return }
         springing?.work.cancel()
         springing = nil
         guard let over else { return }
         let work = DispatchWorkItem {
-            guard springing?.group == over,
-                  browser.tabGroups.first(where: { $0.id == over })?.collapsed == true else { return }
+            guard springing?.group == over, browser.columnGroup(over)?.collapsed == true else { return }
             springing = nil
             sprung = over
             withAnimation(GroupLook.fold) { browser.toggleTabGroup(over) }
         }
         springing = (over, work)
-        DispatchQueue.main.asyncAfter(deadline: .now() + RowGap.spring, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + ColumnCarry.spring, execute: work)
     }
 
     /// The group opened for the carry, folded again: the tab went elsewhere.
     private func foldAgain() {
         guard let id = sprung else { return }
         sprung = nil
-        if browser.tabGroups.first(where: { $0.id == id })?.collapsed == false {
+        if browser.columnGroup(id)?.collapsed == false {
             withAnimation(GroupLook.fold) { browser.toggleTabGroup(id) }
         }
     }
 
-    /// Let go with a gap open for it: it goes there, where it was shown it
-    /// would. In another run it is another row: the one carried goes at
-    /// once — on the column's settle it slid back to its old place as it
-    /// faded, a second tab beside the first — and the new one takes the
-    /// gap, which is just its size, starting under the hand (`drawn`, its
-    /// leading edge in the rows' space) and settling into it.
+    /// A tab let go with a gap open for it: it goes there, where it was
+    /// shown it would, by the column's move (Browser.move(_:to:)) — pinned
+    /// above the line, unpinned under it, a pair whole or the half shown
+    /// leaving it. Onto another device, the page picked up is opened there,
+    /// and kept here, sliding home as it comes into that device's list.
     private func placed(_ drop: CarriedDrop) -> Bool {
-        guard let gap = rowGap, gap.tab == drop.row.id else { return false }
+        guard let carry, let row = drop.row, carry.carried == .tab(row.id) else { return false }
         // Into the group it opened: it stays open.
-        if gap.group == sprung { sprung = nil }
-        // Onto another device: the page picked up opened there, and kept
-        // here, sliding home as it comes into that device's list.
-        if let device = gap.device {
+        if carry.group == sprung { sprung = nil }
+        let source = drop.source ?? row
+        switch carry.target {
+        case .device(let device):
             withAnimation(Motion.settle) {
-                Sync.shared.askToOpen(drop.source, in: browser.spaceID, on: device)
-                rowGap = nil
+                Sync.shared.askToOpen(source, in: browser.spaceID, on: device)
+                self.carry = nil
             }
-            litGroup = nil
-            return true
+        case .place(let place):
+            let detaching = drop.detaching || !carry.whole
+            let moving = detaching ? source : row
+            land(moving.id, drawn: drop.drawn) { browser.move(moving, to: place, detaching: detaching) }
         }
+        return true
+    }
+
+    /// A group let go with a gap open for it in the other area: a kept group
+    /// there, or an open one (Browser.move(group:to:)).
+    private func placed(_ drop: CarriedDrop, group id: UUID) -> Bool {
+        guard let carry, carry.carried == .group(id), let place = carry.place else { return false }
+        land(id, drawn: drop.drawn) { browser.move(group: id, to: place) }
+        return true
+    }
+
+    /// Into the gap: what was carried goes at once — on the column's settle
+    /// it slid back to its old place as it faded, a second one beside the
+    /// first — and is drawn anew in the gap, which is just its size,
+    /// starting under the hand (`drawn`, its leading edge in the rows'
+    /// space) and settling into it.
+    private func land(_ id: UUID, drawn: CGFloat?, move: () -> Void) {
         var offset: CGFloat = 0
-        if let drawn = drop.drawn, let top = gapFrame.top { offset = drawn - top }
+        if let drawn, let top = gapFrame.top { offset = drawn - top }
         var still = Transaction()
         still.disablesAnimations = true
         withTransaction(still) {
-            switch gap.place {
-            case .group(let id, let before):
-                browser.move(drop.source, toGroup: GroupDropTarget(group: id, member: before), detaching: drop.detaching)
-            case .loose(let before):
-                browser.move(drop.source, outOfGroupBefore: before, detaching: drop.detaching)
-            case .device:
-                break
-            }
-            rowGap = nil
-            // The row that lands: the half on its own, or the pair's.
-            settling = RowLanding(tab: drop.detaching ? drop.source.id : drop.row.id, offset: offset)
+            move()
+            carry = nil
+            settling = RowLanding(tab: id, offset: offset)
         }
         DispatchQueue.main.async {
             withAnimation(Motion.settle) { settling = nil }
         }
-        litGroup = nil
-        return true
     }
 
-    /// Put down, let go or called off: nothing lit, no gap, no group left
-    /// open that it opened.
+    /// Put down, let go or called off: no gap, no group left open that it
+    /// opened.
     private func putDown() {
-        litGroup = nil
         springing?.work.cancel()
         springing = nil
-        if rowGap != nil { withAnimation(Motion.settle) { rowGap = nil } }
+        if carry != nil { withAnimation(Motion.settle) { carry = nil } }
         foldAgain()
     }
 
-    /// The group a carried tab is over, lit while it is.
-    private func lighting(_ target: GroupDropTarget?) -> GroupDropTarget? {
-        if litGroup != target?.group { litGroup = target?.group }
-        return target
-    }
+    // MARK: - carried between the squares and the rows
 
-    private func drop(_ tab: Tab, at point: CGPoint) {
-        litGroup = nil
-        if let target = destination(tab, at: point) {
-            // Along its own group it moved as it went (see `preview`).
-            guard target.group != browser.group(of: tab) else { return }
-            browser.move(tab, toGroup: target)
-        } else if let out = leaving(tab, at: point) {
-            browser.move(tab, outOfGroupBefore: out.before)
-        }
-    }
-
-    private func leaving(_ tab: Tab, at point: CGPoint) -> LooseDrop? {
-        guard prefs.usesTabGroups, tab.pin == nil else { return nil }
-        let loose = Set(looseTabs.map(\.id))
-        return GroupDropFrames.leaving(point, frames: groupFrames, loose: looseFrames.rects.filter { loose.contains($0.key) },
-                                       groups: browser.tabGroups, source: tab.id, vertical: true)
-    }
-
-    private func groupRows(_ group: TabGroup) -> some View {
-        let members = browser.visibleTabs(in: group)
-        let memberSteps = steps(members)
-        return VStack(spacing: SideBar.gap) {
-            ForEach(Array(members.enumerated()), id: \.element.id) { index, tab in
-                if let gap = rowGap, gap.place == .group(group.id, before: tab.id) { RowGapSlot(gap: gap, frame: gapFrame) }
-                rowItem(tab, tabs: browser.tabs, splits: browser.splits,
-                        activeID: browser.liveID, interactive: true,
-                        close: { browser.closeTab(tab) })
-                    .modifier(RowGapSource(away: rowGap?.tab == tab.id && rowGap?.empties == true,
-                                           landing: settling?.tab == tab.id ? settling?.offset ?? 0 : 0))
-                    .modifier(Carried(index: index, steps: memberSteps, vertical: true,
-                                      space: "rows", onDropTab: { source, point in drop(source, at: point) },
-                                      groupDestination: { source, point in lighting(destination(source, at: point)) },
-                                      outside: { browser.dragOut(tab) }, browser: browser, tab: tab,
-                                      cross: { cross(tab, $0, from: .rows) },
-                                      land: { land(tab, $0) }, faded: crossing?.tab == tab.id,
-                                      holding: { held in
-                                          carryingGroup = held ? group.id : nil
-                                          if !held { putDown() }
-                                      },
-                                      gap: { source, point in preview(source, at: point) },
-                                      placed: { placed($0) }) {
-                        browser.move(tab, within: group.id, to: $0)
-                    })
-            }
-            if let gap = rowGap, gap.place == .group(group.id, before: nil) { RowGapSlot(gap: gap, frame: gapFrame) }
-            // A pin carried over its heading goes in at the end.
-            if crossing?.target == .group(group.id), let carried = crossingTab {
-                RowGhost(tab: carried, height: rowHeight, size: prefs.sideTitle)
-            }
-        }
-        // With icons only, the group's tiles held by a thin bracket in the
-        // margin, rather than set in under a name.
-        .overlay(alignment: .leading) {
-            if icons && !members.isEmpty { IconGroupBracket(folded: group.collapsed).offset(x: -6) }
-        }
-    }
-
-    // MARK: - carried between the pins and the tabs
-
-    /// The block a carried tab's point is measured in.
-    private enum From { case pins, listed, rows }
+    /// The space a carried thing's point is measured in.
+    private enum From { case pins, rows }
 
     /// The place open in the grid, while a tab is carried over it.
-    private var ghostSquare: Int? {
-        if case .squares(let at)? = crossing?.target { return at }
-        return nil
-    }
+    private var ghostSquare: Int? { crossing?.slot }
 
-    /// The tab being carried across, while it is.
+    /// The tab being carried over the grid, while it is.
     private var crossingTab: Tab? {
         crossing.flatMap { crossing in browser.tabs.first { $0.id == crossing.tab } }
     }
 
     /// A square being carried out over the rows.
     private var carriedPin: Bool {
-        guard let crossing, ghostSquare == nil else { return false }
-        return browser.tabs.first { $0.id == crossing.tab }.map { $0.pin != nil && !($0.listed && prefs.showsPinRows) } ?? false
+        guard case .tab(let id)? = carry?.carried, let tab = browser.tabs.first(where: { $0.id == id }) else { return false }
+        return tab.pin != nil && !(tab.listed && prefs.showsPinRows)
     }
 
     private func columnPoint(_ point: CGPoint, from: From) -> CGPoint {
         let origin: CGPoint
         switch from {
         case .pins: origin = frames.grid?.origin ?? .zero
-        case .listed: origin = frames.listed?.origin ?? .zero
         case .rows: origin = frames.rows.origin
         }
         return CGPoint(x: point.x + origin.x, y: point.y + origin.y)
     }
 
-    /// Where `tab` would land with the hand at `point` (the column's
-    /// space): nil over its own block, where it moves as it always did, or
-    /// over one that won't take it — a pair, a private tab.
-    private func target(for tab: Tab, at point: CGPoint) -> PinDrop.Target? {
+    /// Where among the squares `tab` would land with the hand at `point`
+    /// (the column's space): nil off the grid, or for what it won't take —
+    /// a pair, a private tab, a square already there.
+    private func squareSlot(for tab: Tab, at point: CGPoint) -> Int? {
         let squares = browser.squarePins.filter { $0.id != tab.id }
         let gridShown = !squares.isEmpty || ghostSquare != nil
-        let rowsOn = prefs.showsPinRows
-        let listedShown = rowsOn && (!browser.listedPins.isEmpty || isListedGhost || browser.showsPinFolderRows)
-        let zone = PinDrop.zone(point, width: width - 20,
-                                gridBottom: gridShown ? frames.grid?.maxY : nil,
-                                listed: listedShown ? frames.listed : nil)
-        switch zone {
-        case .none:
-            return nil
-        case .squares:
-            let takes = tab.pin == nil ? browser.pinsByDrag(tab) : (rowsOn && tab.listed)
-            guard takes else { return nil }
-            let origin = gridShown ? frames.grid?.origin ?? .zero : .zero
-            let slot = PinDrop.gridSlot(CGPoint(x: point.x - origin.x, y: point.y - origin.y),
-                                        cells: pinCells(squares.count + 1))
-            return .squares(browser.pinSlot(tab, listed: false, proposed: slot))
-        case .listed:
-            let takes = tab.pin == nil ? browser.pinsByDrag(tab) : !tab.listed
-            guard takes, let listed = frames.listed else { return nil }
-            let rows = browser.listedPins.filter { $0.id != tab.id }
-            let ghost: (Int, CGFloat)? = if case .listed(let at)? = crossing?.target { (at, rowHeight) } else { nil }
-            let slot = PinDrop.rowSlot(y: point.y - listed.minY, heights: rows.map { _ in rowHeight },
-                                       gap: SideBar.gap, ghost: ghost)
-            return .listed(browser.pinSlot(tab, listed: true, proposed: slot))
-        case .loose:
-            guard tab.pin != nil else { return nil }
-            let inRows = CGPoint(x: point.x - frames.rows.minX, y: point.y - frames.rows.minY)
-            if prefs.usesTabGroups, let id = groupFrames.values.first(where: { $0.rect.contains(inRows) })?.group {
-                return .group(id)
-            }
-            let items = runItems
-            guard !items.isEmpty, let top = frames.loose?.minY else { return .loose(0) }
-            let ghost: (Int, CGFloat)? = if case .loose(let at)? = crossing?.target { (at, rowHeight) } else { nil }
-            let heights = steps(of: items).map { $0 - SideBar.gap }
-            return .loose(PinDrop.rowSlot(y: point.y - top, heights: heights, gap: SideBar.gap, ghost: ghost))
-        }
+        guard PinDrop.zone(point, width: width - 20, gridBottom: gridShown ? frames.grid?.maxY : nil) == .squares else { return nil }
+        let takes = tab.pin == nil ? browser.pinsByDrag(tab) : (prefs.showsPinRows && tab.listed)
+        guard takes else { return nil }
+        let origin = gridShown ? frames.grid?.origin ?? .zero : .zero
+        let slot = PinDrop.gridSlot(CGPoint(x: point.x - origin.x, y: point.y - origin.y),
+                                    cells: pinCells(squares.count + 1))
+        return browser.pinSlot(tab, listed: false, proposed: slot)
     }
 
-    private var isListedGhost: Bool {
-        if case .listed? = crossing?.target { return true }
-        return false
-    }
-
-    /// The hand moved: the block it is over shows where the tab would
-    /// land, and says so once, by touch, as it starts to. True while it does.
-    private func cross(_ tab: Tab, _ point: CGPoint, from: From) -> Bool {
-        let at = columnPoint(point, from: from)
-        let now = target(for: tab, at: at)
-            .map { PinDrop.Crossing(tab: tab.id, target: $0) }
-        // Coming into the rows from the squares or the tabs, with folders:
-        // the place among them, as a row carried there has it.
-        if from != .listed, browser.showsPinFolderRows {
-            if case .listed? = now?.target {
-                showFolderDrop(folderPlace(for: tab.id, y: at.y - (frames.listed?.minY ?? 0)))
-            } else {
-                showFolderDrop(nil)
-            }
-        }
+    /// A row carried over the squares: the grid opens a place where it
+    /// would land, and says so once, by touch, as it starts to. True while
+    /// it does; the rows then let go of it.
+    private func overSquares(_ tab: Tab, _ point: CGPoint) -> Bool {
+        let now = squareSlot(for: tab, at: columnPoint(point, from: .rows)).map { PinDrop.Crossing(tab: tab.id, slot: $0) }
         if now != crossing {
             if crossing == nil, now != nil {
                 NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
@@ -1353,45 +1238,52 @@ struct SideBar: View {
         return now != nil
     }
 
-    /// Let go (nil: called off). Where it was shown it would land is where
-    /// it lands; true when that was across the line.
-    private func land(_ tab: Tab, _ point: CGPoint?) -> Bool {
-        let shown = crossing?.tab == tab.id ? crossing?.target : nil
+    /// A row let go (nil: called off): over the grid, a square where it was
+    /// shown it would land (Browser.square). True when the grid took it.
+    private func landOnSquares(_ tab: Tab, _ point: CGPoint?) -> Bool {
+        let shown = crossing?.tab == tab.id ? crossing?.slot : nil
         guard point != nil, let shown else {
             if crossing != nil { withAnimation(Motion.settle) { crossing = nil } }
-            if folderDrop != nil, crossing == nil { showFolderDrop(nil) }
             return false
         }
         withAnimation(Motion.settle) {
             crossing = nil
-            switch shown {
-            case .squares(let at): browser.pinDropped(tab, listed: false, at: at)
-            case .listed(let at):
-                if browser.pinDropped(tab, listed: true, at: at), browser.showsPinFolderRows {
-                    if let place = folderDrop { browser.movePin(tab, to: place) } else { browser.arrangePinFolders() }
-                }
-            case .loose(let at): browser.unpinDropped(tab, at: at)
-            case .group(let id): browser.unpinDropped(tab, at: 0, group: id)
-            }
+            browser.square(tab, at: shown)
         }
         return true
     }
 
-    /// The pinned rows, the loose tabs and the row that makes another,
-    /// which scroll as one.
-    private var rows: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            listed
-            loose
-            if !newTabOnTop { newTab.padding(.top, SideBar.gap) }
+    /// A square carried out over the rows: they part for it where it would
+    /// land, as for any tab carried there (`carrying`). True while the hand
+    /// is past the grid, and the grid then holds still.
+    private func squareOverRows(_ tab: Tab, _ point: CGPoint) -> Bool {
+        let at = columnPoint(point, from: .pins)
+        let gridBottom = browser.squarePins.isEmpty ? nil : frames.grid?.maxY
+        guard PinDrop.zone(at, width: width - 20, gridBottom: gridBottom) == .rows else {
+            _ = carrying(.tab(tab.id), row: tab, at: nil)
+            return false
         }
+        _ = carrying(.tab(tab.id), row: tab, at: CGPoint(x: at.x - frames.rows.minX, y: at.y - frames.rows.minY))
+        return true
     }
 
-    /// The line under your other devices' groups: there unless the line over
-    /// your tabs (KeepLine's, with Clear) would come straight after it, no
-    /// New Tab row nor group of yours between, which then does for both.
-    private func showsDeviceLine(devices: Int, groups: Int, keepLine: Bool) -> Bool {
-        devices > 0 && (newTabOnTop || groups > 0 || !keepLine)
+    /// A square let go (nil: called off): over the rows, where they parted
+    /// for it — a row above the line, a tab under it. True when they took it.
+    private func squareLand(_ tab: Tab, _ point: CGPoint?) -> Bool {
+        guard point != nil, let carry, carry.carried == .tab(tab.id) else {
+            putDown()
+            return false
+        }
+        if carry.group == sprung { sprung = nil }
+        withAnimation(Motion.settle) {
+            switch carry.target {
+            case .device(let device): Sync.shared.askToOpen(tab, in: browser.spaceID, on: device)
+            case .place(let place): browser.move(tab, to: place)
+            }
+            self.carry = nil
+        }
+        putDown()
+        return true
     }
 
     /// The New Tab row where new tabs go: at the top of yours, under the
@@ -1407,16 +1299,26 @@ struct SideBar: View {
     /// Between what plays in another tab and the foot's doors.
     private static let playerGap: CGFloat = 4
 
+    /// The New Tab row: under the line at the top of your tabs, or under
+    /// them all (newTabOnTop). Never somewhere to put what is carried, from either area: the hand
+    /// over it is over the head of your tabs, or their foot with it under
+    /// them all (ColumnLayout.topLevel), and while a row, a group or a
+    /// square is carried it doesn't light, as a place to drop would, nor
+    /// answer the pointer at all.
     @ViewBuilder
     private var newTab: some View {
-        if icons {
-            Quiet(icon: "plus", title: "", height: rowHeight, size: prefs.sideTitle, centred: true,
-                  lit: browser.launching) { browser.launch() }
-                .help("New Tab   ⌘T")
-        } else {
-            Quiet(icon: "plus", title: "New tab", height: rowHeight, size: prefs.sideTitle,
-                  lit: browser.launching) { browser.launch() }
+        let carried = lifting || carry != nil || crossing != nil
+        Group {
+            if icons {
+                Quiet(icon: "plus", title: "", height: rowHeight, size: prefs.sideTitle, centred: true,
+                      lit: browser.launching) { browser.launch() }
+                    .help("New Tab   ⌘T")
+            } else {
+                Quiet(icon: "plus", title: "New tab", height: rowHeight, size: prefs.sideTitle,
+                      lit: browser.launching) { browser.launch() }
+            }
         }
+        .allowsHitTesting(!carried)
     }
 
     /// One small door at the bottom: the settings.
@@ -1428,7 +1330,7 @@ struct SideBar: View {
 
 /// The row at the bottom of the column. Never wider than the column: wider,
 /// the column took its width, and centred in its own frame it slid half the
-/// overflow off each side (#535). The space's door, the puzzle, bookmarks and
+/// overflow off each side (#535). The space's door, the puzzle and
 /// downloads stay put; the pinned extensions that don't fit give way, from
 /// the last, and are still in the puzzle's list.
 private struct SideFoot: View {
@@ -1446,7 +1348,6 @@ private struct SideFoot: View {
             VStack(spacing: 2) {
                 FetchDoor(browser: browser, fetches: fetches, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
                 ExtensionSlot(browser: browser, edge: prefs.sidePosition == .right ? .leading : .trailing, room: 0)
-                BookmarkDoor(browser: browser, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
                 ElsewhereDoor(browser: browser, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
                 if prefs.usesSpaces { SpaceDot(browser: browser) }
                 if Profiles.shared.several { ProfileBadge(browser: browser) }
@@ -1458,7 +1359,6 @@ private struct SideFoot: View {
                 if Profiles.shared.several { ProfileBadge(browser: browser) }
                 if prefs.usesSpaces { SpaceDot(browser: browser) }
                 ExtensionSlot(browser: browser, edge: .trailing, room: room)
-                BookmarkDoor(browser: browser, arrowEdge: .trailing)
                 // Only while a download is running, and a moment after.
                 FetchDoor(browser: browser, fetches: fetches, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
                 Spacer(minLength: 0)
@@ -1470,7 +1370,7 @@ private struct SideFoot: View {
 
     /// How many doors the foot has, stacked: what the rows stop short of.
     @MainActor static func doors(_ prefs: Preferences, _ fetches: Fetches, hanging: Bool = false) -> Int {
-        var kept = 2  // the puzzle and bookmarks
+        var kept = 1  // the puzzle
         if prefs.usesSpaces { kept += 1 }
         if Profiles.shared.several { kept += 1 }
         if FetchDoor.shows(fetches, prefs, hanging: hanging) { kept += 1 }
@@ -1482,7 +1382,7 @@ private struct SideFoot: View {
     /// is 26 points, with 2 between them.
     private var room: Int {
         let door: CGFloat = 26 + 2
-        var kept = 2  // the puzzle and bookmarks
+        var kept = 1  // the puzzle
         if prefs.usesSpaces { kept += 1 }
         if Profiles.shared.several { kept += 1 }
         if FetchDoor.shows(fetches, prefs, hanging: browser.downloadsHanging) { kept += 1 }
@@ -1697,7 +1597,8 @@ private struct SideRow: View, Equatable {
     private let refusals: Int
     /// Its cross is a minus: closing it puts its page away (Browser.putsAway).
     private let putsAway: Bool
-    /// In a group, with groups on: a page put away from it stays a row there.
+    /// In a group, in either area — a kept group, or an open one with
+    /// groups on: a page put away or put down from it stays a row there.
     private let grouped: Bool
 
     init(browser: Browser, prefs: Preferences, tab: Tab, live: Bool,
@@ -1714,7 +1615,9 @@ private struct SideRow: View, Equatable {
         peek = browser.peekFrom == tab.id ? browser.peekTab : nil
         refusals = browser.refusals
         putsAway = browser.putsAway(tab)
-        grouped = prefs.usesTabGroups && browser.group(of: tab) != nil
+        grouped = browser.area(of: tab) == .kept
+            ? browser.keptGroup(of: tab) != nil
+            : prefs.usesTabGroups && browser.group(of: tab) != nil
     }
 
     /// The close action is left out: it closes the same tab every time.
@@ -1745,9 +1648,10 @@ private struct SideRow: View, Equatable {
     private var warning: AtRest? { live ? AtRest.warning(tab.restAddress) : nil }
     /// A pin already put down has nothing left to put down: no minus (#1050).
     private var closable: Bool { tab.pin == nil || !tab.asleep }
-    /// A grouped tab holding no page — put away with its minus (Browser.putAway),
-    /// put to sleep, or not opened since launch: the row stays, dimmed as a
-    /// pin put down is, so the minus is seen to have done something.
+    /// A grouped tab holding no page, above the line or under it — put away
+    /// or put down with its minus (Browser.putAway, Browser.close), put to
+    /// sleep, or not opened since launch: the row stays, dimmed, so the
+    /// minus is seen to have done something, the same in both areas.
     /// Read from the tab here, not when the column made the row: the column
     /// isn't drawn again when one of its tabs lets its page go.
     private var putAway: Bool { grouped && tab.asleep && !live }

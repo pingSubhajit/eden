@@ -131,11 +131,26 @@ final class SpacesAndPinsTests: XCTestCase {
         XCTAssertEqual(read.bySpace.count, 1)
     }
 
-    func testAFileGoesAndComesBackTheSameFoldersIncluded() throws {
+    func testAFileGoesAndComesBackTheSameGroupsIncluded() throws {
         var a = def("A", listed: true)
-        a.folder = UUID()
+        a.group = UUID()
         let catalog = PinCatalog(bySpace: [UUID(): [a]], sharedByProfile: [Space.personalProfileID: [def("M")], clients: [def("N")]])
         XCTAssertEqual(try PinsFile.decode(PinsFile.encode(catalog)), catalog)
+    }
+
+    /// A row's kept group goes on disk under the name it always had,
+    /// "folder", so an older Eden and every other device read it as before.
+    func testAPinsGroupIsWrittenAndReadAsItsFolder() throws {
+        var a = def("A", listed: true)
+        let group = UUID()
+        a.group = group
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(a)) as? [String: Any])
+        XCTAssertEqual(object["folder"] as? String, group.uuidString)
+        XCTAssertNil(object["group"])
+        let older = #"{"id":"\#(UUID().uuidString)","letter":"B","home":"https://b.example/","title":"B","listed":true,"folder":"\#(group.uuidString)"}"#
+        XCTAssertEqual(try JSONDecoder().decode(PinDef.self, from: Data(older.utf8)).group, group)
+        let none = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(def("C"))) as? [String: Any])
+        XCTAssertNil(none["folder"], "in no group, the pin is written as it always was")
     }
 
     func testNoSharedPinsWritesNoSharedKey() throws {
@@ -152,14 +167,14 @@ final class SpacesAndPinsTests: XCTestCase {
 
     // MARK: - a row
 
-    func testSharingMovesAPinToTheEndOfTheSharedOnesOutOfItsFolder() {
+    func testSharingMovesAPinToTheEndOfTheSharedOnesOutOfItsGroup() {
         var a = def("A", listed: true)
-        a.folder = UUID()
+        a.group = UUID()
         let b = def("B"), m = def("M")
         let moved = PinLists.share(a.id, own: [a, b], shared: [m])
         XCTAssertEqual(moved.own, [b])
         XCTAssertEqual(moved.shared.map(\.id), [m.id, a.id])
-        XCTAssertNil(moved.shared.last?.folder)
+        XCTAssertNil(moved.shared.last?.group)
     }
 
     func testKeepingMovesAPinToTheStartOfTheSpacesOwn() {
