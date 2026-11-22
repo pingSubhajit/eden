@@ -201,9 +201,15 @@ final class ScreenPermissionTests: XCTestCase {
     func testClosingTheLastWindowCancelsWithoutDiscardingItsTabs() async throws {
         let (browser, tab, frame) = try await fixture()
         let window = NSWindow(contentRect: .zero, styleMask: [], backing: .buffered, defer: false)
+        // Kept, as Browsers' own windows are: Browsers.discard closes it.
+        window.isReleasedWhenClosed = false
         browser.window = window
         Browsers.register(browser)
-        defer { browser.closeAll(); browser.window = nil }
+        // Out of Browsers.all again once the test is done, as in every test
+        // here that registers its windows: closed but still listed, a window
+        // lives on through every later suite, and each later window is taken
+        // for a second window of its profile (#33).
+        defer { Browsers.discard(browser); browser.window = nil }
         var replies: [Int] = []
         ask(browser, tab, frame) { replies.append($0) }
         Browsers.closing(window)
@@ -369,7 +375,7 @@ final class ScreenPermissionTests: XCTestCase {
         let (second, tab, frame) = try await fixture()
         Browsers.register(first)
         Browsers.register(second)
-        defer { first.forgetCaptureChoices(); first.closeAll(); second.closeAll() }
+        defer { first.forgetCaptureChoices(); [second, first].forEach(Browsers.discard) }
         var replies: [WKPermissionDecision] = []
         second.askedForCapture(tab.web, origin: frame.securityOrigin, frame: frame, type: .camera) { replies.append($0) }
         XCTAssertNotNil(second.asking)
@@ -384,7 +390,7 @@ final class ScreenPermissionTests: XCTestCase {
         let (second, secondTab, secondFrame) = try await fixture()
         Browsers.register(first)
         Browsers.register(second)
-        defer { first.forgetCaptureChoices(); first.closeAll(); second.closeAll() }
+        defer { first.forgetCaptureChoices(); [second, first].forEach(Browsers.discard) }
         var combined: [WKPermissionDecision] = []
         var camera: [WKPermissionDecision] = []
         first.askedForCapture(firstTab.web, origin: firstFrame.securityOrigin, frame: firstFrame, type: .cameraAndMicrophone) { combined.append($0) }
@@ -417,7 +423,7 @@ final class ScreenPermissionTests: XCTestCase {
         let (second, secondTab, secondFrame) = try await fixture()
         Browsers.register(first)
         Browsers.register(second)
-        defer { first.forgetCaptureChoices(); first.closeAll(); second.closeAll() }
+        defer { first.forgetCaptureChoices(); [second, first].forEach(Browsers.discard) }
         first.prefs.siteNotifications = true
         second.prefs.siteNotifications = true
         second.newTab()
@@ -439,7 +445,7 @@ final class ScreenPermissionTests: XCTestCase {
         let (second, secondTab, secondFrame) = try await fixture()
         Browsers.register(first)
         Browsers.register(second)
-        defer { first.forgetCaptureChoices(); first.closeAll(); second.closeAll() }
+        defer { first.forgetCaptureChoices(); [second, first].forEach(Browsers.discard) }
         var other: [WKPermissionDecision] = []
         first.askedForLocation(firstTab.web, origin: firstFrame.securityOrigin, frame: firstFrame) { _ in }
         second.askedForLocation(secondTab.web, origin: secondFrame.securityOrigin, frame: secondFrame) { other.append($0) }
