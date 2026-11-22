@@ -40,7 +40,9 @@ final class AllURLsRemovalTests: XCTestCase {
         // The shim answers only with a browser window to answer for.
         let browser = Browser(record: WindowRecord())
         Browsers.register(browser)
-        defer { browser.closeAll() }
+        // Closed and out of Browsers.all again: left there, every later
+        // suite's window would be a second window of the profile (#28).
+        defer { Browsers.discard(browser) }
         let reply = try await ExtensionShims.answer(["api": "permissions.removeWebsites", "args": []],
                                                     from: context, owner: Extensions.shared) as? [String: Any]
         XCTAssertEqual(reply?["value"] as? Bool, true, "\(String(describing: reply))")

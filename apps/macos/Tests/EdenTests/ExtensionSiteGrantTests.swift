@@ -51,7 +51,9 @@ final class ExtensionSiteGrantTests: XCTestCase {
         XCTAssertTrue(compact.hasAccess(to: URL(string: "https://news.example.com/article")!))
         let browser = Browser(record: WindowRecord())
         Browsers.register(browser)
-        defer { browser.closeAll() }
+        // Closed and out of Browsers.all again: left there, every later
+        // suite's window would be a second window of the profile (#28).
+        defer { Browsers.discard(browser) }
         Extensions.clicked[compact.uniqueIdentifier] = Date()
         let reply = try await ExtensionShims.answer([
             "api": "permissions.afterClick", "args": [[], [named.string]],
