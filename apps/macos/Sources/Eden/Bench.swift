@@ -3087,6 +3087,15 @@ final class Bench {
             }
             take(0)
             switch request["action"] as? String {
+            case "keepline":
+                // The pointer on the line for `hold` seconds, then off it
+                // again: left on, the next film started over a line already
+                // hovered, and its quick pass showed Clear throughout.
+                let hold = request["hold"] as? Double ?? 0.7
+                NotificationCenter.default.post(name: KeepLine.benchHover, object: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + hold) {
+                    NotificationCenter.default.post(name: KeepLine.benchHover, object: false)
+                }
             case "peek": browser.peek(true)
             case "unpeek": browser.peek(false)
             case "fold": browser.toggleFold()

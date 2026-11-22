@@ -1980,6 +1980,8 @@ private extension View {
 }
 
 struct KeepLine: View {
+    /// The bench sends the same hover changes without moving the real pointer.
+    static let benchHover = Notification.Name("KeepLine.benchHover")
     static let height: CGFloat = 18
     /// How many are drawn, for the bench (`columnscroll`). Test runs only.
     @MainActor static var drawn = 0
@@ -1988,6 +1990,7 @@ struct KeepLine: View {
     let act: () -> Void
 
     @State private var hovering = false
+    @State private var showing = false
     /// The pointer on Clear itself, not only on the line: the word comes up
     /// to the ink, so it reads as the thing to press, with no ground of its
     /// own to make it a button.
@@ -1998,35 +2001,82 @@ struct KeepLine: View {
             Rectangle()
                 .fill(Palette.hairline)
                 .frame(height: 1)
-            if clears && hovering {
-                Button(action: act) {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 8, weight: .semibold))
-                        Text("Clear")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(onClear ? Palette.ink : Palette.muted)
-                    .frame(height: KeepLine.height)
-                    .contentShape(Rectangle())
+            Button(action: act) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 8, weight: .semibold))
+                    Text("Clear")
+                        .font(.system(size: 11))
                 }
-                .buttonStyle(.plain)
-                .onHover { onClear = $0 }
-                .help("Close the tabs under the line. Pins and groups stay; ⇧⌘T brings them all back.")
-                .transition(.opacity)
+                .foregroundStyle(onClear ? Palette.ink : Palette.muted)
+                .frame(height: KeepLine.height)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .onHover { onClear = $0 }
+            .help("Close the tabs under the line. Pins and groups stay; ⇧⌘T brings them all back.")
+            // The slot stays put. Its tail fades away before the word
+            // comes in, so no frame draws the hairline through Clear.
+            .modifier(KeepLineEnd(amount: showing && clears ? 1 : 0))
         }
         .padding(.horizontal, 10)
         .frame(height: KeepLine.height)
         .contentShape(Rectangle())
         .onHover { hovering = $0; if !$0 { onClear = false } }
+        .onReceive(NotificationCenter.default.publisher(for: Self.benchHover)) { note in
+            guard Store.testing, let over = note.object as? Bool else { return }
+            hovering = over
+            if !over { onClear = false }
+        }
         // Gone from under the pointer with nothing left to clear, it may
         // hear no leaving: it doesn't come back lit with the next tab.
         .onChange(of: clears) { _, now in if !now { onClear = false } }
         .onAppear { if Store.testing { KeepLine.drawn += 1 } }
         .onDisappear { if Store.testing { KeepLine.drawn -= 1 } }
-        .animation(Motion.quick, value: hovering)
+        .task(id: hovering && clears) {
+            guard hovering && clears else { showing = false; return }
+            // A pointer crossing the line on its way to a pin needn't flash
+            // Clear. Cancellation also covers leaving and coming straight back.
+            if !Motion.reduced {
+                do { try await Task.sleep(for: .milliseconds(120)) }
+                catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            showing = true
+        }
+        .animation(Motion.quick, value: showing)
         .animation(Motion.quick, value: onClear)
+    }
+}
+
+/// One fade shared by the tail and the word. Their visible halves never
+/// overlap, even when a hover reverses partway through the fade.
+private struct KeepLineEnd: AnimatableModifier {
+    var amount: Double
+    var animatableData: Double {
+        get { amount }
+        set { amount = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(max(0, amount * 2 - 1))
+            // Pressed, and offered to VoiceOver, only while it can be seen:
+            // as soon as it was asked to show, a click on what still looked
+            // like the line closed the tabs under it.
+            .allowsHitTesting(amount > 0.5)
+            .accessibilityHidden(amount <= 0.5)
+            .background {
+                Rectangle()
+                    .fill(Palette.hairline)
+                    .frame(height: 1)
+                    .padding(.leading, -6)
+                    .opacity(max(0, 1 - amount * 2))
+            }
+            // These opacities follow the interpolated amount itself, so the
+            // fade's own animation is let go of; only while the amount
+            // moves, or the word's ink under the pointer snapped as well.
+            .transaction(value: amount) { $0.animation = nil }
     }
 }
 
