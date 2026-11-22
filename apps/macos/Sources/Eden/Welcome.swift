@@ -67,7 +67,7 @@ struct WelcomePanel: View {
             Plate(size: 72)
             VStack(spacing: 10) {
                 Text("Eden")
-                    .font(.system(size: 34, weight: .medium))
+                    .displayFont(64)
                     .foregroundStyle(Palette.ink)
                 Text("A browser with nothing in the way. Four megabytes, the engine already in your Mac, and as little around the page as we could manage.")
                     .font(.system(size: 14.5))
@@ -303,7 +303,7 @@ struct WelcomePanel: View {
     private func heading(_ title: String, _ line: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 26, weight: .medium))
+                .displayFont(34)
                 .foregroundStyle(Palette.ink)
             Text(line)
                 .font(.system(size: 14))

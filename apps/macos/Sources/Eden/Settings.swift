@@ -277,15 +277,13 @@ struct SettingsPanel: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                if !searching {
-                    Image(systemName: page.icon)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Palette.ink)
-                }
                 Text(searching ? "Settings matching “\(query.trimmingCharacters(in: .whitespaces))”" : page.title)
-                    .font(.system(size: 17, weight: .semibold))
+                    .displayFont(30)
                     .foregroundStyle(Palette.ink)
                     .lineLimit(1)
+                    // A search's title, the query in it, shrinks a little
+                    // before it is cut short, never under 21 points.
+                    .minimumScaleFactor(0.7)
                 Spacer()
                 if !asTab {
                     Door(icon: "xmark", help: "Done   esc") { browser.tuning = false }
@@ -987,7 +985,7 @@ struct SettingsPanel: View {
                 .frame(height: 40)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Eden")
-                    .font(.system(size: 15, weight: .semibold))
+                    .displayFont(28)
                     .foregroundStyle(Palette.ink)
                 Text("by \(Brand.publisher) · version \(Updater.version)")
                     .font(.system(size: 12))

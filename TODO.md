@@ -66,9 +66,6 @@ build goes to anyone else. Each item names where it is in the code.
 
 ## Brand
 
-- [ ] **Eden's colours** The palette of the icon, dusk pink, sage, olive
-  and umber, for the apps' own colours: `Palette` in
-  apps/macos/Sources/Eden/Design.swift, and the iPhone's tint (#37).
 - [ ] **Eden's type** Astheric Extra Light for headings and larger text,
   bundled in both apps once its licensed files are in the repository; SF
   stays for the rest (#37).
