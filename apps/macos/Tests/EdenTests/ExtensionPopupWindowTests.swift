@@ -45,7 +45,11 @@ final class ExtensionPopupWindowTests: XCTestCase {
         let popup = Browser(record: WindowRecord())
         popup.extensionPopup = "some-extension"
         let plain = Browser(record: WindowRecord())
-        let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: Self.extensionFolder()))
+        let folder = try Self.extensionFolder()
+        // Gone with the test, rather than one more left in the temporary
+        // folder by every run (#33).
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: folder))
         XCTAssertEqual(ExtensionWindow(owner: Extensions.shared, browser: popup).windowType(for: context), .popup)
         XCTAssertEqual(ExtensionWindow(owner: Extensions.shared, browser: plain).windowType(for: context), .normal)
     }

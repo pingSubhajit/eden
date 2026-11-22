@@ -88,6 +88,9 @@ final class WebsitePopupTests: XCTestCase {
         XCTAssertEqual(popup.record.rows.count, before.count)
         XCTAssertTrue(popup.tabs.isEmpty, "pin changes must not add hidden tabs")
         Browsers.register(popup)
+        // Out of Browsers.all again, so it doesn't live on through the
+        // suites after this one, following their pins and settings (#33).
+        defer { Browsers.discard(popup) }
         XCTAssertFalse(Browsers.saved.contains { $0 === popup })
         XCTAssertTrue(NSApp.windows.allSatisfy { !$0.isVisible })
     }

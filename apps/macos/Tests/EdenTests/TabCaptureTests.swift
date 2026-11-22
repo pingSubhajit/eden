@@ -105,7 +105,9 @@ final class TabCaptureTests: XCTestCase {
     func testRefusingMicrophoneStopsMatchingTabsAcrossWindows() async throws {
         let otherBrowser = Browser(record: WindowRecord())
         Browsers.register(otherBrowser)
-        defer { otherBrowser.closeAll() }
+        // Closed and out of Browsers.all again: left there, every later
+        // suite's window would be a second window of the profile (#33).
+        defer { Browsers.discard(otherBrowser) }
         let first = try await capture(shy: false)
         let second = try await capture(shy: false, owner: otherBrowser)
         let firstWeb = first.web, secondWeb = second.web
