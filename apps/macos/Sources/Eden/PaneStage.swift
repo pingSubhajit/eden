@@ -35,6 +35,9 @@ struct PaneStageView: NSViewRepresentable {
     var corner: CGFloat = 0
     /// The page filling the screen, if one is (see SplitStage.immersed).
     var immersed: Tab.ID? = nil
+    /// The settings a loading page's pill reads, with the pages as cards;
+    /// nil, no pills.
+    var pills: Preferences? = nil
 
     func makeNSView(context: Context) -> PaneStage { PaneStage() }
 
@@ -50,6 +53,7 @@ struct PaneStageView: NSViewRepresentable {
         stage.showFind(find)
         stage.showAccounts(accounts)
         stage.showPairing(pairing)
+        stage.showPills(pills)
     }
 }
 
@@ -114,6 +118,20 @@ final class PaneStage: NSView {
             findBar = bar
             addSubview(bar, positioned: .above, relativeTo: nil)
         }
+        needsLayout = true
+    }
+
+    /// The pill in the band over each page's card while that page loads
+    /// (see LoadingPill). The stage's own rather than laid over it in
+    /// SwiftUI, for the reason the Find bar is: placed from the frames the
+    /// stage tells, which it doesn't while a divider is held, a pill was
+    /// left over where its page had been as the hand moved.
+    private var pills: [Tab.ID: PillHost] = [:]
+    private var pillPrefs: Preferences?
+
+    func showPills(_ prefs: Preferences?) {
+        guard prefs !== pillPrefs else { return }
+        pillPrefs = prefs
         needsLayout = true
     }
 
@@ -453,6 +471,7 @@ final class PaneStage: NSView {
         // A window made too narrow for two takes the other page off, and
         // gives it back once there is room.
         feed()
+        placePills(frames)
         if let bar = findBar {
             let page = focused.flatMap { id in tabs.firstIndex { $0.id == id } }
                 .flatMap { frames.indices.contains($0) ? frames[$0] : nil }
@@ -490,6 +509,32 @@ final class PaneStage: NSView {
             let frames = now
             DispatchQueue.main.async { [weak self] in self?.onFrames?(frames) }
         }
+    }
+
+    /// A pill over each page shown, in the band above its card: past the
+    /// stage's own top, which nothing above it cuts off. A tab's pill is its
+    /// own for as long as its page is shown, so one page's load never
+    /// carries on in another's.
+    private func placePills(_ frames: [CGRect]) {
+        var kept: [Tab.ID: PillHost] = [:]
+        if let prefs = pillPrefs {
+            for (index, tab) in tabs.enumerated() where shown(index) && index < frames.count && frames[index].width > 0 {
+                let host: PillHost
+                if let made = pills[tab.id] {
+                    host = made
+                } else {
+                    host = PillHost(rootView: LoadingPill(tab: tab, prefs: prefs))
+                    host.sizingOptions = []
+                    addSubview(host, positioned: .above, relativeTo: nil)
+                }
+                let page = frames[index]
+                let band = CGRect(x: page.minX, y: page.minY - Metrics.cardGap, width: page.width, height: Metrics.cardGap)
+                if host.frame != band { host.frame = band }
+                kept[tab.id] = host
+            }
+        }
+        for (id, host) in pills where kept[id] == nil { host.removeFromSuperview() }
+        pills = kept
     }
 
     /// The pages' width between the dividers.
@@ -1132,6 +1177,12 @@ struct FromTopLeft<Content: View>: View {
 /// weren't there — the sign-in box itself above all.
 /// The code card's host: as large as the page, but only the card takes a
 /// click; the rest of the page is the page's.
+/// A page's loading pill: seen, never pressed, as the band it sits in is
+/// where the window is dragged from (see Fold).
+private final class PillHost: NSHostingView<LoadingPill> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private final class PairingHost: NSHostingView<FromTopLeft<ApplePairingCard>> {
     /// The sign-in box, from the page's top-left (Browser.ApplePairing.spot).
     var spot = CGRect.zero
