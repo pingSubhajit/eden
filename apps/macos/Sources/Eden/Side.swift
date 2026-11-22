@@ -782,8 +782,9 @@ struct SideBar: View {
     private func tabRow(_ row: ColumnLayout<Tab>.Row, run: ColumnRun, index: Int, steps: [CGFloat], drawn: Drawn) -> some View {
         let tab = row.member
         // Named by its tab, for the column's scroll to find the tab you go
-        // to (proxy.scrollTo): the pieces around it are named by their
-        // place in the layout, which no tab's id matches.
+        // to (proxy.scrollTo, by the tab's id): the pieces around it are
+        // named by the layout's own kind of id, which wraps the tab's and
+        // so never matches it.
         let item = rowItem(tab, tabs: drawn.tabs, splits: drawn.splits, activeID: drawn.active,
                            interactive: drawn.live, close: { browser.closeTab(tab) })
             .id(tab.id)

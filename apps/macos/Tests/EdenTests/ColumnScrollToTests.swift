@@ -6,7 +6,7 @@ import XCTest
 
 /// The tab you go to is scrolled into sight in a column too long for its
 /// window (#29): the column scrolls to the row named by the tab's id, and
-/// when its rows became pieces named by their place in the layout, no row
+/// when its rows became pieces named by the layout's own kind of id, no row
 /// answered to a tab's id and the column stayed where it was. Hosted as
 /// PairSeparateTests does, in a borderless window far off every screen.
 @MainActor
@@ -50,12 +50,12 @@ final class ColumnScrollToTests: XCTestCase {
         XCTAssertGreaterThan(content, visible + 100, "more rows than room")
 
         browser.select(tabs[tabs.count - 1])
-        try await settle()
+        try await until { scroll.contentView.bounds.minY + visible >= content - 40 }
         XCTAssertGreaterThanOrEqual(scroll.contentView.bounds.minY + visible, content - 40,
                                     "down at the last tab")
 
         browser.select(tabs[0])
-        try await settle()
+        try await until { scroll.contentView.bounds.minY < 40 }
         XCTAssertLessThan(scroll.contentView.bounds.minY, 40, "back up at the first")
     }
 
@@ -70,6 +70,10 @@ final class ColumnScrollToTests: XCTestCase {
         restorePreferences = {
             (prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace) = previous
         }
+        // Whatever an earlier suite left in this process's one world — its
+        // pins, a square among them, or its saved tabs — is not this
+        // column's (CleanWorld).
+        CleanWorld.reset()
         let browser = Browser(record: WindowRecord())
         self.browser = browser
         browser.prefs.usesTabGroups = false
@@ -82,6 +86,8 @@ final class ColumnScrollToTests: XCTestCase {
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(number)")!, title: "Tab \(number)")
         }
         let tabs = browser.tabs
+        XCTAssertEqual(tabs.count, 30, "only this test's tabs")
+        XCTAssertTrue(tabs.allSatisfy { $0.pin == nil }, "no pins")
         browser.select(tabs[0])
         let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: browser.prefs.sideWidth, height: 400),
                               styleMask: .borderless, backing: .buffered, defer: false)
@@ -108,5 +114,12 @@ final class ColumnScrollToTests: XCTestCase {
 
     private func settle() async throws {
         try await Task.sleep(for: .milliseconds(400))
+    }
+
+    /// Until `done`, or ten seconds: a scroll's spring takes longer on a
+    /// busy Mac than a fixed wait allows.
+    private func until(_ done: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(10)
+        while !done(), Date() < end { try await Task.sleep(for: .milliseconds(50)) }
     }
 }
