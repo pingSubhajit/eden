@@ -37,8 +37,9 @@ final class LeftBrowsers: NSObject, XCTestObservation {
         // Only a class's suite: the run's and the bundle's hold every class.
         guard testSuite.tests.contains(where: { $0 is XCTestCase }) else { return }
         MainActor.assumeIsolated {
-            // The scene's browser is made once, the first time something
-            // needs one, and is the process's for good.
+            // The scene's browser is the window's own, not a suite's: made
+            // when something first needs one, and made again by the scene
+            // (SceneSlot.refresh), whichever suite happens to be running.
             let left = Browsers.all.filter { !began.before.contains(ObjectIdentifier($0)) && !$0.inScene }
             guard !left.isEmpty else { return }
             left.forEach(Browsers.discard)
