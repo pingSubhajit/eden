@@ -154,13 +154,16 @@ ICTOOL="$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executable
 [ -x "$ICTOOL" ] || { echo "the icon needs Icon Composer, which comes with Xcode" >&2; exit 1; }
 rm -rf "$ICONDOC"
 cp -R "$ICONSOURCE" "$ICONDOC"
-# The pictures in AppIcon.icns, the disk image's icon and what macOS 14 and
-# 15 show, rendered by Icon Composer itself, glass and all. actool's own
-# .icns has only the 16 and 128 point sizes, which is too few for that.
+# The pictures in AppIcon.icns, rendered by Icon Composer itself, glass and
+# all. The app's icon comes from Assets.car below, on macOS 14 and 15 too;
+# the .icns is the disk image's icon and CFBundleIconFile's, so it stops at
+# 256 points: the 512-point pictures, glass gradients that barely compress,
+# would weigh 1.5 MB of it for a size nothing shows the disk at. actool's
+# own .icns has only the 16 and 128 point sizes, too few even for that.
 ICONSET="build/AppIcon.iconset"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
-for POINTS in 16 32 128 256 512; do
+for POINTS in 16 32 128 256; do
   for SCALE in 1 2; do
     SUFFIX=""
     [ "$SCALE" = 2 ] && SUFFIX="@2x"
