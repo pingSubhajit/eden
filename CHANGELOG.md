@@ -10,6 +10,7 @@ the paragraph in `NOTES.md`. What is planned but not done yet lives in
 
 ## Unreleased
 
+- The Mac's drag tests pass in a full test run as they do alone: three extension suites take the windows they make out of the app's list of windows when they are done, where they had stayed open through the rest of the run and written the first space's pins as they last saw them over every later suite's (#28).
 - On the Mac, while the page in front loads, a small pill in the strip of window above it says so: it breathes while the page is asked for, and a page still on its way after a few seconds has it widen into a track with a brighter block running through it, until the page is in and it draws in and fades. With Reduce Motion on, the pill shows without moving (#31).
 - The Mac shows tabs only in the sidebar, titles and all: the tabs across the top, the column as icons only, ⌘S making it icons only, ⇧⌘S and the switches that went with them are gone. Settings, and the welcome, offer where the sidebar sits, on the left or the right, with the left the default. A Mac that had the tabs across the top or as icons opens with the sidebar (#27, #10).
 - On the Mac, a pinned row or square that has gone on from its home can be dragged onto another device's group, as your tabs can: the page it went on to opens there under its own title, and the pin stays here as it was. Let go on a device's group that won't take what is carried, a pin at its home, a page that device has open already or a private tab, a toast says why and it stays where it was (#25).

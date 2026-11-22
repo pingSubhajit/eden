@@ -31,6 +31,11 @@ final class ExtensionPopupWindowTests: XCTestCase {
         Browsers.register(first)
         Browsers.register(popup)
         Browsers.register(second)
+        // Out of Browsers.all, closed, once the test is done. Kept there, the
+        // two plain windows lived on through the rest of the run with the
+        // first space's pins as they found them, and wrote those back over
+        // every later suite's (#28).
+        defer { [second, popup, first].forEach(Browsers.discard) }
         XCTAssertTrue(Browsers.saved.contains { $0 === first })
         XCTAssertTrue(Browsers.saved.contains { $0 === second })
         XCTAssertFalse(Browsers.saved.contains { $0 === popup })
