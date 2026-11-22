@@ -1987,15 +1987,14 @@ struct KeepLine: View {
     let clears: Bool
     let act: () -> Void
 
-    @Environment(\.greys) private var greys
     @State private var hovering = false
-    /// The pointer on Clear itself, not only on the line: it lights as the
-    /// New tab row under it does, so it reads as the thing to press.
+    /// The pointer on Clear itself, not only on the line: the word comes up
+    /// to the ink, so it reads as the thing to press, with no ground of its
+    /// own to make it a button.
     @State private var onClear = false
 
     var body: some View {
-        // 6 between the line and the arrow, the grey's 5 counted in.
-        HStack(spacing: 1) {
+        HStack(spacing: 6) {
             Rectangle()
                 .fill(Palette.hairline)
                 .frame(height: 1)
@@ -2007,19 +2006,11 @@ struct KeepLine: View {
                         Text("Clear")
                             .font(.system(size: 11))
                     }
-                    .foregroundStyle(onClear ? Palette.ink.opacity(0.7) : Palette.muted)
-                    .padding(.horizontal, 5)
+                    .foregroundStyle(onClear ? Palette.ink : Palette.muted)
                     .frame(height: KeepLine.height)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(onClear ? greys.hover : .clear)
-                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                // The grey reaches past the word, and the word stays where
-                // it always stood, level with the line's end.
-                .padding(.trailing, -5)
                 .onHover { onClear = $0 }
                 .help("Close the tabs under the line. Pins and groups stay; ⇧⌘T brings them all back.")
                 .transition(.opacity)
