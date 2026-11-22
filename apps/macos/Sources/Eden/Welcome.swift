@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 /// The first time. Four short pages over the window, in the app's own
@@ -315,14 +316,15 @@ struct WelcomePanel: View {
     // MARK: - pieces
 
     /// The mark alone, at whatever height the page wants — no plate behind
-    /// it, the same as everywhere else it's drawn.
+    /// it, the same as everywhere else it's drawn. The arch stands taller
+    /// than it is wide, so it takes most of that height.
     private struct Plate: View {
         let size: CGFloat
         var body: some View {
             Logomark()
-                .fill(Palette.ink, style: FillStyle(eoFill: true))
+                .fill(Palette.ink)
                 .aspectRatio(Logomark.canvas.width / Logomark.canvas.height, contentMode: .fit)
-                .frame(height: size * 0.56)
+                .frame(height: size * 0.72)
         }
     }
 

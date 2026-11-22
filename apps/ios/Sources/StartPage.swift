@@ -22,9 +22,9 @@ struct StartPage: View {
                 HStack {
                     Spacer()
                     Logomark()
-                        .fill(.primary, style: FillStyle(eoFill: true))
+                        .fill(.primary)
                         .aspectRatio(Logomark.canvas.width / Logomark.canvas.height, contentMode: .fit)
-                        .frame(height: 30)
+                        .frame(height: 40)
                         .accessibilityLabel("Eden")
                     Spacer()
                 }
