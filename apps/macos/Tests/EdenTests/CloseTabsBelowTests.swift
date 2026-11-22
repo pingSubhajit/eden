@@ -76,7 +76,7 @@ final class CloseTabsBelowTests: XCTestCase {
             let below = browser.addTabGroup(containing: tabs[0])
             browser.move(tabs[1], toGroup: below)
             let above = browser.addTabGroup(containing: tabs[2])
-            browser.moveTabGroup(above, to: 0)
+            browser.moveItem(.group(above), to: browser.sideItems.firstIndex { $0.id == .group(browser.tabGroups[0].id) } ?? 0)
             browser.select(tabs[3])
             browser.toggleTabGroup(below)
             XCTAssertFalse(browser.shownTabs.contains { $0.id == tabs[0].id })

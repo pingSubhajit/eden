@@ -29,7 +29,7 @@ def urls(st): return [x["url"].rsplit("/", 1)[-1] for x in st["tabs"]]
 
 def case_command_w(t):
     """⌘W with three picked: all three close, one ⇧⌘T brings them back"""
-    sv.setup(sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(**{"tabs.groups": False}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d"); e = sv.page("e")
     sv.sp("select", id=b)
     before = urls(state())
@@ -56,7 +56,7 @@ def case_command_w(t):
 
 def case_not_in_front(t):
     """picked tabs that leave out the one in front: those close, it stays"""
-    sv.setup(sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(**{"tabs.groups": False}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c")
     sv.sp("select", id=c)
     # ⌘-clicking c (in front) again takes it out of the picked.
@@ -70,7 +70,7 @@ def case_not_in_front(t):
 
 def case_menu(t):
     """the menu's Close Tabs, and every tab picked"""
-    sv.setup(sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(**{"tabs.groups": False}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c")
     sv.sp("select", id=a)
     pick(b, c)
@@ -93,7 +93,7 @@ def case_menu(t):
 
 def case_pair_and_pin(t):
     """a picked Split View pair goes whole; a picked pin is put down"""
-    sv.setup(splitView=True, sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
     p = sv.page("p"); a = sv.page("a"); l = sv.page("l"); r = sv.page("r"); z = sv.page("z")
     sv.cmd({"do": "pin", "id": p})
     sv.sp("pair", id=r, **{"with": l}, side="right")
@@ -112,7 +112,7 @@ def case_pair_and_pin(t):
 
 def case_group(t):
     """picked tabs in a group are put away, as ⌘W puts one away"""
-    sv.setup(sidebar=True, **{"tabs.groups": True}); sv.launch()
+    sv.setup(**{"tabs.groups": True}); sv.launch()
     loose = sv.page("loose"); a = sv.page("a"); b = sv.page("b")
     for x in (a, b):
         sv.cmd({"do": "group", "id": x, **({"new": True} if x == a else {}), "name": "Work"})

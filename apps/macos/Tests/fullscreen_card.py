@@ -43,7 +43,7 @@ def main():
     try:
         for split, pair in ((False, False), (True, False), (True, True)):
             name = "a pair" if pair else ("Split View on" if split else "Split View off")
-            sv.setup(sidebar=True, splitView=split); sv.launch()
+            sv.setup(splitView=split); sv.launch()
             a = sv.page("a")
             if pair:
                 b = sv.page("b")

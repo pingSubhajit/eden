@@ -185,7 +185,7 @@ struct SideGroup<Heading: View, Rows: View>: View {
     /// Its rows drawn: while it isn't folded, unless told otherwise (a pin
     /// carried onto a folded group shows where it would go).
     var showsRows: Bool?
-    /// How far in its rows sit: none with icons only.
+    /// How far in its rows sit.
     var indent = GroupLook.indent
     @ViewBuilder let heading: Heading
     @ViewBuilder let rows: Rows

@@ -2,17 +2,15 @@ import EdenCore
 import SwiftUI
 
 // Spaces, paged through: in the column, two fingers sideways go from one to
-// the next, the rows following them, as in Arc; in the bar across the top,
-// the same up and down, the row of tabs following them — or a mouse wheel's
-// notch, one space at a time, or the mouse's back and forward buttons with
-// the pointer over the tabs. Past the last space a new one is made in
-// place. The space's icon turns over as it goes (see SpaceDot).
+// the next, the rows following them, as in Arc — or a mouse wheel's notch,
+// one space at a time, or the mouse's back and forward buttons with the
+// pointer over the tabs. Past the last space a new one is made in place.
+// The space's icon turns over as it goes (see SpaceDot).
 
 /// The swipe between spaces. It reads the trackpad's own scroll events
 /// before anything else sees them, and takes only a gesture that starts over
-/// the tabs and sets off clearly along the spaces' axis — sideways in the
-/// column, up or down in the bar; everything else (scrolling the tabs, a
-/// long row of them sideways) goes on as it would have.
+/// the tabs and sets off clearly sideways; everything else (scrolling the
+/// tabs) goes on as it would have.
 @MainActor
 final class SpaceSwipe {
     static let shared = SpaceSwipe()
@@ -39,12 +37,8 @@ final class SpaceSwipe {
     /// How long after a space comes before another can.
     static let rest: TimeInterval = 0.4
 
-    /// How far the fingers have to go for the next space to come: 50
-    /// points in the column; in a bar only 52 tall, most of its height, so
-    /// that scrolling the page with the pointer a little high doesn't.
-    static func enough(for browser: Browser) -> CGFloat {
-        browser.prefs.sidebar ? 50 : Metrics.strip * 0.6
-    }
+    /// How far the fingers have to go for the next space to come.
+    static let enough: CGFloat = 50
 
     func start(for browser: Browser) {
         self.browser = browser
@@ -100,7 +94,7 @@ final class SpaceSwipe {
     /// fingers went, and that profile's window takes this one's place, its
     /// rows coming in from the other side (see OneWindow.swift).
     private func leave(_ browser: Browser, for space: UUID, step: Int) {
-        let width = browser.prefs.sidebar ? browser.prefs.columnWidth : Metrics.strip
+        let width = browser.prefs.columnWidth
         browser.spaceStep = step
         resting = Date().addingTimeInterval(SpaceSwipe.rest)
         carry(browser, to: CGFloat(-step) * width) {
@@ -132,15 +126,12 @@ final class SpaceSwipe {
         }
     }
 
-    /// Where the tabs are: the column, or the bar across the top.
+    /// Where the tabs are: the column.
     private func overTabs(_ event: NSEvent, in browser: Browser) -> Bool {
         guard let window = event.window, window === browser.window else { return false }
-        if browser.prefs.sidebar {
-            return browser.prefs.sidePosition == .right
-                ? event.locationInWindow.x >= window.frame.width - browser.prefs.columnWidth
-                : event.locationInWindow.x < browser.prefs.columnWidth
-        }
-        return event.locationInWindow.y > window.frame.height - Metrics.strip
+        return browser.prefs.sidePosition == .right
+            ? event.locationInWindow.x >= window.frame.width - browser.prefs.columnWidth
+            : event.locationInWindow.x < browser.prefs.columnWidth
     }
 
     /// True for an event the swipe keeps for itself.
@@ -151,13 +142,12 @@ final class SpaceSwipe {
             browser = over
         }
         guard let browser, browser.prefs.usesSpaces, !browser.folded || browser.peeking else { return false }
-        // A mouse wheel over the tabs: a notch along the spaces' axis — up or down
-        // in the bar, sideways in the column — brings one space. In the column
+        // A mouse wheel over the tabs: a notch sideways brings one space,
         // only a notch more sideways than up or down: scrolling the tabs is
         // never taken for it.
         if !event.hasPreciseScrollingDeltas {
             let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
-            let step = browser.prefs.sidebar ? (abs(dx) > abs(dy) ? dx : 0) : dy
+            let step = abs(dx) > abs(dy) ? dx : 0
             guard step != 0, overTabs(event, in: browser) else { return false }
             let now = Date()
             let rested = now.timeIntervalSince(notched) > 0.3 && now > resting
@@ -216,13 +206,12 @@ final class SpaceSwipe {
     }
 
     /// True while the gesture is this one's to take. The spaces lie
-    /// sideways in the column and one above the other in the bar.
+    /// sideways.
     @discardableResult
     func moved(dx: CGFloat, dy: CGFloat) -> Bool {
         guard tracking, let browser else { return false }
-        let (step, aside) = browser.prefs.sidebar ? (dx, dy) : (dy, dx)
-        gathered.width += step
-        gathered.height += aside
+        gathered.width += dx
+        gathered.height += dy
         if axis == .undecided {
             guard abs(gathered.width) + abs(gathered.height) > 6 else { return false }
             axis = abs(gathered.width) > abs(gathered.height) * 1.5 ? .across : .along
@@ -232,11 +221,10 @@ final class SpaceSwipe {
         return true
     }
 
-    /// Along the spaces' axis, whichever it is — for the bench.
+    /// Along the spaces' axis — for the bench.
     @discardableResult
     func moved(along travel: CGFloat) -> Bool {
-        guard let browser else { return false }
-        return browser.prefs.sidebar ? moved(dx: travel, dy: 0) : moved(dx: 0, dy: travel)
+        moved(dx: travel, dy: 0)
     }
 
     func ended(cancelled: Bool = false) {
@@ -245,7 +233,7 @@ final class SpaceSwipe {
         let travel = gathered.width
         let here = browser.makingSpace ? browser.spaces.count : (browser.spaces.firstIndex { $0.id == browser.spaceID } ?? 0)
         // Fingers to the left, or up, bring what is next.
-        let target = cancelled || abs(travel) < SpaceSwipe.enough(for: browser) ? here : here + (travel < 0 ? 1 : -1)
+        let target = cancelled || abs(travel) < SpaceSwipe.enough ? here : here + (travel < 0 ? 1 : -1)
         if target != here, let other = beyond(browser, target) {
             leave(browser, for: other, step: target - here)
             return
@@ -272,8 +260,8 @@ final class SpaceSwipe {
         if browser.makingSpace, target != browser.spaces.count {
             browser.cancelSpaceCreation()
         }
-        // A page is the column's width, or the bar's height.
-        let width = browser.prefs.sidebar ? browser.prefs.columnWidth : Metrics.strip
+        // A page is the column's width.
+        let width = browser.prefs.columnWidth
         let away: CGFloat = target > here ? -1 : 1
         browser.spaceStep = target > here ? 1 : -1
         resting = Date().addingTimeInterval(SpaceSwipe.rest)
@@ -299,8 +287,6 @@ final class SpaceSwipe {
 /// icon, and on its way. Escape, Cancel or two fingers back leave it.
 struct NewSpaceCard: View {
     @ObservedObject var browser: Browser
-    /// In the bar across the top: one row, the height of the tabs.
-    var inline = false
     @State private var name = ""
     @State private var icon = "briefcase"
     @State private var choosing = false
@@ -314,52 +300,35 @@ struct NewSpaceCard: View {
     }
 
     var body: some View {
-        Group {
-            if inline {
-                // The bar's row: the icon, the name, the sign-ins, and on its way.
-                HStack(spacing: 8) {
-                    pick(size: 13, box: CGSize(width: 28, height: 26))
-                    field
-                        .frame(width: 170)
-                    Segmented(options: [(true, "Signed in"), (false, "Signed out")], selection: $shared)
-                        .fixedSize()
-                        .help(saying)
-                    Pill("Cancel") { cancel() }
-                    Pill("Create", filled: true) { create() }
-                }
-                .frame(height: Metrics.strip)
-            } else {
-                VStack(spacing: 12) {
-                    pick(size: 20, box: CGSize(width: 44, height: 40))
-                    VStack(spacing: 4) {
-                        Text("New space")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Palette.ink)
-                        Text("Its own tabs.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.muted)
-                            .multilineTextAlignment(.center)
-                    }
-                    field
-                    // Most people want Google and the rest to know them here too;
-                    // some want a clean slate.
-                    VStack(spacing: 6) {
-                        Segmented(options: [(true, "Signed in"), (false, "Signed out")], selection: $shared, wide: true)
-                        Text(saying)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Palette.muted)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    HStack(spacing: 8) {
-                        Pill("Cancel") { cancel() }
-                        Pill("Create", filled: true) { create() }
-                    }
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity)
+        VStack(spacing: 12) {
+            pick(size: 20, box: CGSize(width: 44, height: 40))
+            VStack(spacing: 4) {
+                Text("New space")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("Its own tabs.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.muted)
+                    .multilineTextAlignment(.center)
+            }
+            field
+            // Most people want Google and the rest to know them here too;
+            // some want a clean slate.
+            VStack(spacing: 6) {
+                Segmented(options: [(true, "Signed in"), (false, "Signed out")], selection: $shared, wide: true)
+                Text(saying)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.muted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Pill("Cancel") { cancel() }
+                Pill("Create", filled: true) { create() }
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity)
         .onAppear {
             icon = browser.freeIcon
             DispatchQueue.main.async { typing = true }
@@ -376,7 +345,7 @@ struct NewSpaceCard: View {
                 .foregroundStyle(Palette.ink)
                 .frame(width: box.width, height: box.height)
                 .background(
-                    RoundedRectangle(cornerRadius: inline ? 8 : 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(hovering || choosing ? Palette.hover : .clear)
                 )
                 .contentShape(Rectangle())
@@ -385,16 +354,16 @@ struct NewSpaceCard: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(inline ? "New space — choose its icon" : "Choose an icon")
+        .help("Choose an icon")
         .popover(isPresented: $choosing, arrowEdge: .bottom) { icons }
     }
 
     private var field: some View {
-        TextField(inline ? "New space" : "Name", text: $name)
+        TextField("Name", text: $name)
             .textFieldStyle(.plain)
-            .font(.system(size: inline ? 12.5 : 13))
+            .font(.system(size: 13))
             .padding(.horizontal, 10)
-            .frame(height: inline ? 26 : 30)
+            .frame(height: 30)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.wash))
             .focused($typing)
             .onSubmit(create)
@@ -444,14 +413,13 @@ final class SwipeOffset: ObservableObject {
     @Published var value: CGFloat = 0
 }
 
-/// Moves what it is put on with the swipe, `by` further, along one axis: the
-/// one view that redraws as the fingers go.
+/// Moves what it is put on sideways with the swipe, `by` further: the one
+/// view that redraws as the fingers go.
 struct SwipeShift: ViewModifier {
     @ObservedObject var offset: SwipeOffset
     var by: CGFloat = 0
-    var across = false
 
     func body(content: Content) -> some View {
-        content.offset(x: across ? offset.value + by : 0, y: across ? 0 : offset.value + by)
+        content.offset(x: offset.value + by)
     }
 }

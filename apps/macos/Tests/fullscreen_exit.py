@@ -12,7 +12,7 @@ stage each came back on its own, the page resized at
 each step, and the column's room was given back 0.42 s after the rest.
 Checked here: the page takes one frame going in and one coming back, and
 the last is where it was before, alone or as a pair, card or edge to edge,
-the tabs down the side or across the top, an extension's side panel open. WebKit's own part, the video's window
+an extension's side panel open. WebKit's own part, the video's window
 landing where the page is, is checked by hand on a release candidate.
 """
 import json
@@ -75,14 +75,13 @@ def open_panel(a):
 
 CASES = [
     # name, prefs, pair, card, side panel
-    ("alone, card", dict(sidebar=True, splitView=False), False, True, False),
-    ("alone, edge to edge", dict(sidebar=True, splitView=False), False, False, False),
-    ("tabs across the top", dict(sidebar=False, splitView=False), False, True, False),
-    ("Split View on, alone", dict(sidebar=True, splitView=True), False, True, False),
-    ("a pair", dict(sidebar=True, splitView=True), True, True, False),
-    ("a pair, edge to edge", dict(sidebar=True, splitView=True), True, False, False),
-    ("side panel", dict(sidebar=True, splitView=False), False, True, True),
-    ("a pair, side panel", dict(sidebar=True, splitView=True), True, True, True),
+    ("alone, card", dict(splitView=False), False, True, False),
+    ("alone, edge to edge", dict(splitView=False), False, False, False),
+    ("Split View on, alone", dict(splitView=True), False, True, False),
+    ("a pair", dict(splitView=True), True, True, False),
+    ("a pair, edge to edge", dict(splitView=True), True, False, False),
+    ("side panel", dict(splitView=False), False, True, True),
+    ("a pair, side panel", dict(splitView=True), True, True, True),
 ]
 
 

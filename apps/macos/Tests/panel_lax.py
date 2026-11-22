@@ -244,7 +244,7 @@ def tab_sent(path):
 
 
 def start():
-    sv.setup(sidebar=True)
+    sv.setup()
     return launch()
 
 

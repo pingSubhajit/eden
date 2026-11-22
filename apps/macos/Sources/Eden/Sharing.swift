@@ -6,9 +6,8 @@ import AppKit
 
 extension Browser {
     /// With no button to open under, the picker opens from the top right
-    /// corner of the page, about where Safari keeps its Share button: just
-    /// under the row when the tabs are across the top, and beside the
-    /// column's page otherwise. The window's own corner is the fallback.
+    /// corner of the page, beside the column. The window's own corner is
+    /// the fallback.
     func share() {
         guard let url = active?.address, let window = self.window ?? Links.window,
               let view = active?.built.flatMap({ $0.window === window ? $0 : nil }) ?? window.contentView

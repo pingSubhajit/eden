@@ -33,7 +33,7 @@ def main():
     try:
         for split in (False, True):
             name = "Split View on" if split else "Split View off"
-            sv.setup(sidebar=True, splitView=split); sv.launch()
+            sv.setup(splitView=split); sv.launch()
             a = sv.page("a"); time.sleep(0.8)
             column = under_column()
             t.ok(f"{name}: the column is there", column not in ("PageView", "StageView"), column)

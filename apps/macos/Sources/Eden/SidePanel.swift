@@ -3,8 +3,8 @@ import SwiftUI
 import WebKit
 import Combine
 
-// The side panel: beside the page on the side away from the column (on the
-// right with the tabs across the top), closed until something asks for it,
+// The side panel: beside the page on the side away from the column, closed
+// until something asks for it,
 // as wide as you last left it. With the page as a card it is a card of its
 // own; edge to edge, it meets the page at a hairline. If it can't be made,
 // the extension's panel opens as a tab of its own, as before there was one.

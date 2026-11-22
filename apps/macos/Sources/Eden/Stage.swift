@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-/// Everything below the strip: the page, the line that says it is coming, and
+/// Everything beside the column: the page, the line that says it is coming, and
 /// the sentence that says it never did.
 ///
 /// The tab is watched from here rather than from the window. A tab is a class,
@@ -698,36 +698,25 @@ struct WindowSetup: NSViewRepresentable {
 /// with the title bar hidden the interface swallows the clicks a title bar
 /// would have handled, and they have to be put back.
 struct DragStrip: NSViewRepresentable {
-    /// How much of the leading edge belongs to the tabs. A representable is a
-    /// real view sitting under everything SwiftUI draws on top of it, and a
-    /// real view takes the click first — so the run the tabs occupy is refused
-    /// here and falls through to them.
-    var reserved: CGFloat = 0
     /// How much of the top belongs to whatever is drawn there, measured from
-    /// the top edge. The column of tabs uses this the way the strip uses the
-    /// leading run.
+    /// the top edge. A representable is a real view sitting under everything
+    /// SwiftUI draws on top of it, and a real view takes the click first —
+    /// so the column's rows are refused here and fall through to them.
     var below: CGFloat = 0
-    /// The run at the trailing end that belongs to a button.
-    var trailing: CGFloat = 0
     /// Stands in for the title bar's own double-click, in a strip that is
-    /// empty tab-row rather than title bar: the empty space below or after
-    /// the tabs, where a double-click opens a new tab instead of zooming the
-    /// window.
+    /// empty column rather than title bar: the empty space below the tabs,
+    /// where a double-click opens a new tab instead of zooming the window.
     var onDoubleClick: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> NSView { Strip() }
 
     func updateNSView(_ view: NSView, context: Context) {
-        (view as? Strip)?.reserved = reserved
         (view as? Strip)?.below = below
-        (view as? Strip)?.trailing = trailing
         (view as? Strip)?.onDoubleClick = onDoubleClick
     }
 
     private final class Strip: NSView {
-        var reserved: CGFloat = 0 { didSet { if reserved != oldValue { aimCursor() } } }
         var below: CGFloat = 0 { didSet { if below != oldValue { aimCursor() } } }
-        var trailing: CGFloat = 0 { didSet { if trailing != oldValue { aimCursor() } } }
         var onDoubleClick: (() -> Void)?
 
         private var pressed: NSEvent?
@@ -745,7 +734,6 @@ struct DragStrip: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             let inside = convert(point, from: superview)
-            guard inside.x >= reserved, inside.x <= bounds.width - trailing else { return nil }
             // AppKit measures up from the bottom; the reservation is from the top.
             guard bounds.height - inside.y >= below else { return nil }
             return super.hitTest(point)
@@ -784,9 +772,7 @@ struct DragStrip: NSViewRepresentable {
         /// title bar and stayed through the whole drag of the window (#1094).
         /// Only over the run the strip takes clicks in (see hitTest).
         override func resetCursorRects() {
-            let room = NSRect(x: reserved, y: 0,
-                              width: max(0, bounds.width - trailing - reserved),
-                              height: max(0, bounds.height - below))
+            let room = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - below))
             guard room.width > 0, room.height > 0 else { return }
             addCursorRect(room, cursor: .arrow)
         }

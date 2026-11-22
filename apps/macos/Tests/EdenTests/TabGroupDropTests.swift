@@ -95,40 +95,34 @@ final class TabGroupDropTests: XCTestCase {
         XCTAssertEqual(restored.tabs.map(\.groupID), saved.tabs.map(\.groupID))
     }
 
-    func testVisibleGeometryInBothLayouts() {
+    func testVisibleGeometry() {
         let group = TabGroup(id: UUID(), name: "Group", collapsed: false)
         let first = UUID(), last = UUID(), source = UUID()
         // Unequal lengths and a negative origin also exercise scrolled coordinates.
-        for vertical in [false, true] {
-            let rect: (CGFloat, CGFloat) -> CGRect = { start, length in
-                vertical ? CGRect(x: 10, y: start, width: 80, height: length)
-                    : CGRect(x: start, y: 10, width: length, height: 80)
-            }
-            let point: (CGFloat) -> CGPoint = { position in
-                vertical ? CGPoint(x: 30, y: position) : CGPoint(x: position, y: 30)
-            }
-            let frames = [
-                group.id: GroupDropFrame(group: group.id, rect: rect(-40, 20)),
-                first: GroupDropFrame(group: group.id, tab: first, rect: rect(-10, 30)),
-                last: GroupDropFrame(group: group.id, tab: last, rect: rect(30, 80)),
-                source: GroupDropFrame(group: group.id, tab: source, rect: rect(120, 30))
-            ]
-            for (position, target) in [
-                (-30.0, GroupDropTarget(group: group.id)),
-                (-5.0, GroupDropTarget(group: group.id, member: first)),
-                (25.0, GroupDropTarget(group: group.id, member: last)),
-                (100.0, GroupDropTarget(group: group.id, member: last, after: true))
-            ] {
-                XCTAssertEqual(GroupDropFrames.resolve(point(position), frames: frames, groups: [group],
-                                                       excluding: source, vertical: vertical), target)
-            }
-            XCTAssertNil(GroupDropFrames.resolve(point(140), frames: frames, groups: [group],
-                                                 excluding: source, vertical: vertical))
-            var collapsed = group
-            collapsed.collapsed = true
-            XCTAssertEqual(GroupDropFrames.resolve(point(40), frames: frames, groups: [collapsed],
-                                                    excluding: source, vertical: vertical), GroupDropTarget(group: group.id))
+        let rect: (CGFloat, CGFloat) -> CGRect = { start, length in
+            CGRect(x: 10, y: start, width: 80, height: length)
         }
+        let point: (CGFloat) -> CGPoint = { CGPoint(x: 30, y: $0) }
+        let frames = [
+            group.id: GroupDropFrame(group: group.id, rect: rect(-40, 20)),
+            first: GroupDropFrame(group: group.id, tab: first, rect: rect(-10, 30)),
+            last: GroupDropFrame(group: group.id, tab: last, rect: rect(30, 80)),
+            source: GroupDropFrame(group: group.id, tab: source, rect: rect(120, 30))
+        ]
+        for (position, target) in [
+            (-30.0, GroupDropTarget(group: group.id)),
+            (-5.0, GroupDropTarget(group: group.id, member: first)),
+            (25.0, GroupDropTarget(group: group.id, member: last)),
+            (100.0, GroupDropTarget(group: group.id, member: last, after: true))
+        ] {
+            XCTAssertEqual(GroupDropFrames.resolve(point(position), frames: frames, groups: [group],
+                                                   excluding: source), target)
+        }
+        XCTAssertNil(GroupDropFrames.resolve(point(140), frames: frames, groups: [group], excluding: source))
+        var collapsed = group
+        collapsed.collapsed = true
+        XCTAssertEqual(GroupDropFrames.resolve(point(40), frames: frames, groups: [collapsed], excluding: source),
+                       GroupDropTarget(group: group.id))
     }
 
     /// A gap open in a group is part of it, and the group holding the tab
@@ -147,20 +141,20 @@ final class TabGroupDropTests: XCTestCase {
         let at: (CGFloat) -> CGPoint = { CGPoint(x: 30, y: $0) }
         let groups = [first, second]
         // Below "b": nothing, until a gap opens there.
-        XCTAssertNil(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true))
+        XCTAssertNil(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source))
         frames[ColumnCarry.frameKey] = GroupDropFrame(group: second.id, rect: rect(110, 28))
-        XCTAssertEqual(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source, vertical: true),
+        XCTAssertEqual(GroupDropFrames.resolve(at(120), frames: frames, groups: groups, excluding: source),
                        GroupDropTarget(group: second.id, member: b, after: true))
         // The top of a heading is the place before its group, not in it.
-        XCTAssertNil(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true))
-        XCTAssertEqual(GroupDropFrames.resolve(at(66), frames: frames, groups: groups, excluding: source, vertical: true),
+        XCTAssertNil(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source))
+        XCTAssertEqual(GroupDropFrames.resolve(at(66), frames: frames, groups: groups, excluding: source),
                        GroupDropTarget(group: second.id))
         // Just past the first group's foot: the first keeps a tab it holds,
         // until the hand is clear of it.
-        XCTAssertEqual(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source, vertical: true,
+        XCTAssertEqual(GroupDropFrames.resolve(at(58), frames: frames, groups: groups, excluding: source,
                                                holding: first.id),
                        GroupDropTarget(group: first.id, member: a, after: true))
-        XCTAssertEqual(GroupDropFrames.resolve(at(70), frames: frames, groups: groups, excluding: source, vertical: true,
+        XCTAssertEqual(GroupDropFrames.resolve(at(70), frames: frames, groups: groups, excluding: source,
                                                holding: first.id),
                        GroupDropTarget(group: second.id))
     }
@@ -214,9 +208,6 @@ final class TabGroupDropTests: XCTestCase {
         XCTAssertEqual(browser.tabGroups.map(\.id), [second, first])
         browser.moveItem(.tab(tabs[5].id), to: 0)
         XCTAssertEqual(order(browser), ["5", "0", "3", "[4]", "[1 2]"])
-        // Across the top, a heading dropped on another takes its place.
-        browser.moveTabGroup(first, to: 0)
-        XCTAssertEqual(order(browser), ["5", "0", "3", "[1 2]", "[4]"])
     }
 
     func testATabJoinsAGroupAtItsEndAndTheGroupStaysWhereItStands() {
@@ -237,32 +228,6 @@ final class TabGroupDropTests: XCTestCase {
         browser.move(tabs[2], outOfGroupBefore: .tab(tabs[0].id))
         XCTAssertEqual(order(browser), ["2", "0", "3", "1", "[4]", "5"])
         XCTAssertFalse(browser.tabGroups.contains { $0.id == first }, "a group left empty goes")
-    }
-
-    /// Out of a group, the hand passes the tabs in no group at their middle
-    /// and a group at the top of its heading: before that, it lands there.
-    func testWhereATabOutOfItsGroupLandsAmongTabsAndGroups() {
-        let own = TabGroup(id: UUID(), name: "Own", collapsed: false)
-        let other = TabGroup(id: UUID(), name: "Other", collapsed: false)
-        let source = UUID(), member = UUID(), loose = UUID()
-        let rect: (CGFloat, CGFloat) -> CGRect = { CGRect(x: 10, y: $0, width: 80, height: $1) }
-        let frames = [
-            own.id: GroupDropFrame(group: own.id, rect: rect(0, 22)),
-            source: GroupDropFrame(group: own.id, tab: source, rect: rect(24, 28)),
-            other.id: GroupDropFrame(group: other.id, rect: rect(90, 22)),
-            member: GroupDropFrame(group: other.id, tab: member, rect: rect(114, 28))
-        ]
-        let looseRects = [loose: rect(58, 28)]
-        let at: (CGFloat) -> LooseDrop? = {
-            GroupDropFrames.leaving(CGPoint(x: 30, y: $0), frames: frames, loose: looseRects,
-                                    groups: [own, other], source: source, vertical: true)
-        }
-        XCTAssertNil(at(40), "along its own group")
-        XCTAssertEqual(at(64), LooseDrop(before: .tab(loose)))
-        XCTAssertEqual(at(80), LooseDrop(before: .group(other.id)))
-        XCTAssertEqual(at(94), LooseDrop(before: .group(other.id)), "the top of the other's heading")
-        XCTAssertNil(at(110), "in the other group: it takes it")
-        XCTAssertEqual(at(160), LooseDrop(before: nil))
     }
 
     func testTabsPickedTogetherAreCarriedAlongTheRunTogether() {

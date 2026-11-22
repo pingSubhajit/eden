@@ -52,7 +52,6 @@ final class AddressCommandTests: XCTestCase {
         }
         XCTAssertEqual(AddressCommand.near("priv", in: browser), .newPrivateTab)
         XCTAssertEqual(AddressCommand.near("setings", in: browser), .settings)
-        XCTAssertEqual(AddressCommand.near("side", in: browser), .toggleSidebar)
         XCTAssertNil(AddressCommand.near("do", in: browser), "two letters are any search")
         XCTAssertNil(AddressCommand.near("weather", in: browser))
 
@@ -113,7 +112,7 @@ final class AddressCommandTests: XCTestCase {
         let offers = browser.placeOffers(for: "find on page").offers
         XCTAssertFalse(offers.first?.kind.isCommand ?? true)
         XCTAssertEqual(offers.last?.command, .menu("edit.find"))
-        // Find needs a page; Hide Sidebar or Tab Bar does not.
+        // Find needs a page; Hide Sidebar does not.
         let folded = browser.folded
         AddressCommand.menu("view.fold").run(on: browser)
         XCTAssertNotEqual(browser.folded, folded, "the menu's own action")
@@ -126,7 +125,7 @@ final class AddressCommandTests: XCTestCase {
     /// A suggestion carries a command by an identifier of its own
     /// (Suggestion.Command, in EdenCore): every command comes back as itself.
     func testEveryCommandSurvivesASuggestion() {
-        let commands = AddressCommand.allCases + [.menu("tabs.pinRow"), .menu("view.sidebar")]
+        let commands = AddressCommand.allCases + [.menu("tabs.pinRow"), .menu("view.fold")]
             + SettingsPanel.Page.allCases.map(AddressCommand.page)
         for command in commands {
             XCTAssertEqual(AddressCommand(command.suggested), command, "\(command)")

@@ -147,7 +147,7 @@ def main():
     access = make("Panel Access", ["http://localhost/*"])
     without = make("Panel Without", [])
     try:
-        sv.setup(sidebar=True); sv.launch()
+        sv.setup(); sv.launch()
         # Signed in on the site, in a tab, as Drice was on claude.ai.
         sv.cmd({"do": "open", "url": f"{SITE}/login"}); time.sleep(1.2)
 

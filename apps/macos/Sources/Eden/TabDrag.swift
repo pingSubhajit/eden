@@ -44,7 +44,7 @@ struct SplitDropZone: NSViewRepresentable {
 }
 
 /// The half a carried pair lets go of, once it has been shown: the pair's
-/// own item dims the half that stays (see SplitTabItem, IconPair). Apart
+/// own item dims the half that stays (see SplitTabItem). Apart
 /// from TabDrag, so a split shown over a page redraws no pair in the row.
 @MainActor
 final class PairSeparation: ObservableObject {

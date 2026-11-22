@@ -47,7 +47,7 @@ def gid(s, page):
 
 def start():
     """a and b in Basics, then two tabs in no group."""
-    sv.setup(**{"tabs.groups": True, "sidebar": True})
+    sv.setup(**{"tabs.groups": True})
     sv.launch()
     a, b, c, d = (sv.page(n) for n in ("a", "b", "c", "d"))
     sv.cmd({"do": "group", "id": a, "new": True, "name": "Basics"})

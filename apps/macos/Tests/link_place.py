@@ -82,9 +82,9 @@ def after(st, opener):
     return out
 
 
-def run(t, sidebar):
-    where = "column" if sidebar else "across the top"
-    sv.setup(sidebar=sidebar, **{"tabs.groups": True, "splitView": True})
+def run(t):
+    where = "column"
+    sv.setup(**{"tabs.groups": True, "splitView": True})
     sv.launch()
     try:
         x = sv.page("x")
@@ -99,8 +99,6 @@ def run(t, sidebar):
         t.ok(f"{where}: the page stays in front, the tabs either side untouched",
              st["activeID"] == s and paths(st)[paths(st).index("/links") - 1] == "/x" and paths(st)[-1] == "/y",
              (st["activeID"], paths(st)))
-        if not sidebar:
-            return
 
         click(s, "l4", button="middle")
         t.ok("a middle-click carries on the run", after(state(), s)[-1] == "/opened-4", paths())
@@ -159,7 +157,7 @@ def run(t, sidebar):
 
 def run_top(t):
     """With new tabs at the top, a ⌘-click still goes under its page, as in Arc."""
-    sv.setup(sidebar=True)
+    sv.setup()
     subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", "top"], check=True)
     sv.launch()
     try:
@@ -179,8 +177,7 @@ def run_top(t):
 def main():
     t = sv.T()
     try:
-        run(t, sidebar=True)
-        run(t, sidebar=False)
+        run(t)
         run_top(t)
     finally:
         t.done()

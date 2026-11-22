@@ -23,7 +23,6 @@ enum AddressCommand: Equatable {
     case history
     case downloads
     case passwords
-    case toggleSidebar
     /// A menu command, by its id in Command.all.
     case menu(String)
     /// A Settings page, opened on that page.
@@ -50,7 +49,6 @@ enum AddressCommand: Equatable {
         case .history: return .init("history")
         case .downloads: return .init("downloads")
         case .passwords: return .init("passwords")
-        case .toggleSidebar: return .init("toggleSidebar")
         case .menu(let id): return .init("menu:" + id)
         case .page(let page): return .init("page:" + page.rawValue)
         case .group(let id): return .init("group:" + id.uuidString)
@@ -90,7 +88,7 @@ enum AddressCommand: Equatable {
 
     /// The words, which run on Return when typed whole.
     static let allCases: [AddressCommand] = [
-        .settings, .newTab, .newPrivateTab, .newSpace, .history, .downloads, .passwords, .toggleSidebar,
+        .settings, .newTab, .newPrivateTab, .newSpace, .history, .downloads, .passwords,
     ]
 
     /// What you'd type to reach it. The first is what the list shows.
@@ -103,7 +101,6 @@ enum AddressCommand: Equatable {
         case .history: return ["history"]
         case .downloads: return ["downloads"]
         case .passwords: return ["passwords"]
-        case .toggleSidebar: return ["toggle sidebar", "sidebar"]
         case .menu(let id): return [Command.named(id)?.title ?? id]
         case .page(let page): return ["\(page.title) Settings"]
         // Never typed to: offered by name (FieldOffers.swift), and read as
@@ -129,7 +126,6 @@ enum AddressCommand: Equatable {
         case .history: return "history.show"
         case .downloads: return "history.downloads"
         case .passwords: return "app.passwords"
-        case .toggleSidebar: return "view.sidebar"
         case .menu(let id): return id
         case .newSpace, .page, .group, .space, .copiedLink: return nil
         }
@@ -160,7 +156,6 @@ enum AddressCommand: Equatable {
         case .history: browser.recalling = true
         case .downloads: browser.showDownloads()
         case .passwords: browser.managing = true
-        case .toggleSidebar: browser.toggleSidebar()
         case .menu(let id): Command.named(id)?.run(browser)
         case .group(let id): browser.openGroup(id)
         case .space(let id): browser.switchSpace(to: id)

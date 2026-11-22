@@ -30,7 +30,7 @@ def wander(id, to):
 try:
     # "Pins keep their site" had a switch; an off left from then is let go
     # at launch, so the pins go home all the same.
-    sv.setup(sidebar=True, **{"pins.home": False, "pins.peek": False}); sv.launch()
+    sv.setup(**{"pins.home": False, "pins.peek": False}); sv.launch()
     a = sv.page("a"); sv.page("b")
     pin(a)
 

@@ -138,18 +138,8 @@ struct EdenApp: App {
                 }
             }
             CommandGroup(replacing: .toolbar) {
-                Toggle("Show Tabs in Sidebar", isOn: Binding(
-                    get: { browser.prefs.sidebar },
-                    set: { _ in browser.toggleSidebar() }
-                ))
-                .shortcut("view.sidebar")
-                // Folded away, not moved (see Fold.swift) — the column, or the
-                // strip across the top.
-                Button(browser.prefs.shrinks && !browser.folded
-                       ? (browser.prefs.sideIcons ? "Show Sidebar Titles" : "Show Sidebar as Icons Only")
-                       : browser.prefs.sidebar
-                       ? (browser.folded ? "Show Sidebar" : "Hide Sidebar")
-                       : (browser.folded ? "Show Tab Bar" : "Hide Tab Bar")) { browser.toggleFold() }
+                // Folded away, not moved (see Fold.swift).
+                Button(browser.folded ? "Show Sidebar" : "Hide Sidebar") { browser.toggleFold() }
                     .shortcut("view.fold")
                 Picker("Tabs Wear", selection: Binding(
                     get: { browser.prefs.glyph },
@@ -290,7 +280,6 @@ struct EdenApp: App {
                     Divider()
                 }
                 if let tab = browser.active {
-                    let rows = browser.prefs.showsPinRows
                     if tab.pin == nil {
                         Button("Pin Tab") { browser.pin(tab) }
                             .shortcut("tabs.pin")
@@ -300,10 +289,8 @@ struct EdenApp: App {
                             .shortcut("tabs.pinRow")
                             .disabled(!tab.isWeb || tab.shy)
                     } else {
-                        if rows {
-                            Button(tab.listed ? "Show Pin as Square" : "Show Pin as Row") { browser.setListed(tab, !tab.listed) }
-                        }
-                        if !(rows && tab.listed) {
+                        Button(tab.listed ? "Show Pin as Square" : "Show Pin as Row") { browser.setListed(tab, !tab.listed) }
+                        if !tab.listed {
                             Button("Change Letter") { browser.editLetter(tab) }
                         }
                         // ⌘D unpins any pin; a key of Pin Tab's own shows on a square.
@@ -472,7 +459,7 @@ struct ContentView: View {
     @State private var held = WeakWindow()
     private var window: NSWindow? { held.window }
     @State private var resting: RestingLights?
-    /// The room the page leaves for the column and the strip, set without
+    /// The room the page leaves for the column, set without
     /// animation (see `make(room:after:)`); nil only before the window is up.
     @State private var room: CGSize?
     @State private var roomTicket = 0
@@ -489,15 +476,15 @@ struct ContentView: View {
         ZStack(alignment: sideOnRight ? .topTrailing : .topLeading) {
             // Black while a page has the screen, so the frame of our own window
             // that survives the transition is not a white band across the top.
-            // With the tabs down the side, the ground the page's card and the
-            // column sit on (see CardEdge).
+            // Otherwise the ground the page's card and the column sit on (see
+            // CardEdge).
             (fullscreenTab != nil ? Color.black : cards ? Palette.frame : Palette.ground)
 
-            // One stage, always. It starts beside the column and under the
-            // strip, not behind them — a page sliding beneath floating chrome
-            // is a browser showing off, and it costs a compositing pass.
+            // One stage, always. It starts beside the column, not behind
+            // it — a page sliding beneath floating chrome is a browser
+            // showing off, and it costs a compositing pass.
             //
-            // When the column or the strip comes or goes, the page slides with
+            // When the column comes or goes, the page slides with
             // it and is resized once, not on every frame of the slide: laid out
             // again thirty times a second, the page juddered along its right
             // edge and overshot the window with the spring (see `room`).
@@ -523,17 +510,11 @@ struct ContentView: View {
 
             // The column of tabs is Fold's, in its place beside the page or
             // folded away (see Fold.swift).
-
-            if !browser.prefs.sidebar, !browser.folded, fullscreenTab == nil {
-                TabBar(browser: browser)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
         }
         .ignoresSafeArea()
         .background { fullscreenWatch }
         .background { GeometryReader { geo in Color.clear.onAppear { across = geo.size.width }
             .onChange(of: geo.size.width) { _, width in across = width } } }
-        .animation(Motion.glide, value: browser.prefs.sidebar)
         .animation(Motion.glide, value: browser.prefs.sidePosition)
         .onAppear { if room == nil { room = chrome } }
         .onChange(of: chrome) { old, new in make(room: new, after: old) }
@@ -584,14 +565,14 @@ struct ContentView: View {
         }
     }
 
-    /// What the column and the strip take from the page right now: animated
-    /// as they come and go. With the page as a card, the column folded away
-    /// still leaves the card's gap, and so does the top.
+    /// What the column takes from the page right now: animated as it comes
+    /// and goes. With the page as a card, the column folded away still
+    /// leaves the card's gap, and so does the top.
     private var chrome: CGSize {
         if cards {
             return CGSize(width: sidebar ? sideWidth : Metrics.cardGap, height: Metrics.cardGap)
         }
-        return CGSize(width: sidebar ? sideWidth : 0, height: band)
+        return CGSize(width: sidebar ? sideWidth : 0, height: 0)
     }
 
     /// The column's width: the setting, or where its edge is while held.
@@ -643,7 +624,7 @@ struct ContentView: View {
     private var roomed: CGSize { room ?? chrome }
 
     private var sideOnRight: Bool {
-        browser.prefs.sidebar && browser.prefs.sidePosition == .right
+        browser.prefs.sidePosition == .right
     }
 
     /// Chrome going away gives the page its room at once, the page sliding
@@ -795,8 +776,8 @@ struct ContentView: View {
             // The window's passing messages, dropping in at the top (Toasts).
             .overlay(alignment: .top) { ToastHost(browser.toasts) }
             .overlay {
-                // Over the page only: the column and the strip stay as they
-                // are, uncovered and in reach.
+                // Over the page only: the column stays as it is, uncovered
+                // and in reach.
                 PeekLayer(browser: browser)
                     .padding(.leading, sideOnRight ? 0 : chrome.width)
                     .padding(.trailing, sideOnRight ? chrome.width : 0)
@@ -817,16 +798,9 @@ struct ContentView: View {
             // there is to watch.
             .animation(browser.fieldShowing ? Motion.settle : Motion.quick, value: browser.fieldShowing)
             .background(windowSetup)
-            .onChange(of: browser.prefs.sidebar) { _, _ in
-                DispatchQueue.main.async { Lights.refresh(window); measureLights() }
-            }
             .onChange(of: browser.asCards) { _, cards in
                 // The ground the page's card sits on, or the page's own.
                 window?.backgroundColor = cards ? Palette.NS.frame : Palette.NS.ground
-            }
-            // The lights sit on the strip's middle, which moves with its height.
-            .onChange(of: browser.prefs.compactStrip) { _, _ in
-                DispatchQueue.main.async { Lights.refresh(window); measureLights() }
             }
             .onChange(of: browser.prefs.sidePosition) { _, _ in
                 DispatchQueue.main.async { Lights.refresh(window); measureLights() }
@@ -959,17 +933,10 @@ struct ContentView: View {
         .transition(.opacity)
     }
 
-    /// True while the tabs are down the left, and not folded away (see Fold.swift).
+    /// True while the column is beside the page, not folded away (see
+    /// Fold.swift).
     private var sidebar: Bool {
-        browser.prefs.sidebar && !browser.folded && fullscreenTab == nil
-    }
-
-    /// The column has its own corner for the lights, so the page beside it
-    /// starts at the very top; the strip needs a band.
-    private var band: CGFloat {
-        guard fullscreenTab == nil else { return 0 }
-        // Folded, the strip is out of the window and the page has its height.
-        return browser.prefs.sidebar || browser.folded ? 0 : Metrics.strip
+        !browser.folded && fullscreenTab == nil
     }
 
     /// Either visible pane may give its page to WebKit's fullscreen window.
@@ -1076,28 +1043,28 @@ struct ContentView: View {
         // A window put back in full screen is so before any notice says it.
         browser.fullScreen = window.styleMask.contains(.fullScreen)
         window.backgroundColor = browser.asCards ? Palette.NS.frame : Palette.NS.ground
-        // The strip does the dragging, so the page underneath can't be grabbed
-        // by accident while selecting text.
+        // The band across the column's top does the dragging (DragStrip), so
+        // the page underneath can't be grabbed by accident while selecting
+        // text.
         window.isMovableByWindowBackground = false
-        // Nor by its title bar, which the strip is all the way down: AppKit
+        // Nor by its title bar, which the column's top lies in: AppKit
         // would move the window on any drag there, a tab picked up to take
-        // it elsewhere in the row included. DragStrip moves it instead. The
+        // it elsewhere included. DragStrip moves it instead. The
         // window stays movable, though — macOS's Window › Move & Resize, its
         // tiling and the tools that arrange windows ask for a movable one
         // (#286) — and is made unmovable only while the pointer is over the
         // strip (see DragStrip).
         window.isMovable = true
 
-        // The traffic lights set in from the corner and centred in the strip's
-        // height, in both modes, without a toolbar's rounder corners — see
-        // Lights.swift. The column's first row is the strip's height too, so
-        // its three doors sit on the lights' line.
+        // The traffic lights set in from the corner and centred in the band
+        // across the column's top, without a toolbar's rounder corners — see
+        // Lights.swift. Its three doors sit on the lights' line.
         let edges = self.edges
         Lights.keep(window, centreX: { window in
-            browser.prefs.sidebar && browser.prefs.sidePosition == .right
+            browser.prefs.sidePosition == .right
                 ? window.frame.width - (edges.side ?? browser.prefs.columnWidth) + Lights.centre.x
                 : Lights.centre.x
-        }, vertical: { _ in browser.prefs.iconColumn }) { measureLights() }
+        }) { measureLights() }
         DispatchQueue.main.async { measureLights() }
 
         // The traffic lights are drawn — measured, they paint themselves — but
@@ -1722,10 +1689,8 @@ struct ContentView: View {
             browser.pauseMedia()
         case "p" where shifted:
             browser.toggleFloat()
-        case "s" where shifted:
-            browser.toggleSidebar()
         case "s" where !shifted:
-            // The column or the strip, folded away (see Fold.swift).
+            // The column, folded away (see Fold.swift).
             browser.toggleFold()
         case "," where !shifted:
             browser.tuning = true

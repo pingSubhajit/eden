@@ -9,8 +9,9 @@ Rules for agents working in this repository.
 - No AI features unless the owner asks for one. Don't extend the existing AI
   code (`AI.swift`, `AIAssist.swift` and the rest), and ask before touching
   or removing it.
-- The Mac is sidebar-only from here on. Don't invest in the top tab bar
-  (`TabBar.swift`).
+- The Mac is sidebar-only: the tabs are only ever down a side of the
+  window, with their titles. Don't bring back tabs across the top or a
+  column of icons only.
 - Borrow the best of other browsers, and copy outright where the owner says
   so. Adapt colours to Eden's palette.
 - Don't name other products, browsers or their makers in issues, pull

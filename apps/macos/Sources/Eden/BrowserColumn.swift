@@ -45,7 +45,7 @@ extension Browser {
     /// that isn't a pin, nil for a square, above both.
     func area(of tab: Tab) -> ColumnArea? {
         if tab.pin == nil { return .open }
-        return tab.listed && prefs.showsPinRows ? .kept : nil
+        return tab.listed ? .kept : nil
     }
 
     /// The group a tab is drawn in, in its area: a kept row's kept group, an
@@ -104,9 +104,9 @@ extension Browser {
         return ColumnTree.lines(keptItems(), showing: { $0.id == front })
     }
 
-    /// Whether the kept area is drawn with groups: the rows shown, and a
-    /// kept group to draw. With none, the rows are drawn as they always were.
-    var drawsKeptGroups: Bool { prefs.showsPinRows && !keptGroups.isEmpty }
+    /// Whether the kept area is drawn with groups: a kept group to draw.
+    /// With none, the rows are drawn as they always were.
+    var drawsKeptGroups: Bool { !keptGroups.isEmpty }
 
     /// Whether a pin can go in a kept group: a row of this space's own.
     func fitsKeptGroup(_ tab: Tab) -> Bool {

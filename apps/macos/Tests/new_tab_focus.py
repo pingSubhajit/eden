@@ -87,7 +87,7 @@ def every(t, name, runs, trial):
 def main():
     t = sv.T()
     try:
-        sv.setup(splitView=True, sidebar=True); sv.launch()
+        sv.setup(splitView=True); sv.launch()
         a = sv.page("a")
         sv.sp("select", id=a); time.sleep(0.3)
 

@@ -5,9 +5,8 @@ import SwiftUI
 // under the pins, above the line over your own tabs, as Dia's Pull Requests
 // is — a group of the browser's, not yours to rename, colour or close —
 // folded until it is opened; opened, the tabs open on that device in this
-// space. With icons only, a door in the foot opens every device's list
-// beside the column, under the spaces they are open in. A tab picked comes here as it does
-// from History › Tabs on Other Devices: to its tab if it is open here
+// space. A tab picked comes here as it does from History › Tabs on Other
+// Devices: to its tab if it is open here
 // already, else in its own space, as far down as it was read
 // (Browser.open(_ offer:)).
 
@@ -33,9 +32,8 @@ final class OpenPages: ObservableObject {
 
 /// How many tabs each of your other devices has open in each space, said
 /// only when that changes: what the column needs to know to draw their
-/// groups, the line under them and room for their rows, and the door to
-/// them with icons only, without being drawn again for every title another
-/// device changes. By device as well as space: one group growing as
+/// groups, the line under them and room for their rows, without being
+/// drawn again for every title another device changes. By device as well as space: one group growing as
 /// another shrinks still changes the room they take.
 @MainActor
 final class ElsewherePresence: ObservableObject {
@@ -193,40 +191,6 @@ struct DeviceGroup: View {
     }
 }
 
-/// A device's tabs, under the spaces they are open in while spaces are on.
-struct ElsewhereTabs: View {
-    @ObservedObject var browser: Browser
-    let device: DeviceTabs
-    /// The pages open in this profile's windows, by History.identity.
-    let open: Set<String>
-    /// Told once a tab is picked: a popover showing them goes away.
-    var picked: () -> Void = {}
-
-    var body: some View {
-        ForEach(Array(browser.spaceGroups(device.tabs).enumerated()), id: \.offset) { _, group in
-            if let title = group.title {
-                Text(title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.4)
-                    .foregroundStyle(Palette.muted)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
-                    .padding(.bottom, 2)
-            }
-            ForEach(group.pages, id: \.url) { page in
-                ElsewhereRow(prefs: browser.prefs, page: page, deviceName: device.name,
-                             openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false,
-                             close: { Sync.shared.askToClose(page, on: device.device) }) {
-                    browser.open(Elsewhere.Offer(device: device, page: page))
-                    picked()
-                }
-                .transition(.sideRow)
-            }
-        }
-        .animation(Motion.settle, value: device.tabs.map(\.url))
-    }
-}
-
 /// One of another device's tabs, drawn as a tab's line in the column is:
 /// its site's mark, with a green dot carved into it when it is open here
 /// already, and its title; a click switches to it here, or opens it. Under
@@ -329,53 +293,5 @@ private struct OpenHereDot: ViewModifier {
                         .accessibilityHidden(true)
                 }
             }
-    }
-}
-
-/// With icons only: a door in the foot, while another device has tabs open,
-/// opening every device's list beside the column.
-struct ElsewhereDoor: View {
-    @ObservedObject var browser: Browser
-    @ObservedObject private var sync = Sync.shared
-    let arrowEdge: Edge
-    @State private var showing = false
-
-    var body: some View {
-        let devices = sync.devicesWithTabs
-        if !devices.isEmpty {
-            Door(icon: "laptopcomputer.and.iphone", on: showing, help: "Tabs on Other Devices") { showing.toggle() }
-                .popover(isPresented: $showing, arrowEdge: arrowEdge) {
-                    ElsewherePopover(browser: browser, devices: devices) { showing = false }
-                }
-        }
-    }
-}
-
-/// Every device's list, beside the icons-only column.
-private struct ElsewherePopover: View {
-    @ObservedObject var browser: Browser
-    let devices: [DeviceTabs]
-    let picked: () -> Void
-    @ObservedObject private var pages = OpenPages.shared
-
-    var body: some View {
-        // Once for every list, whichever window changed (OpenPages).
-        let open = browser.openHere
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 1) {
-                ForEach(devices, id: \.device) { device in
-                    Label(device.name, systemImage: device.kind.symbol)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Palette.muted)
-                        .padding(.horizontal, 8)
-                        .padding(.top, 6)
-                    ElsewhereTabs(browser: browser, device: device, open: open, picked: picked)
-                }
-            }
-            .padding(8)
-        }
-        .frame(width: 300)
-        .frame(maxHeight: 420)
-        .fixedSize(horizontal: false, vertical: true)
     }
 }

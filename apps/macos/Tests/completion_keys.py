@@ -107,7 +107,7 @@ def main():
     file = os.path.join(folder, "bookmarks.html")
     marks(file)
     try:
-        sv.setup(sidebar=True, splitView=True)
+        sv.setup(splitView=True)
         sv.launch()
         sv.cmd({"do": "history", "take": "https://web.whatsapp.com/", "count": 20})
         sv.cmd({"do": "import-file", "path": file})

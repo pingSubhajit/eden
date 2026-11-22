@@ -3,8 +3,7 @@ import XCTest
 @testable import Eden
 
 /// Pin Tab, on a key of your own, and Pin Tab as Row, ⌘D as in Arc (#6):
-/// each pins the tab on screen, and on a pinned tab unpins it. With the tabs
-/// across the top, a row is drawn a square.
+/// each pins the tab on screen, and on a pinned tab unpins it.
 @MainActor
 final class PinKeyTests: XCTestCase {
     override class func setUp() {
@@ -13,7 +12,7 @@ final class PinKeyTests: XCTestCase {
     }
 
     func testPinTabPinsASquareAndUnpins() throws {
-        try withBrowser(rows: true) { browser, tab in
+        try withBrowser { browser, tab in
             press("tabs.pin", browser)
             XCTAssertNotNil(tab.pin)
             XCTAssertFalse(tab.listed, "a square")
@@ -23,21 +22,12 @@ final class PinKeyTests: XCTestCase {
     }
 
     func testPinTabAsRowPinsARowAndUnpins() throws {
-        try withBrowser(rows: true) { browser, tab in
+        try withBrowser { browser, tab in
             press("tabs.pinRow", browser)
             XCTAssertNotNil(tab.pin)
             XCTAssertTrue(tab.listed, "a row")
             press("tabs.pinRow", browser)
             XCTAssertNil(tab.pin, "the same key unpins it")
-        }
-    }
-
-    func testAcrossTheTopTheRowsKeyPinsARowDrawnASquare() throws {
-        try withBrowser(rows: false) { browser, tab in
-            press("tabs.pinRow", browser)
-            XCTAssertNotNil(tab.pin)
-            XCTAssertTrue(tab.listed, "a row, for the column")
-            XCTAssertEqual(browser.squarePins.map(\.id), [tab.id], "drawn a square across the top")
         }
     }
 
@@ -47,7 +37,7 @@ final class PinKeyTests: XCTestCase {
     func testCommandDPinsAsRowThenUnpins() throws {
         XCTAssertEqual(Command.named("tabs.pinRow")?.defaultKey, KeyCombo("d"))
         XCTAssertNil(Command.named("tabs.duplicate")?.defaultKey)
-        try withBrowser(rows: true) { browser, tab in
+        try withBrowser { browser, tab in
             browser.togglePinRow()
             XCTAssertNotNil(tab.pin)
             XCTAssertTrue(tab.listed, "a row")
@@ -67,19 +57,17 @@ final class PinKeyTests: XCTestCase {
         command.run(browser)
     }
 
-    private func withBrowser(rows: Bool, _ body: (Browser, Tab) throws -> Void) throws {
+    private func withBrowser(_ body: (Browser, Tab) throws -> Void) throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.sidebar, prefs.usesTabGroups)
+        let saved = prefs.usesTabGroups
         defer {
             for tab in browser.tabs where tab.pin != nil { browser.unpin(tab) }
             browser.closeAll()
-            (prefs.sidebar, prefs.usesTabGroups) = saved
+            prefs.usesTabGroups = saved
         }
-        // The rows are drawn only with the tabs down the side.
-        prefs.sidebar = rows
         prefs.usesTabGroups = false
         browser.newTab()
         let tab = try XCTUnwrap(browser.tabs.last)

@@ -288,19 +288,6 @@ final class PinFolderColumnTests: XCTestCase {
         _ = work
     }
 
-    func testAcrossTheTopTheKeptGroupsWait() throws {
-        let browser = makeBrowser()
-        let (_, two, _, _) = try pinned(browser)
-        let work = browser.newKeptGroup(named: "Work", holding: two, rename: false)
-        XCTAssertNotNil(work)
-        XCTAssertTrue(browser.drawsKeptGroups)
-        browser.prefs.sidebar = false
-        XCTAssertFalse(browser.drawsKeptGroups)
-        // Kept for the column, as tab groups are.
-        XCTAssertEqual(two.keptGroupID, work)
-        XCTAssertEqual(Pins.defs(browser.spaceID).first { $0.id == two.pinID }?.group, work)
-    }
-
     // MARK: - across the line
 
     /// An open tab carried above the line is pinned as a row where it is
@@ -617,15 +604,14 @@ final class PinFolderColumnTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView,
+        let previous = (prefs.usesTabGroups, prefs.splitView,
                         prefs.usesSpaces, prefs.sharesPins, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView,
+            (prefs.usesTabGroups, prefs.splitView,
              prefs.usesSpaces, prefs.sharesPins, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
-        browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = groups
         browser.prefs.splitView = false
         browser.prefs.sharesPins = false

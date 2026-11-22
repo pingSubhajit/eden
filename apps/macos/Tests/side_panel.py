@@ -7,9 +7,9 @@ everything removed afterwards. The extensions are folders made here: one
 with a panel, one whose panel page is missing.
 
 Where the panel sits: with the page as a card, a card of its own on the side
-away from the column, after the same gap; edge to edge (the switch off, the
-window in full screen as the chrome sees it, the tabs across the top) at the
-window's edge with a hairline before it; in Split View the pair shares what
+away from the column, after the same gap; edge to edge (the switch off, or
+the window in full screen as the chrome sees it) at the window's edge with a
+hairline before it; in Split View the pair shares what
 is left. What the panel may do (Security's checks): no window without a
 gesture, window.open only to what a tab may open, its top frame kept to the
 extension's own pages, a site it goes to opening in a tab only after a real
@@ -164,7 +164,7 @@ def main():
         for split in (False, True):
             kind = "a pair" if split else "one page"
             tag = "pair-" if split else ""
-            sv.setup(sidebar=True, splitView=split); sv.launch()
+            sv.setup(splitView=split); sv.launch()
             a = sv.page("a")
             if split:
                 b = sv.page("b")
@@ -239,16 +239,6 @@ def main():
             t.ok(f"{kind}: full screen, edge to edge", r == (w - WIDTH, 0, w, h) and max(x[2] for x in pages()) == w - WIDTH - 1, (r, pages()))
             ui(fullscreen=False)
             t.ok(f"{kind}: out of full screen, a card again", box() == (w - GAP - WIDTH, GAP, w - GAP, h - GAP), box())
-
-            # The tabs across the top: at the right edge, under the strip.
-            ui(sidebar=False)
-            r = box()
-            top = min(x[1] for x in pages())
-            t.ok(f"{kind}: tabs across the top, at the right edge under the strip",
-                 r == (w - WIDTH, top, w, h) and top > 0, (r, top))
-            t.ok(f"{kind}: tabs across the top, the page up to its hairline", max(x[2] for x in pages()) == w - WIDTH - 1, pages())
-            picture(f"{tag}across")
-            ui(sidebar=True)
 
             # The column folded away: still on the far side.
             ui(folded=True)
@@ -357,7 +347,7 @@ def main():
 
             # The width, as left: kept within 300–640.
             sv.quit()
-            sv.setup(sidebar=True)
+            sv.setup()
             os.system(f"defaults write {sv.SUITE} sidepanel.width -float 9999")
             sv.launch()
             sv.page("a")

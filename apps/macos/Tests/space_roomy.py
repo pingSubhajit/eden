@@ -44,7 +44,7 @@ def main():
     t = sv.T()
     out = tempfile.mkdtemp(prefix="space-roomy-")
     try:
-        sv.setup(**{"spaces": True, "sidebar": True, "sidebar.roomy": True, "start.fresh": False})
+        sv.setup(**{"spaces": True, "sidebar.roomy": True, "start.fresh": False})
         sv.launch()
         for n in ("a1", "a2", "a3"): sv.page(n)
         sv.cmd({"do": "space", "action": "new", "name": "Two"}); time.sleep(0.8)

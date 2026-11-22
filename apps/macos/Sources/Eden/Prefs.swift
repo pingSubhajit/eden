@@ -87,7 +87,7 @@ enum DownloadsOpening: String, CaseIterable, Identifiable {
     }
 }
 
-/// Which edge the tab column sits on when tabs are arranged in a sidebar.
+/// Which edge of the window the column of tabs sits on.
 enum SidebarPosition: String, CaseIterable, Identifiable {
     case left, right
 
@@ -101,68 +101,9 @@ enum SidebarPosition: String, CaseIterable, Identifiable {
     }
 }
 
-/// Where the tabs go when the settings have no line for it. Down the side,
-/// as Arc has them, for an Eden opened for the first time (Drice, 17 Nov
-/// 2026); across the top before that. Nobody already using Eden sees the
-/// tabs move with an update: `settle` writes the old place down for them,
-/// once, before the setting is first read.
-enum SidebarDefault {
-    /// Set at the first launch of a build that knows the new default, fresh
-    /// install or not, so `settle` looks only once: a fresh install's second
-    /// launch has settings and a session too, and must not be taken for one
-    /// from before.
-    static let settledKey = "sidebar.settled"
-
-    /// The column, except in a test world: the hidden suites were written
-    /// against tabs across the top and set `sidebar` when they want the
-    /// column.
-    static func fresh(testing: Bool) -> Bool { !testing }
-
-    /// Lines only an Eden that has run before leaves behind: the welcome
-    /// walked through, a choice of what tabs wear (written by every build
-    /// before the welcome existed), and the window's frame AppKit keeps.
-    static let traces = ["welcomed", "glyph", "NSWindow Frame search"]
-
-    /// One time only. An Eden that ran before this build, with no line for
-    /// where its tabs go, had them across the top: that is written down, so
-    /// the new default never reaches it. `ranBefore` is whether a session
-    /// or windows file is already in the folder.
-    static func settle(_ store: UserDefaults, testing: Bool, ranBefore: Bool) {
-        guard !store.bool(forKey: settledKey) else { return }
-        store.set(true, forKey: settledKey)
-        guard fresh(testing: testing),
-              store.object(forKey: "sidebar") == nil,
-              store.object(forKey: "manner") == nil
-        else { return }
-        if ranBefore || traces.contains(where: { store.object(forKey: $0) != nil }) {
-            store.set(false, forKey: "sidebar")
-        }
-    }
-
-    /// Whether this folder holds what an Eden that has run leaves there.
-    static func ranBefore(in folder: URL) -> Bool {
-        ["session.json", "windows.json", "pins.json"].contains {
-            FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path)
-        }
-    }
-}
-
 @MainActor
 final class Preferences: ObservableObject {
     private let store = Store.settings
-
-    /// Back, forward and reload before the tabs rather than after them, with
-    /// the tabs across the top. Off unless asked for.
-    @Published var navigationLeft: Bool {
-        didSet { store.set(navigationLeft, forKey: "toolbar.left") }
-    }
-
-    /// The tab strip only a few points taller than its tabs, where it is
-    /// otherwise a toolbar's height (Metrics.strip). With the tabs across the
-    /// top; off unless asked for.
-    @Published var compactStrip: Bool {
-        didSet { store.set(compactStrip, forKey: "tabs.compact") }
-    }
 
     /// A local socket a script can drive the browser through, in tabs of its
     /// own. Off unless asked for — in Settings, which is also what leaves
@@ -183,10 +124,6 @@ final class Preferences: ObservableObject {
             look.apply()
         }
     }
-    /// Titles down a side instead of across the top.
-    @Published var sidebar: Bool {
-        didSet { store.set(sidebar, forKey: "sidebar") }
-    }
     /// The side panel's width, as you last left it (see SidePanel.swift).
     @Published var sidePanelWidth: CGFloat {
         didSet {
@@ -195,7 +132,8 @@ final class Preferences: ObservableObject {
             store.set(Double(sidePanelWidth), forKey: "sidepanel.width")
         }
     }
-    /// Which side the column is on when it is shown vertically.
+    /// Which side of the window the column is on: the left unless asked
+    /// otherwise.
     @Published var sidePosition: SidebarPosition {
         didSet { store.set(sidePosition.rawValue, forKey: "sidebar.position") }
     }
@@ -209,27 +147,8 @@ final class Preferences: ObservableObject {
     @Published var roomyTabs: Bool {
         didSet { store.set(roomyTabs, forKey: "sidebar.roomy") }
     }
-    /// The column as icons only: each tab its site's mark, no titles, a
-    /// fixed narrow width, and nothing that grows under the pointer (idea
-    /// 413). Off unless asked for; Settings › Appearance › Tabs, Icons only.
-    @Published var sideIcons: Bool {
-        didSet { store.set(sideIcons, forKey: "sidebar.icons") }
-    }
-    /// ⌘S makes the column icons only, and gives it its titles back, rather
-    /// than folding it away: the tabs stay in sight (idea 620). Off unless
-    /// asked for; Settings › Appearance › Tabs.
-    @Published var foldsToIcons: Bool {
-        didSet { store.set(foldsToIcons, forKey: "sidebar.foldIcons") }
-    }
-    /// Whether ⌘S does that as things are set: with the tabs down a side,
-    /// and not with the column kept folded, where ⌘S is what brings it out
-    /// to stay (see Fold.swift).
-    var shrinks: Bool { sidebar && foldsToIcons && !sideHides }
-    /// Whether the column is showing as icons now: down a side, and asked for.
-    var iconColumn: Bool { sidebar && sideIcons }
-    /// The column's width as drawn: fixed with icons only, pulled by its
-    /// edge otherwise (the width pulled is kept for when titles come back).
-    var columnWidth: CGFloat { iconColumn ? Metrics.iconColumn : sideWidth }
+    /// The column's width as drawn: as its edge was last pulled.
+    var columnWidth: CGFloat { sideWidth }
     /// A tab playing sound out of sight shows at the foot of the sidebar,
     /// with its pause (see Player.swift). Off unless asked for.
     @Published var showsPlayer: Bool {
@@ -237,7 +156,7 @@ final class Preferences: ObservableObject {
     }
     /// One tab's line in the column, its site's icon, and the size its
     /// title is set in.
-    var sideRow: CGFloat { iconColumn ? Metrics.iconTile : roomyTabs ? 36 : 28 }
+    var sideRow: CGFloat { roomyTabs ? 36 : 28 }
     var sideMark: CGFloat { roomyTabs ? 17 : 15 }
     var sideTitle: CGFloat { roomyTabs ? 14 : 12.5 }
     /// A pinned square at its tallest: roomier too, as Dia's are.
@@ -777,13 +696,6 @@ final class Preferences: ObservableObject {
     /// adds a command, so there is no switch. Still a property, for the
     /// code that asks and the tests that turn it off; never written.
     @Published var pinNumberGoesBack = true
-    /// Whether the pinned rows are drawn as rows, in their folders: with
-    /// the tabs down the side. Across the top every pin is a square. Arc's
-    /// three tiers (the squares, pins kept as rows under them, and a line
-    /// with Clear above the tabs that come and go, see Tab.listed) are how
-    /// pages are kept since pins took over from bookmarks (#6), so there is
-    /// no switch for the rows, their folders, or pins keeping their site.
-    var showsPinRows: Bool { sidebar }
     /// Pins every space shows above its own, as Arc's favourites sit above
     /// every space (see Pins.shared).
     /// Always on since the Settings rework (Drice, 24 Oct 2026): it only
@@ -865,8 +777,6 @@ final class Preferences: ObservableObject {
 
     init() {
         Preferences.settleLittleLinks(in: store)
-        navigationLeft = store.bool(forKey: "toolbar.left")
-        compactStrip = store.bool(forKey: "tabs.compact")
         // Carried over from when there were four ways of holding the browser
         // and this was one of them.
         // The Mac's own unless asked otherwise — a Mac in dark mode expects
@@ -887,15 +797,9 @@ final class Preferences: ObservableObject {
         NSApplication.shared.appearance = chosen.appearance
         sidePanelWidth = min(max(CGFloat(store.object(forKey: "sidepanel.width") as? Double ?? 380),
                                  Preferences.sidePanelWidths.lowerBound), Preferences.sidePanelWidths.upperBound)
-        SidebarDefault.settle(store, testing: Store.testing, ranBefore: SidebarDefault.ranBefore(in: Store.folder))
-        sidebar = store.object(forKey: "sidebar") as? Bool
-            ?? store.string(forKey: "manner").map { $0 == "side" }
-            ?? SidebarDefault.fresh(testing: Store.testing)
         sidePosition = store.string(forKey: "sidebar.position").flatMap(SidebarPosition.init) ?? .left
         sideHides = store.bool(forKey: "sidebar.hides")
         roomyTabs = store.bool(forKey: "sidebar.roomy")
-        sideIcons = store.bool(forKey: "sidebar.icons")
-        foldsToIcons = store.bool(forKey: "sidebar.foldIcons")
         showsPlayer = store.bool(forKey: "sidebar.player")
         let width = store.object(forKey: "sidebar.width") as? Double ?? Double(Metrics.side)
         sideWidth = min(Metrics.sideMax, max(Metrics.sideMin, CGFloat(width)))
@@ -1079,6 +983,14 @@ final class Preferences: ObservableObject {
         for key in ["mind.model", "mind.effort", "mind.acting", "mind.width", "mind.open"] {
             store.removeObject(forKey: key)
         }
+        // The tabs are only ever down a side, with their titles (#27): the
+        // choice of the tabs across the top, the column as icons only, ⌘S
+        // making it so, and the strip's own switches are gone, and so is
+        // what they kept.
+        for key in ["sidebar", "manner", "sidebar.settled", "sidebar.icons", "sidebar.foldIcons",
+                    "tabs.compact", "toolbar.left"] {
+            store.removeObject(forKey: key)
+        }
     }
 
     /// The folder the settings file is in, watched for as long as the app
@@ -1119,16 +1031,10 @@ final class Preferences: ObservableObject {
     /// written back.
     func reread() {
         take(\.look, "look", store.string(forKey: "look").flatMap(Look.init), or: .system)
-        take(\.navigationLeft, store.bool(forKey: "toolbar.left"))
-        take(\.compactStrip, store.bool(forKey: "tabs.compact"))
-        take(\.sidebar, "sidebar", store.object(forKey: "sidebar") as? Bool,
-             or: store.string(forKey: "manner").map { $0 == "side" } ?? SidebarDefault.fresh(testing: Store.testing))
         take(\.sidePosition, "sidebar.position", store.string(forKey: "sidebar.position").flatMap(SidebarPosition.init),
              or: .left)
         take(\.sideHides, store.bool(forKey: "sidebar.hides"))
         take(\.roomyTabs, store.bool(forKey: "sidebar.roomy"))
-        take(\.sideIcons, store.bool(forKey: "sidebar.icons"))
-        take(\.foldsToIcons, store.bool(forKey: "sidebar.foldIcons"))
         take(\.sideWidth, "sidebar.width", (store.object(forKey: "sidebar.width") as? Double).map { CGFloat($0) }
             .flatMap { (Metrics.sideMin...Metrics.sideMax).contains($0) ? $0 : nil }, or: Metrics.side)
         take(\.sidePanelWidth, "sidepanel.width", (store.object(forKey: "sidepanel.width") as? Double).map { CGFloat($0) }

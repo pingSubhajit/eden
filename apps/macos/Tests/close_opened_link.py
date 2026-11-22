@@ -74,7 +74,7 @@ def by_path(path):
 
 
 def run(t, goes_back):
-    sv.setup(sidebar=True, **{"tabs.closeGoesBack": goes_back})
+    sv.setup(**{"tabs.closeGoesBack": goes_back})
     sv.launch()
     tag = "goes back on" if goes_back else "default"
     try:

@@ -89,7 +89,7 @@ def main():
     for name, body in FILES.items(): (folder / name).write_text(body)
     sv.APP = probe_copy()
     try:
-        sv.setup(sidebar=True)
+        sv.setup()
         sv.launch()
         sv.cmd({"do": "ext-folder", "path": str(folder), "yes": True})
         ext = None
