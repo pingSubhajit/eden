@@ -1717,6 +1717,9 @@ final class Bench {
             } else {
                 reply["items"] = SettingsIndex.items.map(SettingsIndex.describe)
                 reply["pages"] = SettingsPanel.Page.blocks.flatMap { $0 }.map(\.rawValue)
+                // Whether this build offers updates at all: off, their rows
+                // aren't listed (SettingsIndex.offered).
+                reply["updates"] = Brand.updatesEnabled
             }
             answer(reply)
 
