@@ -1987,10 +1987,15 @@ struct KeepLine: View {
     let clears: Bool
     let act: () -> Void
 
+    @Environment(\.greys) private var greys
     @State private var hovering = false
+    /// The pointer on Clear itself, not only on the line: it lights as the
+    /// New tab row under it does, so it reads as the thing to press.
+    @State private var onClear = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        // 6 between the line and the arrow, the grey's 5 counted in.
+        HStack(spacing: 1) {
             Rectangle()
                 .fill(Palette.hairline)
                 .frame(height: 1)
@@ -2002,10 +2007,20 @@ struct KeepLine: View {
                         Text("Clear")
                             .font(.system(size: 11))
                     }
-                    .foregroundStyle(Palette.muted)
+                    .foregroundStyle(onClear ? Palette.ink.opacity(0.7) : Palette.muted)
+                    .padding(.horizontal, 5)
+                    .frame(height: KeepLine.height)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(onClear ? greys.hover : .clear)
+                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // The grey reaches past the word, and the word stays where
+                // it always stood, level with the line's end.
+                .padding(.trailing, -5)
+                .onHover { onClear = $0 }
                 .help("Close the tabs under the line. Pins and groups stay; ⇧⌘T brings them all back.")
                 .transition(.opacity)
             }
@@ -2013,10 +2028,14 @@ struct KeepLine: View {
         .padding(.horizontal, 10)
         .frame(height: KeepLine.height)
         .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+        .onHover { hovering = $0; if !$0 { onClear = false } }
+        // Gone from under the pointer with nothing left to clear, it may
+        // hear no leaving: it doesn't come back lit with the next tab.
+        .onChange(of: clears) { _, now in if !now { onClear = false } }
         .onAppear { if Store.testing { KeepLine.drawn += 1 } }
         .onDisappear { if Store.testing { KeepLine.drawn -= 1 } }
         .animation(Motion.quick, value: hovering)
+        .animation(Motion.quick, value: onClear)
     }
 }
 
