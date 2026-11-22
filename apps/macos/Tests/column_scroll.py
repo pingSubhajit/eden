@@ -83,7 +83,9 @@ def check(label, loose, first):
 
 def main():
     try:
-        sv.setup(**{"tabs.groups": True}); sv.launch()
+        # Each page after the last, so the last loose tab is the last row:
+        # new tabs go to the top by default since 969dc3e (19 Nov 2026).
+        sv.setup(**{"tabs.groups": True}, **sv.IN_ORDER); sv.launch()
         sv.cmd({"do": "resize", "width": 1000, "height": 560, "steps": 1})
         ids, loose = fill()
         first = ids[20]  # G10's first tab, in a group left open
@@ -126,7 +128,7 @@ def main():
 
         # Roomier rows, from the start.
         sv.quit()
-        sv.setup(**{"tabs.groups": True, "sidebar.roomy": True}); sv.launch()
+        sv.setup(**{"tabs.groups": True, "sidebar.roomy": True}, **sv.IN_ORDER); sv.launch()
         sv.cmd({"do": "resize", "width": 1000, "height": 560, "steps": 1})
         ids, loose = fill()
         check("roomier", loose, ids[20])

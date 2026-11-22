@@ -139,7 +139,14 @@ def setup(**prefs):
     started.clear()
     time.sleep(1); wipe()
     for k in ["bench", "welcomed"]: subprocess.run(["defaults", "write", SUITE, k, "-bool", "true"])
-    for k, v in prefs.items(): subprocess.run(["defaults", "write", SUITE, k, "-bool", "true" if v else "false"])
+    for k, v in prefs.items():
+        if isinstance(v, str): subprocess.run(["defaults", "write", SUITE, k, v])
+        else: subprocess.run(["defaults", "write", SUITE, k, "-bool", "true" if v else "false"])
+# Each page opened after the one in front, so pages opened one after another
+# stand in the order they were opened. New tabs go to the top unless asked
+# otherwise since 969dc3e (19 Nov 2026); a case that reads its tabs in the
+# order it made them asks for After current, as the XCTests did then.
+IN_ORDER = {"tabs.newPlace": "next"}
 def launch():
     if os.path.exists(SOCK): os.remove(SOCK)
     before = running()
@@ -210,7 +217,7 @@ def sample(n=12, every=0.03, within=3):
 
 def case_slice1(t):
     """pairs, the file, off keeps pairs"""
-    setup(splitView=True); launch()
+    setup(splitView=True, **IN_ORDER); launch()
     a = page("a"); b = page("b"); c = page("c")
     st = sp("pair", id=b, **{"with": a}, side="right")
     p = st["splits"][0]
@@ -342,7 +349,7 @@ def case_slice2(t):
 
 def case_slice3(t):
     """the row"""
-    setup(splitView=True); launch()
+    setup(splitView=True, **IN_ORDER); launch()
     a = page("a"); b = page("b"); c = page("c")
     sp("pair", id=b, **{"with": a}, side="right"); sp("focus", id=b)
     st = sp("select", id=c)

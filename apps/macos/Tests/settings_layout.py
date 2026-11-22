@@ -67,9 +67,17 @@ def case_reachable(t):
     every = settings()
     items = every["items"]
     keys = {k for i in items for k in i["keys"]}
-    # The updates switch's key, as Updater names it.
+    # The updates switch's key, as Updater names it. A build with no feed of
+    # its own (Brand.updatesEnabled, off in every build of this repo so far)
+    # lists no Updates rows at all, and the find field doesn't offer them.
     install = next((i["keys"][0] for i in items if i["id"] == "updates.auto"), None)
+    if not every["updates"]:
+        t.ok("no feed: no Updates rows", install is None and not any(i["id"].startswith("updates.") for i in items),
+             [i["id"] for i in items if i["id"].startswith("updates.")])
+        t.ok("no feed: “updates” finds no switch for them",
+             not any(i["id"].startswith("updates.") for i in settings(find="updates")["found"]))
     for key, words in BEFORE.items():
+        if key == "auto.install" and not every["updates"]: continue
         key = install if key == "auto.install" else key
         found = settings(find=words)["found"]
         hit = [i for i in found if key in i["keys"]]
@@ -82,7 +90,11 @@ def case_reachable(t):
     t.ok("results carry section and group", found and all(i["page"] and i["groupTitle"] for i in found), found)
     t.ok("…in Browsing › Video", any(i["page"] == "browsing" and i["groupTitle"] == "Video" for i in found))
     shown = [i for i in items if not i["findOnly"]]
-    t.ok("about fifty rows in the sections", 45 <= len(shown) <= 75, len(shown))
+    # About fifty rows when Settings was put in sections; about ninety-five
+    # by this repo's first commit (5e92327, 18 Nov 2026) as features came
+    # with their own, and 86 since the Mac became sidebar-only (#30). A row
+    # count well past that is Settings sprawling again, worth a look.
+    t.ok("about ninety rows in the sections", 75 <= len(shown) <= 100, len(shown))
     t.ok("ten sections", len(every["pages"]) == 10, every["pages"])
     # Old addresses land in the new sections.
     sv.cmd({"do": "ui", "show": "eden://settings/shortcuts"}); time.sleep(0.6)

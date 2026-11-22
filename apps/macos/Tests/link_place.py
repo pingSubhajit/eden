@@ -6,7 +6,7 @@ starts hidden in a world of its own (see split_view.use), is driven through
 ./bench's socket with trusted clicks (`tap`), and is quit; its world is
 removed afterwards. Local pages only.
 
-With New tab position on After current (the default), links opened behind a
+With New tab position on After current, links opened behind a
 page — ⌘-click, the middle button, Open Link in New Tab, a page's own
 window.open on a ⌘-click — go right after it, in the order they were clicked,
 as in Safari, Chrome and Arc; they went in reverse, each straight after the
@@ -84,7 +84,9 @@ def after(st, opener):
 
 def run(t):
     where = "column"
-    sv.setup(**{"tabs.groups": True, "splitView": True})
+    # After current is asked for: new tabs go to the top by default since
+    # 969dc3e (19 Nov 2026), and the pages here are read in the order opened.
+    sv.setup(**{"tabs.groups": True, "splitView": True}, **sv.IN_ORDER)
     sv.launch()
     try:
         x = sv.page("x")
