@@ -72,9 +72,8 @@ final class TabShortcutHintTests: XCTestCase {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.showsTabShortcuts, prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace)
+        let saved = (prefs.showsTabShortcuts, prefs.usesTabGroups, prefs.splitView, prefs.newTabPlace)
         prefs.showsTabShortcuts = true
-        prefs.sidebar = true
         prefs.usesTabGroups = false
         prefs.splitView = true
         // Each new tab after the last, so they stand in the order made.
@@ -97,10 +96,9 @@ final class TabShortcutHintTests: XCTestCase {
             window.close()
             browser.closeAll()
             prefs.showsTabShortcuts = saved.0
-            prefs.sidebar = saved.1
-            prefs.usesTabGroups = saved.2
-            prefs.splitView = saved.3
-            prefs.newTabPlace = saved.4
+            prefs.usesTabGroups = saved.1
+            prefs.splitView = saved.2
+            prefs.newTabPlace = saved.3
         }
         try await settle()
         try await flags(.command, in: window)
@@ -137,7 +135,7 @@ final class TabShortcutHintTests: XCTestCase {
         for tab in tabs.prefix(4) { XCTAssertNil(browser.tabShortcutNumbers[tab.id]) }
         try press(1, browser: browser, window: window)
         XCTAssertEqual(browser.activeID, tabs[4].id, "Pins keep their place before the groups")
-        browser.moveTabGroup(group, to: 0)
+        browser.moveItem(.group(group), to: browser.sideItems.firstIndex { $0.id == .group(browser.tabGroups[0].id) } ?? 0)
         XCTAssertEqual(browser.tabShortcutNumbers[group], 2)
         try press(2, browser: browser, window: window)
         XCTAssertEqual(browser.activeID, tabs[3].id, "A folded group selects its most recently used page")

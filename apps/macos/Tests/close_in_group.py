@@ -33,7 +33,7 @@ def put(id): sv.sp("closeTab", id=id); time.sleep(0.4); return st()
 
 def main():
     try:
-        sv.setup(**{"tabs.groups": True, "sidebar": True, "splitView": True}); sv.launch()
+        sv.setup(**{"tabs.groups": True, "splitView": True}); sv.launch()
         c = sv.page("c")
         a, b, d = (sv.page(n) for n in ("a", "b", "d"))
         sv.sp("select", id=c)

@@ -163,7 +163,6 @@ final class SpeedBenchTests: XCTestCase {
     /// Timed: each main run-loop pass that carried a step (LoopClock).
     func testColumnEdge() async throws {
         let prefs = Shared.prefs
-        prefs.sideIcons = false
         prefs.sideHides = false
         prefs.sideWidth = Metrics.side
         var edgeWindows: [NSWindow] = []
@@ -374,7 +373,6 @@ final class SpeedBenchTests: XCTestCase {
         NSApp.setActivationPolicy(.prohibited)
         let browser = Browser(record: record)
         browsers.append(browser)
-        browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = false
         for i in 0..<count {

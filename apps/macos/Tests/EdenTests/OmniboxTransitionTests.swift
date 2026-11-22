@@ -16,13 +16,11 @@ final class OmniboxTransitionTests: XCTestCase {
         browser.welcoming = false
         browser.newsShowing = false
         let prefs = browser.prefs
-        let saved = (prefs.splitView, prefs.sidebar)
+        let saved = prefs.splitView
         defer {
             browser.closeAll()
-            prefs.splitView = saved.0
-            prefs.sidebar = saved.1
+            prefs.splitView = saved
         }
-        prefs.sidebar = false
         browser.newTab()
         let tab = try XCTUnwrap(browser.active)
         tab.go(to: URL(string: "about:blank")!)

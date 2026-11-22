@@ -28,8 +28,8 @@ sv.use("bld-set2")
 BEFORE = {
     "quit.confirm": "quitting", "downloads": "save to", "downloads.ask": "ask where",
     "downloads.button": "downloads button", "look": "dark mode", "pages.dusk": "darken",
-    "sidebar": "sidebar", "sidebar.position": "right", "sidebar.hides": "hide the column",
-    "layout.cards": "card", "toolbar.left": "back forward", "sidebar.roomy": "roomier",
+    "sidebar.position": "right", "sidebar.hides": "hide the column",
+    "layout.cards": "card", "sidebar.roomy": "roomier",
     "glyph": "favicon", "tabs.reading": "how far", "tabs.give": "pressed",
     "motion.light": "low power", "tabs.newPlace": "new tab position", "tabs.newAfterLast": "last tab",
     "tabs.lazy": "background tabs", "tabs.popupWindows": "pop-ups", "tabs.sleep": "sleep",
@@ -127,16 +127,9 @@ def case_merged(t):
     """merged controls write the keys the two switches did"""
     sv.setup(); sv.launch()
     def put(id, value): return settings(set=id, value=value)["values"]
-    v = put("tabs.layout", "right")
-    t.ok("Tabs: Right writes sidebar and its position", (read("sidebar"), read("sidebar.position")) == ("1", "right"), (read("sidebar"), read("sidebar.position")))
-    v = put("tabs.layout", "icons")
-    t.ok("Tabs: Icons only writes sidebar and sidebar.icons, keeps the side",
-         (read("sidebar"), read("sidebar.icons"), read("sidebar.position")) == ("1", "1", "right") and v["tabs.layout"] == "icons",
-         (read("sidebar"), read("sidebar.icons"), read("sidebar.position"), v["tabs.layout"]))
-    v = put("tabs.layout", "right")
-    t.ok("Tabs: Right after Icons only turns the icons off", read("sidebar.icons") == "0" and v["tabs.layout"] == "right", read("sidebar.icons"))
-    v = put("tabs.layout", "top")
-    t.ok("Tabs: Top writes sidebar off, keeps the position", read("sidebar") == "0" and v["tabs.layout"] == "top")
+    v = put("sidebar.position", "right")
+    t.ok("Sidebar: Right writes its position", read("sidebar.position") == "right" and v["sidebar.position"] == "right",
+         (read("sidebar.position"), v["sidebar.position"]))
     put("tabs.sleep", "never")
     t.ok("Sleep: Never writes tabs.sleep off", read("tabs.sleep") == "0")
     put("tabs.sleep", "later")
@@ -151,7 +144,7 @@ def case_merged(t):
     t.ok("Peek: Off writes links.peek off, keeps the click", (read("links.peek"), read("links.peekClick")) == ("0", "optionShift"))
     v = put("arc.setup", True)
     t.ok("Set Up Like Arc: left, spaces",
-         v["arc"] and v["tabs.layout"] == "left" and read("spaces") == "1", v)
+         v["arc"] and v["sidebar.position"] == "left" and read("spaces") == "1", v)
     # And it survives a relaunch, read back from the keys alone.
     sv.quit(); time.sleep(0.5); sv.launch()
     v = settings()["values"]

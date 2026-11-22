@@ -83,8 +83,8 @@ final class DownloadsOpeningTests: XCTestCase {
     }
 
     /// The floating card, and its window with its margin, never lie over the
-    /// downloads button: tabs across the top, the column on either side,
-    /// with names or icons only, in a roomy window and a squeezed one.
+    /// downloads button: the column on either side, in a roomy window and a
+    /// squeezed one.
     func testTheFloatingCardNeverLiesOverItsButton() {
         let windows = [NSRect(x: 0, y: 0, width: 1180, height: 780),
                        NSRect(x: 0, y: 0, width: 420, height: 260),
@@ -93,16 +93,10 @@ final class DownloadsOpeningTests: XCTestCase {
             let room = frame.insetBy(dx: Metrics.cardGap, dy: Metrics.cardGap)
             let door = NSSize(width: 26, height: 26)
             let places: [(String, Edge, NSRect)] = [
-                ("the row across the top", .bottom,
-                 NSRect(origin: NSPoint(x: frame.maxX - 60, y: frame.maxY - 34), size: door)),
                 ("the column's foot, on the left", .trailing,
                  NSRect(origin: NSPoint(x: 150, y: 10), size: door)),
                 ("the column's foot, on the right", .leading,
                  NSRect(origin: NSPoint(x: frame.maxX - 176, y: 10), size: door)),
-                ("icons only, on the left", .trailing,
-                 NSRect(origin: NSPoint(x: 9, y: 40), size: door)),
-                ("icons only, on the right", .leading,
-                 NSRect(origin: NSPoint(x: frame.maxX - 35, y: 40), size: door)),
             ]
             for (name, edge, button) in places {
                 let spot = DownloadsFloat.layout(edge: edge, button: button, room: room, width: 380,

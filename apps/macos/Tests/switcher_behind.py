@@ -54,7 +54,7 @@ def run(t, behind_first):
     mode = "on" if behind_first else "off (the default)"
     # Off is the default: that run writes no setting at all.
     prefs = {"tabs.closeGoesBack": True} | ({"tabs.switcherBehindFirst": True} if behind_first else {})
-    sv.setup(sidebar=True, **prefs)
+    sv.setup(**prefs)
     sv.launch()
     # Eleven tabs gone through one by one: ten tabs left fill the grid.
     others = [sv.page(f"p{n}") for n in range(11)]

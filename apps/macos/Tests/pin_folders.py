@@ -20,7 +20,7 @@ def pf(**f): return sv.cmd({"do": "pinfolder", **f})
 
 
 try:
-    sv.setup(sidebar=True); sv.launch()
+    sv.setup(); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); sv.page("front")
     for id in (a, b, c): pf(action="pin", id=id)
     pf(action="new", name="Work", id=a)

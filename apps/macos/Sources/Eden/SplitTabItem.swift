@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// A split's one place in the row. In the column its pages are lines, one
-/// under the other — two, three or four — joined by hairlines: halves side
-/// by side in 232 points would cut most titles to a dozen letters. Across the top they sit side by
-/// side, with a single cross at the end for the half under the pointer — two
-/// crosses next to each other are two chances to close the wrong page.
+/// A split's one place in the column. Its pages are lines, one under the
+/// other — two, three or four — joined by hairlines: halves side by side in
+/// 232 points would cut most titles to a dozen letters.
 ///
 /// The page the keys go to wears the live grey, there at once as on any
 /// tab, from one half to the other too.
@@ -19,10 +17,7 @@ struct SplitTabItem: View {
     @ObservedObject var prefs: Preferences
     /// Its pages, in order: two to four. Each half watches its own.
     let pages: [Tab]
-    /// Across the top: the item's width. Nil in the column, which is as wide
-    /// as the column.
-    let width: CGFloat?
-    /// One line's height in the column; the whole strip's across the top.
+    /// One line's height.
     let height: CGFloat
     let live: Bool
     var focusedID: Tab.ID? = nil
@@ -33,64 +28,36 @@ struct SplitTabItem: View {
     /// Carried and about to come apart: the half that stays dims.
     @ObservedObject private var separation = PairSeparation.shared
 
-    private var stacked: Bool { width == nil }
-    /// Across the top, the outline is as tall as a tab's pill (28 points)
-    /// rather than the strip, so a pair stands as high as the tabs beside it.
-    private var inset: CGFloat { stacked ? 0 : max(0, (height - SplitTabHalf.pillHeight) / 2) }
     private var focused: Tab.ID? { live ? (focusedID ?? browser.activeID) : nil }
 
     var body: some View {
-        Group {
-            if stacked {
-                VStack(spacing: 0) {
-                    ForEach(pages.indices, id: \.self) { index in
-                        half(at: index)
-                    }
-                }
-                .overlay(alignment: .top) {
-                    // A line between each two, gone while either is lit.
-                    ZStack(alignment: .top) {
-                        ForEach(1..<max(1, pages.count), id: \.self) { index in
-                            Rectangle()
-                                .fill(Palette.hairline)
-                                .frame(height: 1)
-                                .padding(.horizontal, Metrics.rowInset)
-                                .offset(y: CGFloat(index) * height - 0.5)
-                                .opacity(lit(pages[index - 1]) || lit(pages[index]) ? 0 : 1)
-                        }
-                    }
-                    .allowsHitTesting(false)
-                }
-            } else {
-                HStack(spacing: 0) {
-                    ForEach(pages.indices, id: \.self) { index in
-                        if index > 0 {
-                            Rectangle()
-                                .fill(Palette.hairline)
-                                .frame(width: 1)
-                                .padding(.vertical, inset + 6)
-                        }
-                        half(at: index)
-                    }
-                }
-                .frame(width: width, height: height)
-                .overlay(alignment: .trailing) { cross }
-                // The pointer over the cross is over the cross, not over
-                // either half, so a half losing it can't take the cross away
-                // under it: only leaving the whole item clears the half.
-                .onHover { if !$0 { hovered = nil } }
+        VStack(spacing: 0) {
+            ForEach(pages.indices, id: \.self) { index in
+                half(at: index)
             }
+        }
+        .overlay(alignment: .top) {
+            // A line between each two, gone while either is lit.
+            ZStack(alignment: .top) {
+                ForEach(1..<max(1, pages.count), id: \.self) { index in
+                    Rectangle()
+                        .fill(Palette.hairline)
+                        .frame(height: 1)
+                        .padding(.horizontal, Metrics.rowInset)
+                        .offset(y: CGFloat(index) * height - 0.5)
+                        .opacity(lit(pages[index - 1]) || lit(pages[index]) ? 0 : 1)
+                }
+            }
+            .allowsHitTesting(false)
         }
         .background {
             RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .fill(greys.tile)
-                .padding(.vertical, inset)
                 .allowsHitTesting(false)
         }
         .overlay {
             RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous)
                 .strokeBorder(Palette.hairline, lineWidth: 1)
-                .padding(.vertical, inset)
                 .allowsHitTesting(false)
         }
         .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
@@ -107,23 +74,20 @@ struct SplitTabItem: View {
 
     private func half(at index: Int) -> some View {
         let tab = pages[index]
-        let count = CGFloat(pages.count)
         return SplitTabHalf(
             browser: browser,
             prefs: prefs,
             tab: tab,
             focused: focused == tab.id,
-            stacked: stacked,
             first: index == 0,
             last: index == pages.count - 1,
             joinedBefore: index > 0 && lit(pages[index - 1]),
             joinedAfter: index < pages.count - 1 && lit(pages[index + 1]),
             height: height,
-            narrow: width.map { ($0 - (count - 1)) / count < 64 } ?? false,
             interactive: interactive,
             hovered: $hovered
         )
-        .frame(maxWidth: .infinity, maxHeight: stacked ? height : .infinity)
+        .frame(maxWidth: .infinity, maxHeight: height)
         .opacity(staying(tab) ? 0.35 : 1)
         .animation(Motion.quick, value: separation.leaving)
     }
@@ -133,51 +97,26 @@ struct SplitTabItem: View {
         guard let leaving = separation.leaving, leaving != tab.id else { return false }
         return pages.contains { $0.id == leaving }
     }
-
-    /// Across the top: one cross, at the end of the item, for whichever half
-    /// the pointer is over.
-    @ViewBuilder
-    private var cross: some View {
-        if interactive, let id = hovered, let tab = pages.first(where: { $0.id == id }),
-           browser.editingTab == nil {
-            RowCross(height: 28)
-                .overlay {
-                    CloseClick(armed: true) { browser.closeTab(tab) }
-                        .frame(width: RowCross.reachWidth, height: 28)
-                }
-                .padding(.trailing, Metrics.rowCrossInset)
-                .transition(.opacity)
-                .help(tab.id == pages.first?.id ? "Close the left page"
-                      : tab.id == pages.last?.id ? "Close the right page" : "Close this page")
-        }
-    }
 }
 
 private struct SplitTabHalf: View {
-    /// A half's grey across the top: a tab's pill, 15 points of mark and 6
-    /// above and below.
-    static let pillHeight: CGFloat = 28
-
     @Environment(\.greys) private var greys
     @Environment(\.tabShortcutNumbers) private var shortcutNumbers
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject var tab: Tab
     let focused: Bool
-    let stacked: Bool
-    /// The top half in the column, the left one across the top.
+    /// The top line.
     let first: Bool
-    /// The bottom one in the column, the right one across the top.
+    /// The bottom line.
     let last: Bool
-    /// The half before (above, left of) this one is lit too: the corners
+    /// The line above this one is lit too: the corners
     /// where the two touch are square, so the greys meet without a notch.
     let joinedBefore: Bool
     /// The half after it is lit too.
     let joinedAfter: Bool
     private var joined: Bool { joinedBefore || joinedAfter }
     let height: CGFloat
-    /// Too narrow for a title: the mark alone, as a narrow tab has.
-    let narrow: Bool
     let interactive: Bool
     @Binding var hovered: Tab.ID?
     @State private var selectedOnPress = false
@@ -192,9 +131,8 @@ private struct SplitTabHalf: View {
 
     private var laidOut: some View {
         row
-            .padding(.leading, stacked ? 0 : 9)
-            .padding(.trailing, stacked ? Metrics.rowCrossInset : 4)
-            .frame(height: stacked ? height : Self.pillHeight)
+            .padding(.trailing, Metrics.rowCrossInset)
+            .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             // The half in front is lit at once, as a row is.
             .background { ground.animation(nil, value: focused).animation(Motion.quick, value: joined) }
@@ -205,7 +143,7 @@ private struct SplitTabHalf: View {
     private var handled: some View {
         laidOut
             .modifier(OneClick(double: false) {
-                guard interactive, !stacked || !selectedOnPress, TabClick.flags.intersection([.command, .shift, .option]).isEmpty else { return }
+                guard interactive, !selectedOnPress, TabClick.flags.intersection([.command, .shift, .option]).isEmpty else { return }
                 browser.clearTabSelection()
                 if focused { browser.beginTabEdit(tab) }
                 else { browser.focusPane(tab) }
@@ -226,13 +164,9 @@ private struct SplitTabHalf: View {
             }
             .onHover { over in
                 if over { hovered = tab.id }
-                // In the column each line is on its own; across the top the
-                // item clears it, so the shared cross keeps its half.
-                else if stacked, hovered == tab.id { hovered = nil }
+                else if hovered == tab.id { hovered = nil }
             }
-            // A line of the column has the column's card; across the top,
-            // where the card has no column to stand beside, the tooltip.
-            .tabHoverCard(tab, in: browser, enabled: stacked && interactive && !editing)
+            .tabHoverCard(tab, in: browser, enabled: interactive && !editing)
             .contextMenu {
                 if interactive { TabMenu(browser: browser, tab: tab, close: { browser.closeTab(tab) }) }
             }
@@ -256,7 +190,6 @@ private struct SplitTabHalf: View {
             .accessibilityAction(named: tab.muted ? "Unmute tab" : "Mute tab") {
                 if interactive && playing { tab.toggleMute() }
             }
-            .help(stacked ? "" : title)
     }
 
     /// The grey's shape: round, but square on the side it shares with the
@@ -267,9 +200,7 @@ private struct SplitTabHalf: View {
         // beside one that isn't.
         let before: CGFloat = !first && joinedBefore ? 0 : round
         let after: CGFloat = !last && joinedAfter ? 0 : round
-        let radii: RectangleCornerRadii = stacked
-            ? .init(topLeading: before, bottomLeading: after, bottomTrailing: after, topTrailing: before)
-            : .init(topLeading: before, bottomLeading: before, bottomTrailing: after, topTrailing: after)
+        let radii = RectangleCornerRadii(topLeading: before, bottomLeading: after, bottomTrailing: after, topTrailing: before)
         return UnevenRoundedRectangle(cornerRadii: radii, style: .continuous)
     }
 
@@ -278,7 +209,7 @@ private struct SplitTabHalf: View {
         if focused {
             ZStack(alignment: .leading) {
                 Rectangle().fill(greys.wash)
-                if prefs.showsReading, !narrow {
+                if prefs.showsReading {
                     GeometryReader { geo in
                         ReadingFill(meter: tab.meter, width: geo.size.width)
                     }
@@ -293,21 +224,21 @@ private struct SplitTabHalf: View {
     }
 
     private var row: some View {
-        HStack(spacing: stacked ? Metrics.rowSpacing : 5) {
+        HStack(spacing: Metrics.rowSpacing) {
             titleContent
-                .padding(.leading, stacked ? Metrics.rowInset : 0)
+                .padding(.leading, Metrics.rowInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: stacked ? height : 16)
+                .frame(height: height)
                 .contentShape(Rectangle())
-                .modifier(TabPress(enabled: stacked && interactive && !editing && !browser.isPickedAmongOthers(tab), active: focused, selected: $selectedOnPress) {
+                .modifier(TabPress(enabled: interactive && !editing && !browser.isPickedAmongOthers(tab), active: focused, selected: $selectedOnPress) {
                     browser.clearTabSelection()
                     browser.focusPane(tab)
                 })
                 // Just after the icon, as a tab's line has it; outside the
                 // press, so muting a page doesn't also focus it.
                 .overlay(alignment: .leading) {
-                    if stacked && playing && !editing {
-                        let mark = prefs.glyph == .icons || !tab.isBlank || narrow
+                    if playing && !editing {
+                        let mark = prefs.glyph == .icons || !tab.isBlank
                         Speaker(tab: tab)
                             .padding(.leading, Metrics.rowInset + (mark ? prefs.sideMark + Metrics.rowSpacing : 0))
                     }
@@ -317,9 +248,8 @@ private struct SplitTabHalf: View {
                     TabShortcutNumber(number: number)
                 }
                 status
-                // In the column each line has its own cross at its own end,
-                // one under the other; across the top the item has one.
-                if interactive && stacked { closeButton }
+                // Each line has its own cross at its own end.
+                if interactive { closeButton }
             }
         }
     }
@@ -330,25 +260,23 @@ private struct SplitTabHalf: View {
             TabAddressField(browser: browser)
                 .frame(height: 16)
         } else {
-            HStack(spacing: stacked ? Metrics.rowSpacing : 5) {
-                if prefs.glyph == .icons || !tab.isBlank || narrow {
-                    let mark = stacked ? prefs.sideMark : 13
+            HStack(spacing: Metrics.rowSpacing) {
+                if prefs.glyph == .icons || !tab.isBlank {
+                    let mark = prefs.sideMark
                     Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark, dim: tab.asleep)
                         .frame(width: mark, height: mark)
                 }
-                // In the column, as a tab's line has it: just after the icon.
-                // Its place: the speaker is laid over it, outside the line's
-                // press (see `row`).
-                if stacked && playing { Color.clear.frame(width: RowCross.size, height: RowCross.size) }
+                // As a tab's line has it: just after the icon. Its place: the
+                // speaker is laid over it, outside the line's press (see
+                // `row`).
+                if playing { Color.clear.frame(width: RowCross.size, height: RowCross.size) }
                 if tab.shy {
                     Image(systemName: "eye.slash")
                         .font(.system(size: 9))
                         .foregroundStyle(Palette.muted)
                 }
-                if !narrow {
-                    PopupSign(browser: browser, tab: tab)
-                    TranslateSign(tab: tab)
-                }
+                PopupSign(browser: browser, tab: tab)
+                TranslateSign(tab: tab)
                 // The page is asking something, over its half of the stage.
                 if browser.paneQuestions.contains(where: { $0.tab == tab.id }) {
                     Circle()
@@ -356,26 +284,22 @@ private struct SplitTabHalf: View {
                         .frame(width: 5, height: 5)
                         .accessibilityLabel("Asking a question")
                 }
-                if !narrow {
-                    TabTitle(label: title, warning: warning, size: stacked ? prefs.sideTitle : 12,
-                             colour: focused ? Palette.ink : hovering ? Palette.ink.opacity(0.7) : Palette.muted)
-                }
+                TabTitle(label: title, warning: warning, size: prefs.sideTitle,
+                         colour: focused ? Palette.ink : hovering ? Palette.ink.opacity(0.7) : Palette.muted)
             }
         }
     }
 
     @ViewBuilder
     private var status: some View {
-        if playing && !stacked {
-            Speaker(tab: tab, small: true)
-        } else if tab.loading && !(stacked && hovering) {
+        if tab.loading && !hovering {
             Ring(size: 10)
                 .padding(.trailing, 3)
         }
     }
 
-    /// Each line's own cross in the column, a tab's (RowCross); the click
-    /// taken by CloseClick, as the item's across the top is.
+    /// Each line's own cross, a tab's (RowCross); the click taken by
+    /// CloseClick.
     private var closeButton: some View {
         RowCross(height: height)
             .opacity(hovering ? 1 : 0)

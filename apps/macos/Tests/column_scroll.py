@@ -7,8 +7,8 @@ or brought forward, everything removed afterwards. A short window, a dozen
 groups (most folded, as a user with many folders had them) and loose tabs
 past its height: the column must scroll, a wheel take it back up to the
 folders and down again, and the tab you go to be scrolled into sight. Then
-the same with the column on the right, as icons only, with roomier rows,
-and folded away and out over the page. The column is read through the
+the same with the column on the right, with roomier rows, and folded away
+and out over the page. The column is read through the
 bench's `column`: its room, what the rows add up to and measure, and its
 scroll view's offset.
 """
@@ -24,7 +24,7 @@ sv.use("column-scroll")
 
 t = sv.T()
 def col(**f): return sv.cmd({"do": "columnscroll", **f})
-def layout(v): sv.cmd({"do": "settings", "set": "tabs.layout", "value": v}); time.sleep(0.8)
+def layout(v): sv.cmd({"do": "settings", "set": "sidebar.position", "value": v}); time.sleep(0.8)
 
 
 def settle(want, within=4):
@@ -83,7 +83,7 @@ def check(label, loose, first):
 
 def main():
     try:
-        sv.setup(**{"tabs.groups": True, "sidebar": True}); sv.launch()
+        sv.setup(**{"tabs.groups": True}); sv.launch()
         sv.cmd({"do": "resize", "width": 1000, "height": 560, "steps": 1})
         ids, loose = fill()
         first = ids[20]  # G10's first tab, in a group left open
@@ -106,7 +106,6 @@ def main():
         ids = [named[f"g{g}{x}"] for g in range(12) for x in "ab"]
 
         layout("right"); check("right", loose, first)
-        layout("icons"); check("icons", loose, first)
         layout("left")
 
         # Folded away (⌘S) and out over the page.
@@ -121,14 +120,13 @@ def main():
         col(peek=False)
 
         # Few rows: a plain stack again, nothing to scroll.
-        sv.cmd({"do": "settings", "set": "tabs.layout", "value": "left"})
         for x in loose + ids[:16]: sv.sp("close", id=x)
         c = settle(lambda c: not c["scrolls"])
         t.ok("few rows: the column doesn't scroll", not c["scrolls"], c)
 
         # Roomier rows, from the start.
         sv.quit()
-        sv.setup(**{"tabs.groups": True, "sidebar": True, "sidebar.roomy": True}); sv.launch()
+        sv.setup(**{"tabs.groups": True, "sidebar.roomy": True}); sv.launch()
         sv.cmd({"do": "resize", "width": 1000, "height": 560, "steps": 1})
         ids, loose = fill()
         check("roomier", loose, ids[20])

@@ -65,10 +65,9 @@ def case(label, **ui):
     sv.sp("close", id=a); sv.sp("close", id=b); time.sleep(0.5)
 try:
     sv.setup(); sv.launch()
-    case("tabs across the top")
-    case("sidebar", sidebar=True)
+    case("sidebar")
     # The column tucked away, not out over the page as when picking a tab.
-    case("a sidebar that hides", sidebar=True, hides=True)
+    case("a sidebar that hides", hides=True)
 finally:
     held.set(); t.done(); sv.finish()
 sys.exit(1 if t.failed else 0)

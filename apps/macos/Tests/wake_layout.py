@@ -45,7 +45,7 @@ def main():
     server = ThreadingHTTPServer(("127.0.0.1", 0), Page)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        sv.setup(sidebar=True, splitView=False)
+        sv.setup(splitView=False)
         sv.launch()
         for split in (False, True):
             sv.sp("enabled", on=split)

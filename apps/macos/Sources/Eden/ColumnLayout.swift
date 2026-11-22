@@ -27,8 +27,7 @@ import Foundation
 struct ColumnMetrics: Equatable {
     /// A tab's line (Preferences.sideRow): a pair stands as two.
     var row: CGFloat
-    /// A group's heading inside its surface: GroupLook.heading(row:), or the
-    /// column of icons' short one (GroupHeading.compactHeight).
+    /// A group's heading inside its surface: GroupLook.heading(row:).
     var heading: CGFloat
     /// Between one line and the next (SideBar.gap).
     var gap: CGFloat
@@ -483,8 +482,7 @@ struct ColumnLayout<Member> {
     /// entry), or at the end; never among the rows every space shows, which
     /// keep the head — or, for one of them (`heading`), never past them.
     /// Nil while `y` is still on `keeping` — the group a tab is carried out
-    /// of, the top of its heading included, which keeps it
-    /// (GroupDropFrames.leaving).
+    /// of, the top of its heading included, which keeps it.
     func topLevel(at y: CGFloat, in area: ColumnArea, carrying: SideItemID, keeping: UUID? = nil,
                   heading: Bool = false) -> ColumnPlace? {
         let laid = self[area]
@@ -506,7 +504,7 @@ struct ColumnLayout<Member> {
                     let foot = held.rows.filter { !$0.away }.last?.frame.maxY ?? held.heading.maxY
                     if y >= held.heading.minY && y <= max(foot, held.heading.maxY) { return nil }
                     if y < held.heading.minY { return place(index) }
-                } else if y < GroupDropFrames.entry(of: held.heading, vertical: true) {
+                } else if y < GroupDropFrames.entry(of: held.heading) {
                     return place(index)
                 }
             }
@@ -554,7 +552,7 @@ struct ColumnLayout<Member> {
             let here = CGPoint(x: width / 2, y: point.y)
             let overNewTab = area == .open && point.y >= newTab.minY && point.y <= newTab.maxY
             if !overNewTab, let hit = GroupDropFrames.resolve(here, frames: dropFrames(in: area), groups: groups(in: area),
-                                                              excluding: id, vertical: true, holding: held) {
+                                                              excluding: id, holding: held) {
                 if own == ColumnRun(area: area, group: hit.group) { return .along }
                 let place = place(of: hit, in: area, carrying: id)
                 return takes(place) ? .place(place) : .refused

@@ -515,11 +515,8 @@ struct SpaceDot: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(tint ?? (hovering ? Palette.ink : Palette.muted))
                     .id(shown?.key ?? key)
-                    // The way the tabs go: sideways in the column; in the bar
-                    // across the top, up for the next space, down going back.
-                    .transition(.push(from: browser.prefs.sidebar
-                        ? (browser.spaceStep > 0 ? .trailing : .leading)
-                        : (browser.spaceStep > 0 ? .bottom : .top)))
+                    // The way the tabs go: sideways.
+                    .transition(.push(from: browser.spaceStep > 0 ? .trailing : .leading))
             }
             .frame(width: SpaceDot.width, height: 26)
             .clipped()
@@ -534,7 +531,7 @@ struct SpaceDot: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .animation(Motion.quick, value: browser.space.colour)
-        .help("\(browser.space.name) — ⌃1–⌃9, or two fingers \(browser.prefs.sidebar ? "sideways" : "up or down") over the tabs, to switch")
+        .help("\(browser.space.name) — ⌃1–⌃9, or two fingers sideways over the tabs, to switch")
         .onChange(of: key) { _, now in
             let symbol = symbol
             DispatchQueue.main.async {

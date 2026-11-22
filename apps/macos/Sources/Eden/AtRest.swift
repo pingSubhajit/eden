@@ -2,8 +2,7 @@ import EdenCore
 import Foundation
 
 /// Where a page comes from, worked out from its address: what the tab you're
-/// on warns of beside its title (TabTitle), and what the tooltip of its tile
-/// in the column of icons adds.
+/// on warns of beside its title (TabTitle).
 ///
 /// The site is its registrable domain, the part nobody else can register
 /// under: "github.com" in gist.github.com, "bbc.co.uk" in www.bbc.co.uk. That

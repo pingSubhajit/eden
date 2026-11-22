@@ -68,7 +68,7 @@ def click(tab, anchor, wait=1.2):
 
 
 def run(t, place):
-    sv.setup(sidebar=True, **{"tabs.groups": True})
+    sv.setup(**{"tabs.groups": True})
     if place != "next":
         subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", place], check=True)
     sv.launch()
@@ -100,7 +100,7 @@ def run(t, place):
 
 def run_loose(t):
     """Out of a tab in no group, nothing changes: the end of the row."""
-    sv.setup(sidebar=True, **{"tabs.groups": True})
+    sv.setup(**{"tabs.groups": True})
     sv.launch()
     try:
         s = sv.page("links")

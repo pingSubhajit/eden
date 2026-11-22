@@ -69,7 +69,7 @@ enum SettingsIndex {
 
         .init(id: "newtabs", page: .tabs, title: "New tabs", icon: "plus.square"),
         .init(id: "memory", page: .tabs, title: "Memory", icon: "moon.zzz"),
-        .init(id: "tabbar", page: .tabs, title: "In the tab bar", icon: "number"),
+        .init(id: "column", page: .tabs, title: "In the sidebar", icon: "number"),
 
         .init(id: "search", page: .browsing, title: "Searching", icon: "magnifyingglass"),
         .init(id: "links", page: .browsing, title: "Links", icon: "link"),
@@ -153,38 +153,24 @@ enum SettingsIndex {
               title: "Keep the Web Inspector dark", detail: "The tools stay dark while Eden is light",
               more: "Off, it follows Appearance. Chrome's colors, when they're on, follow this too.",
               keys: ["inspector.dark"], words: ["devtools", "inspect", "console", "dark"], parent: "look"),
-        .init(id: "tabs.layout", group: "window", icon: "sidebar.left",
-              title: "Tabs", detail: "Across the top of the window, down a side as a column, or as icons only",
-              more: "Icons only is a narrow column of each tab's icon, the title in a tooltip. Nothing grows under the pointer.",
-              keys: ["sidebar", "sidebar.position", "sidebar.icons"],
-              words: ["sidebar", "vertical tabs", "column", "left", "right", "top", "tab bar", "position",
-                      "icons only", "compact", "collapsed", "narrow", "favicons"], kind: .wide),
+        .init(id: "sidebar.position", group: "window", icon: "sidebar.left",
+              title: "Sidebar", detail: "The column of tabs, on the left or the right of the window",
+              keys: ["sidebar.position"],
+              words: ["sidebar", "vertical tabs", "column", "left", "right", "position", "side"], kind: .wide),
         .init(id: "sidebar.hides", group: "window", icon: "sidebar.squares.left",
               title: "Hide the column until the pointer reaches the edge", detail: "The page takes the whole window; ⌘S keeps the tabs out",
-              keys: ["sidebar.hides"], words: ["auto hide", "sidebar"], parent: "tabs.layout"),
-        .init(id: "sidebar.foldIcons", group: "window", icon: "arrow.down.right.and.arrow.up.left",
-              title: "⌘S makes the column icons only", detail: "The tabs stay in sight as a narrow column of icons; ⌘S again brings the titles back",
-              more: "Off, ⌘S hides the column and the page takes the whole window.",
-              keys: ["sidebar.foldIcons"], words: ["collapse", "collapsed", "compact", "narrow", "hide sidebar", "icons only", "favicons"],
-              parent: "tabs.layout"),
+              keys: ["sidebar.hides"], words: ["auto hide", "sidebar"], parent: "sidebar.position"),
         .init(id: "layout.cards", group: "window", icon: "rectangle.inset.filled",
               title: "The page as a card", detail: "A little room around the page, with rounded corners",
               more: "Off, the page reaches the window's edges and the column is white with its hairline.",
-              keys: ["layout.cards"], words: ["edge to edge", "rounded", "margin"], kind: .wide, parent: "tabs.layout"),
-        .init(id: "toolbar.left", group: "window", icon: "arrow.left.arrow.right",
-              title: "Back, forward and reload on the left", detail: "Beside the window's buttons, before the tabs",
-              keys: ["toolbar.left"], words: ["toolbar", "buttons", "navigation"], parent: "tabs.layout"),
-        .init(id: "tabs.compact", group: "window", icon: "rectangle.compress.vertical",
-              title: "Shorter tab bar", detail: "Only a few points above and below the tabs, for more of the page",
-              keys: ["tabs.compact"], words: ["compact", "slim", "thin", "height", "padding", "tab bar", "toolbar"],
-              parent: "tabs.layout"),
+              keys: ["layout.cards"], words: ["edge to edge", "rounded", "margin"], kind: .wide, parent: "sidebar.position"),
         .init(id: "sidebar.roomy", group: "tablook", icon: "textformat.size.larger",
               title: "Roomier tabs", detail: "Taller rows and larger titles in the column",
-              keys: ["sidebar.roomy"], words: ["bigger", "larger", "text size", "accessibility"], parent: "tabs.layout"),
+              keys: ["sidebar.roomy"], words: ["bigger", "larger", "text size", "accessibility"], parent: "sidebar.position"),
         .init(id: "sidebar.player", group: "tablook", icon: "play.circle",
               title: "What's playing in other tabs", detail: "At the foot of the sidebar, to pause it, play it again or go to it",
               more: "A tab playing sound while you're on another one shows above the sidebar's foot.",
-              keys: ["sidebar.player"], words: ["media", "music", "now playing", "pause", "player", "sound", "audio"], parent: "tabs.layout"),
+              keys: ["sidebar.player"], words: ["media", "music", "now playing", "pause", "player", "sound", "audio"], parent: "sidebar.position"),
         .init(id: "glyph", group: "tablook", icon: "app",
               title: "Tabs show", detail: "Beside the title, and on a pinned square",
               keys: ["glyph"], words: ["favicon", "icons", "letters"]),
@@ -247,7 +233,7 @@ enum SettingsIndex {
               title: "Close tabs you leave alone", detail: "Pinned, named and grouped tabs stay. ⇧⌘T brings one back",
               more: "Counted from when you last left the tab, while Eden is quit too. Private tabs, sound, calls and anything typed stay.",
               keys: ["tabs.close.after"], words: ["auto close", "archive", "clean up"]),
-        .init(id: "tabs.shortcuts", group: "tabbar", icon: "command",
+        .init(id: "tabs.shortcuts", group: "column", icon: "command",
               title: "Show tab numbers while ⌘ is held", detail: "Which tab each ⌘1–9 selects",
               keys: ["tabs.shortcuts"], words: ["numbers", "shortcut"]),
 
@@ -524,10 +510,6 @@ enum SettingsIndex {
         switch item.id {
         case "pages.dusk": return prefs.look != .light
         case "inspector.dark": return prefs.look != .dark
-        case "sidebar.roomy", "sidebar.player": return prefs.sidebar && !prefs.sideIcons
-        case "sidebar.hides", "layout.cards": return prefs.sidebar
-        case "sidebar.foldIcons": return prefs.sidebar && !prefs.sideHides
-        case "toolbar.left", "tabs.compact": return !prefs.sidebar
         case "profiles.oneWindow": return Profiles.shared.several
         case "spaces.links": return prefs.usesSpaces
         case "tabs.frontBeside": return prefs.newTabPlace == .next
@@ -542,38 +524,17 @@ enum SettingsIndex {
         switch item.id {
         case "pages.dusk": return "Only while Eden isn't set to Light"
         case "inspector.dark": return "Only while Eden isn't set to Dark"
-        case "toolbar.left", "tabs.compact": return "Only with the tabs across the top"
-        case "sidebar.roomy": return "Only with titles in the column"
-        case "sidebar.foldIcons": return "Only with the column down a side and not hidden until the edge"
         case "profiles.oneWindow": return "Only with more than one profile"
         case "spaces.links": return "Only with Spaces on"
-        case "sidebar.player": return "Only with titles in the sidebar"
         case "tabs.frontBeside": return "Only with New tab position on After current"
         case "links.little.tabs": return "Only with links from other apps in a small window"
         case "launcher.key": return "Only with the address field from any app on"
-        default: return "Only with the tabs down a side"
+        default: return ""
         }
     }
 }
 
 // MARK: - merged controls
-
-/// Tabs: across the top, a column down either side, or that column as
-/// icons only. Reads and writes `sidebar` and `sidebar.position`, as the
-/// two switches did, and `sidebar.icons`. Icons only keeps the side the
-/// column was on.
-enum TabsLayout: String, CaseIterable, Identifiable {
-    case top, left, right, icons
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .top: return "Top"
-        case .left: return "Left"
-        case .right: return "Right"
-        case .icons: return "Icons only"
-        }
-    }
-}
 
 /// Sleep tabs: Never, or how soon. `tabs.sleep` and `tabs.sleep.pace`.
 enum SleepChoice: String, CaseIterable, Identifiable {
@@ -610,23 +571,6 @@ enum PeekChoice: String, CaseIterable, Identifiable {
 }
 
 extension Preferences {
-    var tabsLayout: TabsLayout {
-        get { !sidebar ? .top : sideIcons ? .icons : (sidePosition == .right ? .right : .left) }
-        set {
-            switch newValue {
-            case .top:
-                sidebar = false
-            case .icons:
-                sideIcons = true
-                sidebar = true
-            case .left, .right:
-                sidePosition = newValue == .right ? .right : .left
-                sideIcons = false
-                sidebar = true
-            }
-        }
-    }
-
     var sleepChoice: SleepChoice {
         get { sleepsTabs ? (SleepChoice(rawValue: sleepPace.rawValue) ?? .normal) : .never }
         set {
@@ -654,29 +598,29 @@ extension Preferences {
     /// Set Up Like Arc: what it turns on, and what was there before, so
     /// Undo can put it back.
     struct ArcSetup {
-        var layout: TabsLayout
+        var side: SidebarPosition
         var spaces: Bool
     }
 
     var arcSnapshot: ArcSetup {
-        ArcSetup(layout: tabsLayout, spaces: usesSpaces)
+        ArcSetup(side: sidePosition, spaces: usesSpaces)
     }
 
     var looksLikeArc: Bool {
-        tabsLayout == .left && usesSpaces
+        sidePosition == .left && usesSpaces
     }
 
     /// Turns Arc's way on and says what changed.
     @discardableResult
     func setUpLikeArc() -> [String] {
         var changed: [String] = []
-        if tabsLayout != .left { tabsLayout = .left; changed.append("tabs on the left") }
+        if sidePosition != .left { sidePosition = .left; changed.append("tabs on the left") }
         if !usesSpaces { usesSpaces = true; changed.append("Spaces") }
         return changed
     }
 
     func restore(_ before: ArcSetup) {
-        tabsLayout = before.layout
+        sidePosition = before.side
         usesSpaces = before.spaces
     }
 }
@@ -688,7 +632,7 @@ extension SettingsIndex {
     /// defaults changed: what Tests/settings_layout.py reads back.
     @MainActor static func values(_ prefs: Preferences) -> [String: Any] {
         [
-            "tabs.layout": prefs.tabsLayout.rawValue,
+            "sidebar.position": prefs.sidePosition.rawValue,
             "tabs.sleep": prefs.sleepChoice.rawValue,
             "float.own": prefs.floatOwn.rawValue,
             "links.peek": prefs.peekChoice.rawValue,
@@ -712,9 +656,9 @@ extension SettingsIndex {
     /// value it doesn't know.
     @MainActor static func apply(_ id: String, _ value: Any, to prefs: Preferences) -> Bool {
         switch id {
-        case "tabs.layout":
-            guard let layout = (value as? String).flatMap(TabsLayout.init) else { return false }
-            prefs.tabsLayout = layout
+        case "sidebar.position":
+            guard let side = (value as? String).flatMap(SidebarPosition.init) else { return false }
+            prefs.sidePosition = side
         case "tabs.sleep":
             guard let choice = (value as? String).flatMap(SleepChoice.init) else { return false }
             prefs.sleepChoice = choice

@@ -218,7 +218,7 @@ def main():
     local = f"http://127.0.0.1:{PAGE_PORT}"
     try:
         # 1. The control: with no proxy, nothing can reach probe.test.
-        sv.setup(sidebar=True)
+        sv.setup()
         set_proxy(False)
         sv.launch()
         page = opened(f"{through}/alpha")
@@ -229,7 +229,7 @@ def main():
 
         # 2. The same address, with the proxy on.
         seen.clear()
-        sv.setup(sidebar=True)
+        sv.setup()
         set_proxy(True)
         sv.launch()
         page = opened(f"{through}/alpha")
@@ -264,7 +264,7 @@ def main():
 
         # 5. Turned off again: back to unreachable.
         seen.clear()
-        sv.setup(sidebar=True)
+        sv.setup()
         set_proxy(False)
         sv.launch()
         page = opened(f"{through}/gamma")

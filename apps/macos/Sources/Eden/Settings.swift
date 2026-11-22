@@ -520,14 +520,13 @@ struct SettingsPanel: View {
         case "pages.dusk": Switch(on: $prefs.darkensPages)
         case "inspector.chrome": Switch(on: $prefs.inspectorChrome)
         case "inspector.dark": Switch(on: $prefs.inspectorDark)
-        case "tabs.layout":
-            Pictures(options: TabsLayout.allCases.map { ($0, $0.title, AnyView(LayoutPicture(layout: $0))) },
+        case "sidebar.position":
+            Pictures(options: SidebarPosition.allCases.map { ($0, $0.title, AnyView(LayoutPicture(side: $0))) },
                      selection: Binding(
-                        get: { prefs.tabsLayout },
-                        set: { layout in withAnimation(Motion.glide) { prefs.tabsLayout = layout } }
+                        get: { prefs.sidePosition },
+                        set: { side in withAnimation(Motion.glide) { prefs.sidePosition = side } }
                      ))
         case "sidebar.hides": Switch(on: $prefs.sideHides)
-        case "sidebar.foldIcons": Switch(on: $prefs.foldsToIcons)
         case "layout.cards":
             Pictures(options: [(true, "As a card", AnyView(CardPicture(card: true))),
                                (false, "Edge to edge", AnyView(CardPicture(card: false)))],
@@ -535,12 +534,6 @@ struct SettingsPanel: View {
                         get: { prefs.cards },
                         set: { on in withAnimation(Motion.glide) { prefs.cards = on } }
                      ))
-        case "toolbar.left": Switch(on: $prefs.navigationLeft)
-        case "tabs.compact":
-            Switch(on: Binding(
-                get: { prefs.compactStrip },
-                set: { on in withAnimation(Motion.glide) { prefs.compactStrip = on } }
-            ))
         case "sidebar.roomy":
             Switch(on: Binding(
                 get: { prefs.roomyTabs },
@@ -563,8 +556,8 @@ struct SettingsPanel: View {
         case "tabs.newPlace":
             Picker("New tab position", selection: $prefs.newTabPlace) {
                 Text("After current").tag(NewTabPlace.next)
-                Text(prefs.sidebar ? "Top" : "Leftmost").tag(NewTabPlace.top)
-                Text(prefs.sidebar ? "Bottom" : "Rightmost").tag(NewTabPlace.end)
+                Text("Top").tag(NewTabPlace.top)
+                Text("Bottom").tag(NewTabPlace.end)
             }
             .labelsHidden()
             .pickerStyle(.menu)
@@ -1223,61 +1216,29 @@ struct Pictures<Option: Hashable>: View {
     }
 }
 
-/// A window in miniature with the tabs where a layout puts them.
+/// A window in miniature with the column of tabs on one side, the
+/// window's buttons in its corner.
 private struct LayoutPicture: View {
-    let layout: TabsLayout
+    let side: SidebarPosition
 
     var body: some View {
         let tab = Palette.ink.opacity(0.22)
         let lit = Palette.ink.opacity(0.55)
         ZStack {
             Palette.wash
-            switch layout {
-            case .top:
-                VStack(spacing: 4) {
-                    HStack(spacing: 3) {
-                        lights
-                        Capsule().fill(lit).frame(width: 14, height: 4)
-                        Capsule().fill(tab).frame(width: 14, height: 4)
-                        Capsule().fill(tab).frame(width: 10, height: 4)
-                        Spacer(minLength: 0)
-                    }
-                    page
+            HStack(spacing: 4) {
+                if side == .right { page }
+                VStack(alignment: .leading, spacing: 3) {
+                    lights
+                    Capsule().fill(lit).frame(width: 16, height: 3.5)
+                    Capsule().fill(tab).frame(width: 16, height: 3.5)
+                    Capsule().fill(tab).frame(width: 12, height: 3.5)
+                    Spacer(minLength: 0)
                 }
-                .padding(5)
-            case .left, .right:
-                HStack(spacing: 4) {
-                    if layout == .right { page }
-                    VStack(alignment: .leading, spacing: 3) {
-                        if layout == .left { lights } else { Color.clear.frame(height: 3) }
-                        Capsule().fill(lit).frame(width: 16, height: 3.5)
-                        Capsule().fill(tab).frame(width: 16, height: 3.5)
-                        Capsule().fill(tab).frame(width: 12, height: 3.5)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(width: 18)
-                    if layout == .left { page }
-                }
-                .padding(5)
-            case .icons:
-                // A narrow column of squares, one under the other: the
-                // tabs' icons, no titles.
-                HStack(spacing: 4) {
-                    VStack(spacing: 3) {
-                        VStack(spacing: 1.5) {
-                            ForEach(0..<3) { _ in Circle().fill(Palette.ink.opacity(0.25)).frame(width: 3, height: 3) }
-                        }
-                        .padding(.bottom, 1)
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(lit).frame(width: 6, height: 6)
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(tab).frame(width: 6, height: 6)
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(tab).frame(width: 6, height: 6)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(width: 8)
-                    page
-                }
-                .padding(5)
+                .frame(width: 18)
+                if side == .left { page }
             }
+            .padding(5)
         }
     }
 

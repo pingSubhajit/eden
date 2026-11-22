@@ -24,9 +24,9 @@ final class FollowFileTests: XCTestCase {
         let read = Set(source[start.upperBound..<end.lowerBound].components(separatedBy: "take(\\.").dropFirst()
             .map { String($0.prefix { $0.isLetter || $0.isNumber }) })
         XCTAssertEqual(read, [
-            "look", "navigationLeft", "sidebar", "sidePosition", "sideHides", "roomyTabs", "sideIcons", "sideWidth",
+            "look", "sidePosition", "sideHides", "roomyTabs", "sideWidth",
             "sidePanelWidth", "cards", "glyph", "tabsGive", "showsTabShortcuts", "alwaysShowsDownloads",
-            "foldsToIcons", "instantMotion", "compactStrip",
+            "instantMotion",
         ])
     }
 

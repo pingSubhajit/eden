@@ -786,10 +786,9 @@ private struct HoverCard: View {
     private var pinnable: Bool { tab.pin != nil || (tab.isWeb && !tab.shy) }
     /// Playing, or paused from Eden and to be played from here again.
     private var playing: Bool { tab.noisy || tab.stilled }
-    /// What a tile's tooltip said beside the title, which the card took
-    /// the place of (IconTiles.tip): what the page in front warns of, and
-    /// whether the tab keeps no history or is being recorded. Its sound is
-    /// in its buttons.
+    /// Beside the title: what the page in front warns of, and whether the
+    /// tab keeps no history or is being recorded. Its sound is in its
+    /// buttons.
     private var notes: String? {
         var notes: [String] = []
         if browser.activeID == tab.id, let warning = AtRest.warning(tab.restAddress) { notes.append(warning.text) }

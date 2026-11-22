@@ -7,8 +7,8 @@ import SwiftUI
 // stands before anything is typed. The card is about the page you are on and
 // goes as soon as you type; the list comes as it goes.
 //
-// Its own small window, as the card's is: under the field, whether the tabs
-// are in the column or across the top, and never taking the keys — the caret
+// Its own small window, as the card's is: under the field in the column,
+// and never taking the keys — the caret
 // stays in the tab, the arrow keys walk the list from there, and a click on a
 // row is only a click.
 

@@ -22,8 +22,8 @@ def loose(state, pins):
             if not group and tab["id"] not in pins]
 
 
-def run(t, place, sidebar=True):
-    sv.setup(sidebar=sidebar, **{"tabs.groups": True, "splitView": True})
+def run(t, place):
+    sv.setup(**{"tabs.groups": True, "splitView": True})
     if place != "next":
         subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", place], check=True)
     sv.launch()
@@ -159,9 +159,8 @@ def run(t, place, sidebar=True):
 def main():
     t = sv.T()
     try:
-        for sidebar in (True, False):
-            for place in ("next", "end", "top"):
-                run(t, place, sidebar=sidebar)
+        for place in ("next", "end", "top"):
+            run(t, place)
     finally:
         t.done()
     sys.exit(1 if t.failed else 0)

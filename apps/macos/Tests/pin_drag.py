@@ -39,7 +39,7 @@ def mark(id, value): sv.ev(id, f"window.__pd = '{value}'; document.title")
 def marked(id): return sv.ev(id, "window.__pd || 'gone'")
 
 try:
-    sv.setup(sidebar=True, **{"tabs.groups": False})
+    sv.setup(**{"tabs.groups": False})
     # New tabs at the end, in the order made: a world without the setting
     # puts them at the top now, and the checks read the row in that order.
     subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", "end"], check=True)
@@ -99,7 +99,7 @@ try:
 
     # Pinned rows: a tab onto the rows, a square onto the rows and back.
     sv.quit()
-    sv.setup(sidebar=True); sv.launch()
+    sv.setup(); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d")
     pin(a); pin(b, listed=True)
     pin(c, at=0, listed=True); st = state()
@@ -114,7 +114,7 @@ try:
 
     # Groups: a pin let go over a group's name goes into it.
     sv.quit()
-    sv.setup(sidebar=True, **{"tabs.groups": True}); sv.launch()
+    sv.setup(**{"tabs.groups": True}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c")
     pin(a)
     st = sv.sp("group", id=b); group = st["groups"][0]["id"]
@@ -128,7 +128,7 @@ try:
     # Pins in every space: a drop makes the space's own pin, after the
     # shared ones; a shared pin dragged out leaves every space, as Unpin.
     sv.quit()
-    sv.setup(sidebar=True, spaces=True, **{"pins.shared": True}); sv.launch()
+    sv.setup(spaces=True, **{"pins.shared": True}); sv.launch()
     m = sv.page("mail"); n = sv.page("notes"); x = sv.page("x")
     pin(m); pin(m, everywhere=True); time.sleep(0.5)
     pin(n, at=0); st = state()

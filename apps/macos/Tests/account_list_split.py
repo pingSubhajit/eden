@@ -155,7 +155,7 @@ def main():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{PORT}"
     try:
-        sv.setup(splitView=True, sidebar=True, **{"layout.cards": True}); sv.launch()
+        sv.setup(splitView=True, **{"layout.cards": True}); sv.launch()
         acc(forget=True)
 
         # Saved once, by hand.

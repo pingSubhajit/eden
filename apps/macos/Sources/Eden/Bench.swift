@@ -882,12 +882,10 @@ final class Bench {
                 "offering": browser.offering != nil,
                 "modal": NSApp.modalWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "",
                 "look": browser.prefs.look.rawValue,
-                "sidebar": browser.prefs.sidebar,
                 "sidePosition": browser.prefs.sidePosition.rawValue,
                 "sideWidth": Double(browser.prefs.sideWidth),
-                // The column as drawn, and whether it is icons only.
+                // The column as drawn.
                 "columnWidth": Double(browser.prefs.columnWidth),
-                "sideIcons": browser.prefs.sideIcons,
                 "appearance": NSApp.appearance?.name.rawValue ?? "system",
                 "key": NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "",
                 // What the keyboard goes to in the key window, or the browser's: a find field,
@@ -1101,8 +1099,8 @@ final class Bench {
             // own hover answers, the one left and then the one entered, as
             // AppKit hands them over in one pass. Test runs only.
             guard Store.testing else { answer(["error": "hoversweep is for test runs"]); return }
-            guard let window = browser.window ?? Links.window, browser.prefs.sidebar else {
-                answer(["error": "hoversweep needs the tabs down the side"])
+            guard let window = browser.window ?? Links.window else {
+                answer(["error": "hoversweep needs a window"])
                 return
             }
             let prefs = browser.prefs
@@ -1236,7 +1234,7 @@ final class Bench {
                 // The middle button pressed and let go there. A probe's window
                 // is hidden and takes no events through the app, so they are
                 // handed to the view that catches the middle button over the
-                // tabs (MiddleClick in TabBar.swift), the topmost one there.
+                // tabs (MiddleClick in TabControls.swift), the topmost one there.
                 guard Store.testing else { answer(["error": "hit … middle only works on a --test run"]); return }
                 func catcher(in view: NSView) -> NSView? {
                     for sub in view.subviews.reversed() { if let found = catcher(in: sub) { return found } }
@@ -2109,28 +2107,6 @@ final class Bench {
             }
             answer(out)
 
-        case "icons":
-            // The column as icons only (SideIcons.swift): "on" turns it on or
-            // off as Settings' Icons only does; the answer is every tile the
-            // column has drawn — where, in the window from its top-left, and
-            // its tooltip — and the pairs among them. Test runs only.
-            guard Store.testing else { answer(["error": "icons only works on a --test run"]); return }
-            if let on = request["on"] as? Bool { browser.prefs.tabsLayout = on ? .icons : .left }
-            DispatchQueue.main.asyncAfter(deadline: .now() + (request["on"] == nil ? 0 : 0.6)) {
-                let named = Dictionary(uniqueKeysWithValues: browser.tabs.map { ($0.id, Bench.short($0)) })
-                let tiles = IconTiles.frames.compactMap { id, frame -> [String: Any]? in
-                    guard let short = named[id] else { return nil }
-                    return ["id": short, "frame": [frame.minX, frame.minY, frame.width, frame.height].map(Double.init),
-                            "tip": IconTiles.tips[id] ?? "", "pair": IconTiles.pairs[id].flatMap { named[$0] } ?? ""]
-                }.sorted { (($0["frame"] as? [Double])?[1] ?? 0) < (($1["frame"] as? [Double])?[1] ?? 0) }
-                answer([
-                    "on": browser.prefs.iconColumn, "layout": browser.prefs.tabsLayout.rawValue,
-                    "columnWidth": Double(browser.prefs.columnWidth), "sideWidth": Double(browser.prefs.sideWidth),
-                    "tiles": tiles,
-                    "lights": (browser.window ?? Links.window).map(Bench.lights(of:)) ?? [],
-                ])
-            }
-
         case "appleoffer":
             // "Use your Apple passwords?" under a sign-in box (ApplePasswordsOffer),
             // which a test run never shows unless asked here. "asks": offer as a
@@ -2332,9 +2308,8 @@ final class Bench {
             // that swallowed the wheel would show. Positive goes down the
             // list. Nothing is shown or brought forward. Test runs only.
             guard Store.testing else { answer(["error": "columnscroll only works on a --test run"]); return }
-            guard let window = browser.window ?? Links.window, let frame = window.contentView?.superview,
-                  browser.prefs.sidebar
-            else { answer(["error": "columnscroll needs the tabs down the side"]); return }
+            guard let window = browser.window ?? Links.window, let frame = window.contentView?.superview
+            else { answer(["error": "columnscroll needs a window"]); return }
             let width = Double(browser.prefs.columnWidth), whole = Double(window.frame.width)
             let onRight = browser.prefs.sidePosition == .right
             func scrolls(in view: NSView) -> [NSScrollView] {
@@ -3097,9 +3072,7 @@ final class Bench {
                 }
                 if let bar = Fold.titlebar {
                     let moved = bar.layer?.presentation()?.value(forKeyPath: "transform.translation.x") as? CGFloat ?? 0
-                    let lifted = bar.layer?.presentation()?.value(forKeyPath: "transform.translation.y") as? CGFloat ?? 0
-                    shot["lights"] = ["hidden": bar.isHidden, "x": Int(moved.rounded()), "y": Int(lifted.rounded()),
-                                      "flipped": bar.superview?.isFlipped ?? false]
+                    shot["lights"] = ["hidden": bar.isHidden, "x": Int(moved.rounded())]
                 }
                 shots.append(shot)
                 DispatchQueue.main.asyncAfter(deadline: .now() + every) { take(index + 1) }
@@ -3124,28 +3097,6 @@ final class Bench {
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + every * 8) { SpaceSwipe.shared.ended() }
             default: break
-            }
-
-        case "strip":
-            // The row of tabs across the top, drawn off screen at a width,
-            // with what the browser has now — for what the row looks like
-            // without a window on anybody's screen.
-            guard let path = request["path"] as? String else { answer(["error": "strip needs a path"]); return }
-            let width = request["width"] as? Double ?? 1100
-            let host = NSHostingView(rootView: TabBar(browser: browser).frame(width: width, height: Metrics.strip).background(Palette.ground))
-            host.frame = NSRect(x: 0, y: 0, width: width, height: Double(Metrics.strip))
-            let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
-            window.appearance = NSApp.effectiveAppearance
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                guard let picture = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { answer(["error": "nothing drawn"]); return }
-                host.cacheDisplay(in: host.bounds, to: picture)
-                do {
-                    try picture.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
-                    answer(["saved": path])
-                } catch { answer(["error": error.localizedDescription]) }
-                window.contentView = nil
             }
 
         case "pdf":
@@ -3220,7 +3171,7 @@ final class Bench {
             guard let path = request["path"] as? String else { answer(["error": "fold needs a path"]); return }
             guard browser.folded, browser.peeking else { answer(["error": "fold and peek first: ui folded on, ui peek on"]); return }
             let width = request["width"] as? Double ?? 1100
-            let size = NSSize(width: width, height: browser.prefs.sidebar ? 500 : 120)
+            let size = NSSize(width: width, height: 500)
             let host = NSHostingView(rootView: ZStack(alignment: .topLeading) {
                 Color.red
                 Fold(browser: browser, prefs: browser.prefs)
@@ -3362,7 +3313,6 @@ final class Bench {
                 let now = browser.keptGroups
                 let name = { (id: UUID?) -> Any in id.flatMap { id in now.first { $0.id == id }?.name } ?? NSNull() }
                 var out: [String: Any] = [
-                    "rows": browser.prefs.showsPinRows,
                     "drawsFolders": browser.drawsKeptGroups,
                     "folders": now.map { ["id": $0.id.uuidString, "name": $0.name, "collapsed": $0.collapsed,
                                           "colour": $0.colour.rawValue] as [String: Any] },
@@ -3663,7 +3613,6 @@ final class Bench {
             if let mode = (request["pages120"] as? String).flatMap(FastPages.init) { browser.prefs.fastPages = mode }
             if let on = request["dusk"] as? Bool { browser.prefs.darkensPages = on }
             if let on = request["captures"] as? Bool { browser.prefs.capturesPages = on }
-            if let on = request["sidebar"] as? Bool { browser.prefs.sidebar = on }
             // Swipe between pages, standing in for the Mac's own setting.
             if let on = request["swipepages"] as? Bool, Store.testing { Swipe.testing = on }
             // Ask.sure answered without a sheet: yes or no to every question
@@ -3841,9 +3790,9 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "nowplaying", "agent", "kept", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "strip", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "nowplaying", "agent", "kept", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
 
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "nowplaying", "player", "agent", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "strip", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "nowplaying", "player", "agent", "eval", "click", "type", "submit", "shot", "snap", "probe", "key", "textcheck", "resize", "hit", "pointer", "film", "float", "window", "pages", "picture", "pdf", "place", "group", "tospace", "field", "keyeq", "fill", "pin", "middle", "windows", "alive", "quit", "towindow", "news", "pull", "magnify", "wheel", "space", "split", "column", "fold", "consent", "update", "site", "little", "ui", "import", "import-preview", "import-file", "import-file-start", "import-file-status", "import-file-cancel", "passwords", "accounts", "find", "answer", "visible", "ai", "notifications", "popups", "suggest", "translate", "profile", "settings",
             ]])
         }
     }

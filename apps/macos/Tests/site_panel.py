@@ -69,13 +69,13 @@ def main():
     t = sv.T()
     try:
         # Always there since 24 Oct 2026, an old "off" on disk included.
-        sv.setup(sidebar=True, **{"panel.sites": False}); sv.launch()
+        sv.setup(**{"panel.sites": False}); sv.launch()
         sv.page("a")
         panel("site", url=f"{sv.BASE}/panel")
         t.ok("always on: a site goes into the panel, an old off notwithstanding", panel()["shown"], panel())
         sv.quit()
 
-        sv.setup(sidebar=True, **{"panel.sites": True})
+        sv.setup(**{"panel.sites": True})
         sv.launch()
         a = sv.page("a")
         panel("site", url=f"{sv.BASE}/panel")
@@ -165,7 +165,7 @@ def main():
 
         # Another space, one that starts afresh: the site comes again,
         # signed in as that space is.
-        sv.setup(sidebar=True, spaces=True, **{"panel.sites": True})
+        sv.setup(spaces=True, **{"panel.sites": True})
         sv.launch()
         sv.page("a")
         panel("site", url=f"{sv.BASE}/panel")

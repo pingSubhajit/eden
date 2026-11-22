@@ -6,12 +6,10 @@ import XCTest
 
 /// A tab carried out of its group and let go among the tabs in none leaves
 /// the group and lands there (#1009). Where it lands is worked out from the
-/// drawn rows (GroupDropFrames.leaving), the move itself is the browser's
+/// column's layout (ColumnLayout), the move itself is the browser's
 /// (Browser.move(_:outOfGroupBefore:)), and a hand carries one out of a
-/// group in the column and across the top, hosted as RowCarryTests does, in
-/// a borderless window far off every screen. Icons only goes through the
-/// same rows and the same drop (SideBar.groupRows), and is not carried by
-/// hand here.
+/// group in the column, hosted as RowCarryTests does, in a borderless
+/// window far off every screen.
 @MainActor
 final class TabGroupDragOutTests: XCTestCase {
     private var browsers: [Browser] = []
@@ -52,49 +50,6 @@ final class TabGroupDragOutTests: XCTestCase {
     }
 
     // MARK: - where it lands
-
-    func testWhereATabLetGoOutsideItsGroupLands() {
-        let group = TabGroup(id: UUID(), name: "Group", collapsed: false)
-        let other = TabGroup(id: UUID(), name: "Other", collapsed: false)
-        let first = UUID(), source = UUID(), elsewhere = UUID(), looseA = UUID(), looseB = UUID()
-        for vertical in [false, true] {
-            let rect: (CGFloat, CGFloat) -> CGRect = { start, length in
-                vertical ? CGRect(x: 10, y: start, width: 80, height: length)
-                    : CGRect(x: start, y: 10, width: length, height: 80)
-            }
-            let point: (CGFloat) -> CGPoint = { position in
-                vertical ? CGPoint(x: 30, y: position) : CGPoint(x: position, y: 30)
-            }
-            // Group 0–90, Other 100–150, then two tabs in no group.
-            let frames = [
-                group.id: GroupDropFrame(group: group.id, rect: rect(0, 20)),
-                first: GroupDropFrame(group: group.id, tab: first, rect: rect(30, 30)),
-                source: GroupDropFrame(group: group.id, tab: source, rect: rect(60, 30)),
-                other.id: GroupDropFrame(group: other.id, rect: rect(100, 20)),
-                elsewhere: GroupDropFrame(group: other.id, tab: elsewhere, rect: rect(120, 30)),
-            ]
-            let loose = [looseA: rect(160, 30), looseB: rect(200, 30)]
-            let leaving: (CGPoint, UUID) -> LooseDrop? = { point, tab in
-                GroupDropFrames.leaving(point, frames: frames, loose: loose, groups: [group, other],
-                                        source: tab, vertical: vertical)
-            }
-            XCTAssertNil(leaving(point(75), source), "on its own place: it stays")
-            XCTAssertNil(leaving(point(5), source), "along its own group's run: it stays")
-            XCTAssertNil(leaving(point(130), source), "level with another group: that group's to take")
-            XCTAssertEqual(leaving(point(170), source), LooseDrop(before: .tab(looseA)), "before the first in no group")
-            XCTAssertEqual(leaving(point(195), source), LooseDrop(before: .tab(looseB)), "between the two")
-            XCTAssertEqual(leaving(point(260), source), LooseDrop(before: nil), "past them all: after the last")
-            XCTAssertEqual(leaving(point(95), source), LooseDrop(before: .group(other.id)),
-                           "between the groups: before the next, which stands among the tabs")
-            XCTAssertEqual(leaving(point(104), source), LooseDrop(before: .group(other.id)), "the top of its heading too")
-            XCTAssertNil(leaving(point(170), looseA), "a tab in no group leaves nothing")
-            let aside = vertical ? CGPoint(x: 400, y: 170) : CGPoint(x: 170, y: 400)
-            XCTAssertNil(leaving(aside, source), "off to the side of the row: not a place in it")
-            XCTAssertEqual(GroupDropFrames.leaving(point(260), frames: frames, loose: [:], groups: [group, other],
-                                                   source: source, vertical: vertical),
-                           LooseDrop(before: nil), "no tab in no group: at the end")
-        }
-    }
 
     // MARK: - the move
 
@@ -196,31 +151,6 @@ final class TabGroupDragOutTests: XCTestCase {
         XCTAssertEqual(browser.tabs(in: group).map(\.id), [t[1].id], "the other stays")
     }
 
-    func testCarriedOutOfItsGroupAlongTheTop() async throws {
-        let browser = makeBrowser()
-        let t = browser.tabs
-        let group = browser.addTabGroup(containing: t[0])
-        browser.move(t[1], toGroup: group)
-        browser.editingGroupID = nil
-        browser.select(t[4])
-        let window = try makeTopRow(browser)
-        try await settle()
-        TabDrag.testPointer = NSPoint(x: window.frame.midX, y: window.frame.midY)
-        let y = Metrics.strip / 2
-        // The heading at about 100, one from 160 to 300, then two, three,
-        // four, and five ending near 930, before the buttons.
-        let x: CGFloat = 210
-        let end: CGFloat = 945
-        try await send(.leftMouseDown, at: NSPoint(x: x, y: y), in: window)
-        for step in stride(from: x + 4, through: end, by: 4) {
-            try await send(.leftMouseDragged, at: NSPoint(x: step, y: y), in: window)
-        }
-        try await send(.leftMouseUp, at: NSPoint(x: end, y: y), in: window)
-        try await settle()
-        XCTAssertNil(browser.group(of: t[0]), "out of its group")
-        XCTAssertEqual(browser.tabs.last?.id, t[0].id, "after the last tab in no group")
-    }
-
     // MARK: - helpers
 
     private func makeBrowser() -> Browser {
@@ -228,17 +158,15 @@ final class TabGroupDragOutTests: XCTestCase {
         activationPolicy = NSApp.activationPolicy()
         NSApp.setActivationPolicy(.prohibited)
         let prefs = Shared.prefs
-        let previous = (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.sideIcons, prefs.newTabPlace)
+        let previous = (prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace)
         restorePreferences = {
-            (prefs.sidebar, prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.sideIcons, prefs.newTabPlace) = previous
+            (prefs.usesTabGroups, prefs.splitView, prefs.roomyTabs, prefs.newTabPlace) = previous
         }
         let browser = Browser(record: WindowRecord())
         browsers.append(browser)
-        browser.prefs.sidebar = true
         browser.prefs.usesTabGroups = true
         browser.prefs.splitView = true
         browser.prefs.roomyTabs = false
-        browser.prefs.sideIcons = false
         // Each new tab after the last, so they stand in the order made.
         browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three", "four", "five"] {
@@ -255,17 +183,6 @@ final class TabGroupDragOutTests: XCTestCase {
         window.contentView = NSHostingView(rootView: SideBar(browser: browser, prefs: browser.prefs))
         window.orderFrontRegardless()
         XCTAssertFalse(NSScreen.screens.contains { $0.frame.intersects(window.frame) }, "never on a screen")
-        windows.append(window)
-        return window
-    }
-
-    private func makeTopRow(_ browser: Browser) throws -> NSWindow {
-        browser.prefs.sidebar = false
-        let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 1100, height: Metrics.strip),
-                              styleMask: .borderless, backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: TabBar(browser: browser))
-        window.orderFrontRegardless()
         windows.append(window)
         return window
     }

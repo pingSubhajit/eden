@@ -232,10 +232,8 @@ final class Browser: NSObject, ObservableObject {
     // MARK: - pins, as Arc keeps pages
 
     /// ⌘D, as in Arc: the tab in front pinned as a row, or unpinned if it
-    /// is a pin of either kind. Pins are where pages are kept (#6). Across
-    /// the top a row is drawn a square, and is a row again in the column.
-    /// The column or the strip shows it happen; folded away, nothing does,
-    /// so a word says so.
+    /// is a pin of either kind. Pins are where pages are kept (#6). The
+    /// column shows it happen; folded away, nothing does, so a word says so.
     func togglePinRow() {
         guard let tab = active else { return }
         if tab.pin != nil {
@@ -323,11 +321,6 @@ final class Browser: NSObject, ObservableObject {
     /// The sheet opened from Settings › Extensions: only the extensions
     /// ticked, on a browser that has some. Read once as it opens.
     var bringingExtensions = false
-
-    /// ⇧⌘S. The same tabs, down the left or across the top.
-    func toggleSidebar() {
-        withAnimation(Motion.glide) { prefs.sidebar.toggle() }
-    }
 
     func searchURL(for text: String) -> URL? {
         Engine.url(for: text, template: prefs.engine.template(custom: prefs.customEngine))
@@ -1989,13 +1982,12 @@ final class Browser: NSObject, ObservableObject {
 
     var pinnedCount: Int { tabs.filter { $0.pin != nil }.count }
 
-    /// The pins drawn as squares: those not kept as rows, and every pin
-    /// while the rows are off. They come first among the pins, so a
-    /// square's place in the grid is its place in the row.
-    var squarePins: [Tab] { tabs.filter { $0.pin != nil && !($0.listed && prefs.showsPinRows) } }
-    /// The pins kept as rows, under the squares (see Tab.listed). None
-    /// while the rows are off: they are drawn as squares then.
-    var listedPins: [Tab] { prefs.showsPinRows ? tabs.filter { $0.pin != nil && $0.listed } : [] }
+    /// The pins drawn as squares: those not kept as rows. They come first
+    /// among the pins, so a square's place in the grid is its place in the
+    /// row.
+    var squarePins: [Tab] { tabs.filter { $0.pin != nil && !$0.listed } }
+    /// The pins kept as rows, under the squares (see Tab.listed).
+    var listedPins: [Tab] { tabs.filter { $0.pin != nil && $0.listed } }
 
     /// `listed`: as a row under the squares rather than as a square.
     func pin(_ tab: Tab, listed: Bool = false) {
@@ -2303,9 +2295,9 @@ final class Browser: NSObject, ObservableObject {
     private var tabOriginal = ""
 
     func beginTabEdit(_ tab: Tab) {
-        // The column of icons has no row to type in: the field over the
-        // page, with the address in it, as ⌘L brings it.
-        guard let url = tab.shownURL, !prefs.iconColumn else {
+        // A tab with no address to show: the field over the page, as ⌘L
+        // brings it.
+        guard let url = tab.shownURL else {
             edit()
             return
         }
@@ -2683,11 +2675,11 @@ final class Browser: NSObject, ObservableObject {
     /// then, so the room kept for them at the top goes too (idea 184).
     @Published var fullScreen = false
     /// The page as a card on the window's ground, the one switch for it
-    /// (see CardEdge): with the tabs down the side, unless Settings › Tabs ›
-    /// The page as a card is off, and never with the window filling the
-    /// screen, where the page goes edge to edge (#607). A page's own video
-    /// filling the screen is the window's to add (see ContentView.cards).
-    var asCards: Bool { prefs.sidebar && prefs.cards && !fullScreen }
+    /// (see CardEdge): unless Settings › Tabs › The page as a card is off,
+    /// and never with the window filling the screen, where the page goes
+    /// edge to edge (#607). A page's own video filling the screen is the
+    /// window's to add (see ContentView.cards).
+    var asCards: Bool { prefs.cards && !fullScreen }
     /// The extension a popup window was opened for (windows.create with
     /// type "popup"), or nil for a browser window. Such a window is small,
     /// the page under a thin line with its site; it is never saved, never
@@ -2768,7 +2760,7 @@ final class Browser: NSObject, ObservableObject {
             Spaces.sweep()
         }
         // Asked to stay out of the way: it starts that way (see Fold.swift).
-        folded = prefs.sidebar && prefs.sideHides
+        folded = prefs.sideHides
 
         // The History menu lists the last few places, and the menu is drawn
         // from this object's changes — so a change to those is passed on.
@@ -4044,7 +4036,7 @@ final class Browser: NSObject, ObservableObject {
         focusPane(tab)
     }
 
-    /// ⌥-click on a tab, in the column, across the top or on a pin (#939):
+    /// ⌥-click on a tab in the column, or on a pin (#939):
     /// that tab beside the page on screen, as its menu's Open in Split View
     /// does, with no setting, since nothing else answers a modifier click
     /// on a tab. On the page on screen alone, an empty page beside it, as
@@ -4244,48 +4236,37 @@ final class Browser: NSObject, ObservableObject {
         rememberSession()
     }
 
-    /// The pins in the order they stand, and which of them are rows: what
-    /// a square carried across the others changes as they make way for it
-    /// (moveDisplayedTab), for a carry that keeps it here after all to put
-    /// back (PinCarried).
-    var pinOrder: [PinPlace] {
-        tabs.compactMap { $0.pin == nil ? nil : PinPlace(id: $0.id, listed: $0.listed) }
+    /// The pins in the order they stand: what a square carried across the
+    /// others changes as they make way for it (moveDisplayedTab), for a
+    /// carry that keeps it here after all to put back (PinCarried).
+    var pinOrder: [Tab.ID] {
+        tabs.compactMap { $0.pin == nil ? nil : $0.id }
     }
 
-    /// The pins put back in `order`, each its kind again, into the places
-    /// the pins hold among the tabs; the other tabs keep theirs, and a pin
-    /// gone since is passed over. A pin made since, which `order` can't
-    /// place, leaves them all as they are: as the carry left them, which is
-    /// an order the column keeps, squares ahead of rows, where a guess at
-    /// its place might not be.
-    func putBack(_ order: [PinPlace]) {
+    /// The pins put back in `order`, into the places the pins hold among
+    /// the tabs; the other tabs keep theirs, and a pin gone since is passed
+    /// over. A pin made since, which `order` can't place, leaves them all as
+    /// they are: as the carry left them, which is an order the column
+    /// keeps, squares ahead of rows, where a guess at its place might not be.
+    func putBack(_ order: [Tab.ID]) {
         let now = pinOrder
-        let present = Set(now.map(\.id))
-        let back = order.filter { present.contains($0.id) }
+        let present = Set(now)
+        let back = order.filter { present.contains($0) }
         guard back.count == now.count, back != now else { return }
         let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var next = back.compactMap { byID[$0.id] }.makeIterator()
+        var next = back.compactMap { byID[$0] }.makeIterator()
         var row = tabs
         for index in row.indices where row[index].pin != nil {
             if let pin = next.next() { row[index] = pin }
-        }
-        for place in back {
-            if let pin = byID[place.id], pin.listed != place.listed { pin.listed = place.listed }
         }
         tabs = row
         rememberSession()
     }
 
-    /// Whether a pin carried onto another may land there. With the rows
-    /// shown, a square goes among squares and a row among rows; the menu
-    /// moves one between them. With them off every pin is drawn a square,
-    /// so one carried across the hidden line becomes the kind it landed
-    /// among, which keeps the squares ahead of the rows (see settlePin).
+    /// Whether a pin carried onto another may land there: a square goes
+    /// among squares and a row among rows; the menu moves one between them.
     private func joins(_ tab: Tab, kindOf anchor: Tab) -> Bool {
-        guard tab.pin != nil, anchor.pin != nil, tab.listed != anchor.listed else { return true }
-        if prefs.showsPinRows { return false }
-        tab.listed = anchor.listed
-        return true
+        tab.pin == nil || anchor.pin == nil || tab.listed == anchor.listed
     }
 
     func dropTabIntoStrip(_ tab: Tab, before target: Tab?) {
@@ -5660,7 +5641,7 @@ final class Browser: NSObject, ObservableObject {
         writeSession(now: true)
     }
 
-    /// The run under the pins as the column and the strip show it with
+    /// The run under the pins as the column shows it with
     /// groups on: each tab in no group, and each group with its tabs, where
     /// it stands in the row.
     var sideItems: [SideItem] { items(of: displayedTabs) }
@@ -5723,15 +5704,6 @@ final class Browser: NSObject, ObservableObject {
               peers.indices.contains(index), from != index,
               let destination = tabs.firstIndex(where: { $0.id == peers[index].id }) else { return }
         move(tab, to: destination)
-    }
-
-    /// A heading dropped on another across the top: the group goes to that
-    /// group's place in the run, before it going up, after it going down.
-    func moveTabGroup(_ id: UUID, to index: Int) {
-        guard let from = tabGroups.firstIndex(where: { $0.id == id }),
-              tabGroups.indices.contains(index), from != index,
-              let at = sideItems.firstIndex(where: { $0.id == .group(tabGroups[index].id) }) else { return }
-        moveItem(.group(id), to: at)
     }
 
     /// The row in the order it is shown: the pins, then the tabs in no group
@@ -5818,8 +5790,8 @@ final class Browser: NSObject, ObservableObject {
     /// number shortcuts also give folded groups a place of their own.
     var shownTabs: [Tab] {
         let row = displayedTabs
-        let squares = row.filter { $0.pin != nil && !($0.listed && prefs.showsPinRows) }
-        let kept = prefs.showsPinRows ? keptItems() : []
+        let squares = row.filter { $0.pin != nil && !$0.listed }
+        let kept = keptItems()
         let open = prefs.usesTabGroups ? items(of: row) : row.filter { $0.pin == nil }.map(SideItem.tab)
         return squares + (kept + open).flatMap { item -> [Tab] in
             switch item {
@@ -5835,8 +5807,8 @@ final class Browser: NSObject, ObservableObject {
     /// drawn down the column. Other tab navigation keeps using shownTabs.
     var tabShortcutTargets: [(id: UUID, tab: Tab)] {
         let row = displayedTabs
-        let squares = row.filter { $0.pin != nil && !($0.listed && prefs.showsPinRows) }
-        let kept = prefs.showsPinRows ? keptItems() : []
+        let squares = row.filter { $0.pin != nil && !$0.listed }
+        let kept = keptItems()
         let open = prefs.usesTabGroups ? items(of: row) : row.filter { $0.pin == nil }.map(SideItem.tab)
         return squares.map { ($0.id, $0) } + (kept + open).flatMap { item -> [(id: UUID, tab: Tab)] in
             switch item {

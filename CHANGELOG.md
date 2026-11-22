@@ -10,6 +10,7 @@ the paragraph in `NOTES.md`. What is planned but not done yet lives in
 
 ## Unreleased
 
+- The Mac shows tabs only in the sidebar, titles and all: the tabs across the top, the column as icons only, ⌘S making it icons only, ⇧⌘S and the switches that went with them are gone. Settings, and the welcome, offer where the sidebar sits, on the left or the right, with the left the default. A Mac that had the tabs across the top or as icons opens with the sidebar (#27, #10).
 - On the Mac, a pinned row or square that has gone on from its home can be dragged onto another device's group, as your tabs can: the page it went on to opens there under its own title, and the pin stays here as it was. Let go on a device's group that won't take what is carried, a pin at its home, a page that device has open already or a private tab, a toast says why and it stays where it was (#25).
 - Test runs on the Mac no longer leave a WebKit store behind for each space and profile they make: each run writes down the stores it makes, and a later run takes them away once that run has ended and its stores are quiet (#20).
 - Tests that passed alone no longer fail when run with others: the download tests let go of their window and its browser, which, left alive, broke the column's drag tests run after them; a pinned square's test waits for its carry to be called off rather than a fixed moment; and on iPhone, each way of closing a pin is tested over a folder of its own (#16).

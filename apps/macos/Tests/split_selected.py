@@ -32,7 +32,7 @@ def blanks(st): return [x["id"] for x in st["tabs"] if x["blank"]]
 
 def case_two(t):
     """two picked: paired, in the column's order, pages kept"""
-    sv.setup(splitView=True, sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d")
     sv.sp("select", id=d)
     st = state()
@@ -84,7 +84,7 @@ def case_two(t):
 
 def case_one_and_three(t):
     """one picked: as before; three picked: off, ⌥⌘N as before"""
-    sv.setup(splitView=True, sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c")
     sv.sp("select", id=a)
     st = pick(b)
@@ -99,7 +99,7 @@ def case_one_and_three(t):
     new = [x for x in blanks(st) if x not in empty]
     t.ok("one picked: ⌥⌘N splits the page in front with an empty one", len(new) == 1 and [c, new[0]] in pairs(st), (pairs(st), new))
 
-    sv.setup(splitView=True, sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d")
     sv.sp("select", id=d)
     empty = blanks(state())
@@ -115,7 +115,7 @@ def case_one_and_three(t):
 
 def case_pins_private_off(t):
     """a pin, a private tab, the switch off"""
-    sv.setup(splitView=True, sidebar=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
     p = sv.page("p"); a = sv.page("a"); b = sv.page("b")
     sv.cmd({"do": "pin", "id": p})
     sv.sp("select", id=b)

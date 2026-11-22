@@ -29,7 +29,7 @@ Use a test world for any work that changes chrome, installs or removes extension
 
 `select`, `key`, `resize`, and `ext-answer` fail on the installed browser. `--yes` skips an extension's install dialog only on a test run.
 
-On the installed browser, only when they asked you to drive that window: `tabs`, `probe`, and page commands against bench tabs. Leave `ui`, `select`, `key`, `resize`, and every `ext-*` command for a test world unless they named that change on their own browser. `look` and `sidebar` are saved preferences.
+On the installed browser, only when they asked you to drive that window: `tabs`, `probe`, and page commands against bench tabs. Leave `ui`, `select`, `key`, `resize`, and every `ext-*` command for a test world unless they named that change on their own browser. `look` and `side` are saved preferences.
 
 ## Get a test world listening
 
@@ -89,17 +89,17 @@ id=$(./bench --test open https://example.com)
 
 ## Chrome
 
-`probe` prints the window as JSON: panels (`settings`, `welcome`, `passwords`, `history`, `downloads`, `bookmarks`), whether the address field is open, modal title, `look`, `appearance`, the key window, every window's frame, and traffic-light positions. It also reports `sidebar`, `sidePosition` (`left` or `right`), `sideWidth`, and `activePageFrame` (`x`, `y`, `width`, `height` in points from the window's top-left) when the active page is in the main window. Use it for chrome. `shot` cannot see chrome.
+`probe` prints the window as JSON: panels (`settings`, `welcome`, `passwords`, `history`, `downloads`, `bookmarks`), whether the address field is open, modal title, `look`, `appearance`, the key window, every window's frame, and traffic-light positions. It also reports `sidePosition` (`left` or `right`), `sideWidth`, and `activePageFrame` (`x`, `y`, `width`, `height` in points from the window's top-left) when the active page is in the main window. Use it for chrome. `shot` cannot see chrome.
 
 `ui KEY VALUE` changes chrome and answers `{"ok": true}`. On a test world unless they asked for it on theirs.
 
 | Key | Value |
 |---|---|
-| `settings` `passwords` `welcome` `history` `downloads` `bookmarks` `hidden` `sidebar` `extensions` | `on` or `off` |
+| `settings` `passwords` `welcome` `history` `downloads` `bookmarks` `hidden` `extensions` | `on` or `off` |
 | `side` | `left` or `right` |
 | `look` | `light`, `dark`, or `system` |
 
-`extensions on` opens the puzzle-button menu. `ext-menu PATH` writes that menu to a PNG. `look`, `sidebar`, and `side` are remembered.
+`extensions on` opens the puzzle-button menu. `ext-menu PATH` writes that menu to a PNG. `look` and `side` are remembered.
 
 `resize WIDTH HEIGHT [STEPS]` (test only) drags the window to that size and returns the size and traffic-light positions. `key ID TEXT` (test only) sends real key events to a tab and returns how many the page did not use. `sleep ID` tries to sleep a tab now and reports the reason it stayed awake. A bench tab stays awake.
 

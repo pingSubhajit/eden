@@ -808,7 +808,6 @@ final class Tab: ObservableObject, Identifiable {
     /// way: put down by ⌘W, the same in every window, never in one of the
     /// window's own tab groups (groupID); a row of this space's own may be
     /// in a kept group, a TabGroup above the line (keptGroupID, Column.swift).
-    /// Drawn as a square with the tabs across the top.
     @Published var listed = false
     /// For a pinned row, the kept group that holds it (see Column.swift):
     /// a row's group, as groupID is an open tab's. Set when the row is

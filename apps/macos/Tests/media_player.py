@@ -95,7 +95,7 @@ def site(name, url, away, start=f"(function () {{ var v = {MEDIA}; v.muted = fal
 
 try:
     # The videos stay in their tabs (see the docstring).
-    sv.setup(**{"sidebar": True, "sidebar.player": True, "float.leave": False})
+    sv.setup(**{"sidebar.player": True, "float.leave": False})
     sv.launch()
     a = sv.page("a")
     sounding(a)
@@ -197,10 +197,9 @@ try:
 finally:
     t.done(); sv.finish()
 
-# The switch off, or the tabs across the top: never a player.
+# The switch off: never a player.
 t2 = sv.T()
-for prefs, name in (({"sidebar": True, "sidebar.player": False}, "the switch off"),
-                    ({"sidebar": False, "sidebar.player": True}, "the tabs across the top")):
+for prefs, name in (({"sidebar.player": False}, "the switch off"),):
     try:
         sv.setup(**prefs)
         sv.launch()

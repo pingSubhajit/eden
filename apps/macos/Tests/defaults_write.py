@@ -8,8 +8,8 @@ everything removed afterwards.
 
 Each setting was read once, at launch: `defaults write` to a running Eden
 changed the file and nothing else, and Settings went on showing the old
-value until the next launch. Here the tabs' place (sidebar and
-sidebar.position) and the look are written from outside while the app runs,
+value until the next launch. Here the sidebar's side (sidebar.position) and
+the look are written from outside while the app runs,
 and read back from it: the place as Settings has it, the look with the
 appearance it gives the app. A protection written the same way still waits
 for the next launch, as agreed on #736; FollowFileTests checks that.
@@ -39,9 +39,9 @@ def becomes(get, want, within=3):
 try:
     sv.setup(); sv.launch()
     t.ok("at launch: the Mac's look", look() == ("system", "system"), look())
-    write("sidebar", "-bool", "true"); write("sidebar.position", "-string", "right")
-    t.ok("the tabs' place written from outside moves", becomes(lambda: values()["tabs.layout"], "right") == "right",
-         values()["tabs.layout"])
+    write("sidebar.position", "-string", "right")
+    t.ok("the tabs' place written from outside moves", becomes(lambda: values()["sidebar.position"], "right") == "right",
+         values()["sidebar.position"])
     write("look", "-string", "dark")
     t.ok("a look written from outside moves, and the app goes dark",
          becomes(look, ("dark", "NSAppearanceNameDarkAqua")) == ("dark", "NSAppearanceNameDarkAqua"), look())
@@ -49,8 +49,8 @@ try:
     # over: the value the app puts back is the one already there.
     sv.cmd({"do": "ui", "side": "left"}); time.sleep(1.5)
     t.ok("the place chosen in the app stays, in the app and the file",
-         (values()["tabs.layout"], read("sidebar.position")) == ("left", "left"),
-         (values()["tabs.layout"], read("sidebar.position")))
+         (values()["sidebar.position"], read("sidebar.position")) == ("left", "left"),
+         (values()["sidebar.position"], read("sidebar.position")))
     subprocess.run(["defaults", "delete", sv.SUITE, "look"])
     t.ok("a line taken out puts the default back, and stays out",
          (becomes(look, ("system", "system")), read("look")) == (("system", "system"), None), (look(), read("look")))

@@ -100,7 +100,7 @@ def find_bar():
 
 
 def run(t, name, split):
-    sv.setup(**{"sidebar": True, "splitView": split, "fullscreen.escapeTwice": False}); sv.launch()
+    sv.setup(**{"splitView": split, "fullscreen.escapeTwice": False}); sv.launch()
     a = sv.page("a")
     if split:
         b = sv.page("b")
@@ -201,7 +201,7 @@ def twice(t, name, a):
 
 def run_twice(t, name, split):
     """Settings › General › Press Esc twice to leave full screen, on."""
-    sv.setup(**{"sidebar": True, "splitView": split, "fullscreen.escapeTwice": True}); sv.launch()
+    sv.setup(**{"splitView": split, "fullscreen.escapeTwice": True}); sv.launch()
     name = f"{name}, Esc twice"
     # Another tab, for a ⌃Tab switcher to show.
     other = None if split else sv.page("other")

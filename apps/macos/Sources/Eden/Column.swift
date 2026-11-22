@@ -58,8 +58,8 @@ enum ColumnItem<Member> {
 
 extension ColumnItem: Equatable where Member: Equatable {}
 
-/// The place in the run under the pins, as the column and the strip have
-/// always drawn it (Browser.sideItems), and the kept area's the same way
+/// The place in the run under the pins, as the column has always drawn
+/// it (Browser.sideItems), and the kept area's the same way
 /// (Browser.keptItems).
 typealias SideItem = ColumnItem<Tab>
 

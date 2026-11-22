@@ -87,7 +87,7 @@ def after(page, n):
 
 
 def world(on=True, place="next", **prefs):
-    sv.setup(sidebar=True, **{"tabs.groups": True, "splitView": True, "tabs.frontBeside": on, **prefs})
+    sv.setup(**{"tabs.groups": True, "splitView": True, "tabs.frontBeside": on, **prefs})
     # Written whatever it is: After current is no longer what a world
     # without it gets (new tabs go to the top unless told otherwise), and
     # every check here but the last is about After current.

@@ -5,9 +5,8 @@ import SwiftUI
 // stays, with its play and a cross to put it away, until it plays again,
 // its page goes or the tab sleeps.
 //
-// Off unless turned on in Settings › Appearance › Tabs, and only with the
-// tabs down the side, titles and all: a sidebar of icons alone has no room
-// for its title and buttons. Off, nothing of it reaches a page: the pause
+// Off unless turned on in Settings › Appearance › Tabs. Off, nothing of it
+// reaches a page: the pause
 // is two lines of script run in Eden's world when it is pressed, and
 // never before.
 //
@@ -58,10 +57,9 @@ enum Player {
 
 extension Browser {
     /// The tab the player is for: the newest to make a sound, of the ones
-    /// in this row that are out of sight. Nil with the switch off, with the
-    /// tabs across the top, or with the sidebar as icons only.
+    /// in this row that are out of sight. Nil with the switch off.
     var player: Tab? {
-        guard prefs.showsPlayer, prefs.sidebar, !prefs.sideIcons else { return nil }
+        guard prefs.showsPlayer else { return nil }
         let shown = visibleTabIDs
         for id in sounding.reversed() where !shown.contains(id) && id != floating {
             if let tab = tabs.first(where: { $0.id == id }) { return tab }

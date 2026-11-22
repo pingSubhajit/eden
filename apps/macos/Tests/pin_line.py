@@ -8,8 +8,7 @@ tabs (#6), Clear on it, is drawn only with something kept above it: a pin
 of this space, square or row, a folder of rows, or another device's group.
 A group of yours isn't kept: it is among your tabs, under the line. And
 only one line, ever. Read through the bench's `columnscroll`
-(how many lines the column draws), in the column and as icons only. The row
-across the top already drew its line only beside a pin (TabBar.showsPinLine).
+(how many lines the column draws), with the column on either side.
 """
 import sys
 import time
@@ -26,10 +25,10 @@ def lines(): time.sleep(0.6); return sv.cmd({"do": "columnscroll"})["lines"]
 
 def main():
     try:
-        sv.setup(**{"tabs.groups": True, "sidebar": True}); sv.launch()
+        sv.setup(**{"tabs.groups": True}); sv.launch()
         a, b = sv.page("a"), sv.page("b")
-        for layout in ("left", "icons"):
-            sv.cmd({"do": "settings", "set": "tabs.layout", "value": layout})
+        for layout in ("left", "right"):
+            sv.cmd({"do": "settings", "set": "sidebar.position", "value": layout})
             t.ok(f"{layout}: no pins, no groups: no line", lines() == 0, lines())
             sv.cmd({"do": "pin", "id": a})
             t.ok(f"{layout}: a square pinned: the line", lines() == 1, lines())

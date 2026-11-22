@@ -32,7 +32,7 @@ def relaunch(**prefs):
     return sv.sp("state")
 
 try:
-    sv.setup(sidebar=True, **{"tabs.groups": True}); sv.launch()
+    sv.setup(**{"tabs.groups": True}); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d"); e = sv.page("e")
     pin(a); pin(b, listed=True); pin(c, listed=True); pin(d)
     st = sv.sp("state")
@@ -103,15 +103,6 @@ try:
     kept = [(x["id"], st["groupIDs"][i]) for i, x in enumerate(st["tabs"]) if x["blank"]]
     t.ok("undo: your empty tab in a group stays", kept == [(blank, gid)], kept)
     t.ok("undo: and the cleared tab is back in front", by_url(st)[st["activeID"]] == "k", by_url(st).get(st["activeID"]))
-
-    # With the tabs across the top every pin is drawn as a square, and one
-    # carried across the hidden line becomes the kind it landed among.
-    st = relaunch(sidebar=False)
-    t.ok("across the top: the rows are kept, only not drawn", rows(st) == ["d"], rows(st))
-    ids = {v: k for k, v in by_url(st).items()}
-    pin(ids["a"], listed=True); st = sv.sp("state")
-    sv.sp("move", id=ids["a"], to=0); st = sv.sp("state")
-    t.ok("across the top: a row carried among the squares becomes one", pins(st)[0] == "a" and "a" not in rows(st), (pins(st), rows(st)))
 
     # More than the twelve closed tabs ⇧⌘T keeps, a pair among them, cleared
     # from a pin: all of it comes back as one step, the pair a pair again.

@@ -153,7 +153,7 @@ def main():
     sv.APP = probe_copy()
     try:
         # An "off" left by an Eden from before groups were always on.
-        sv.setup(sidebar=True, **{"tabs.groups": False})
+        sv.setup(**{"tabs.groups": False})
         sv.launch()
         sv.cmd({"do": "ext-folder", "path": str(folder), "yes": True})
         ext = None

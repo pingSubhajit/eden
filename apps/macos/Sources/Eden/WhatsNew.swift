@@ -63,8 +63,6 @@ enum WhatsNew {
                since: "0.1.0", get: { $0.confirmsQuit }, set: { $0.confirmsQuit = $1 }),
         Toggle(title: "Tab numbers while ⌘ is held", detail: "See which tab ⌘1–⌘9 goes to.",
                since: "0.1.0", get: { $0.showsTabShortcuts }, set: { $0.showsTabShortcuts = $1 }),
-        Toggle(title: "A column of icons only", detail: "The tabs as icons down the side, nothing that grows under the pointer.",
-               since: "0.1.0", get: { $0.sideIcons }, set: { $0.sideIcons = $1 }),
         Toggle(title: "Escape twice to leave full screen", detail: "One Escape stays with the page, a second leaves full screen.",
                since: "0.1.0", get: { $0.escapeTwice }, set: { $0.escapeTwice = $1 }),
 
@@ -79,11 +77,8 @@ enum WhatsNew {
                since: "0.1.0", get: { $0.startsFresh }, set: { $0.startsFresh = $1 }),
 
         Toggle(title: "Sidebar on the right", detail: "The tabs down the right edge of the window.",
-               since: "0.1.0", get: { $0.sidebar && $0.sidePosition == .right },
-               set: { prefs, on in
-                   if on { prefs.sidebar = true }
-                   prefs.sidePosition = on ? .right : .left
-               }),
+               since: "0.1.0", get: { $0.sidePosition == .right },
+               set: { prefs, on in prefs.sidePosition = on ? .right : .left }),
         Toggle(title: "Videos wait for a click", detail: "Videos don't start by themselves, even without sound.",
                since: "0.1.0", get: { $0.waitsForPlay }, set: { $0.waitsForPlay = $1 }),
         Toggle(title: "Always show the downloads button", detail: "Your downloads one click away, beside the other buttons.",
@@ -92,11 +87,7 @@ enum WhatsNew {
         Toggle(title: "Spaces", detail: "Separate sets of tabs, each with its own sign-ins. ⌃1–⌃9 to switch.",
                since: "0.1.0", get: { $0.usesSpaces }, set: { $0.usesSpaces = $1 }),
         Toggle(title: "A sidebar that hides", detail: "The page takes the whole window; the tabs come out at the edge.",
-               since: "0.1.0", get: { $0.sidebar && $0.sideHides },
-               set: { prefs, on in
-                   if on { prefs.sidebar = true }
-                   prefs.sideHides = on
-               }),
+               since: "0.1.0", get: { $0.sideHides }, set: { $0.sideHides = $1 }),
         Toggle(title: "Float the video when you switch apps", detail: "A playing video follows you out into a small window.",
                since: "0.1.0", get: { $0.floatsAway }, set: { prefs, on in if on { prefs.floatOwn = .tabsOrApps } else { prefs.floatsAway = false } }),
         Toggle(title: "Pages at 120 Hz", detail: "Smoother scrolling and animations on screens that can. Uses more battery.",

@@ -58,11 +58,7 @@ try:
         t.ok(f"{label}: no DevTools to Discord (outer less inner under 160)", ow - iw < 160 and oh - ih < 160, seen)
         return seen
 
-    sv.cmd({"do": "ui", "sidebar": True}); time.sleep(1)
     reads("the column out")
-    sv.cmd({"do": "ui", "sidebar": False}); time.sleep(1)
-    reads("the strip across the top")
-    sv.cmd({"do": "ui", "sidebar": True}); time.sleep(1)
 
     # Moved and resized, the page reads the new frame.
     sv.cmd({"do": "windows", "action": "frame", "n": 1, "frame": [60, 80, 1000, 700]}); time.sleep(0.5)

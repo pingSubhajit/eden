@@ -78,7 +78,7 @@ enum Palette {
 }
 
 /// The greys of the column's rows, pins and buttons, for the ground they lie
-/// on: the white's (the strip, a panel, the column with the page edge to
+/// on: the white's (a panel, the column with the page edge to
 /// edge) or the window's beside the page's card, set by the column for
 /// what is in it (see SideBar.onFrame). Read through the environment, so a
 /// row, a pin or a door is the same view on either ground.
@@ -147,26 +147,18 @@ enum Look: String, CaseIterable, Identifiable {
 }
 
 enum Metrics {
-    /// The tab strip. The window's title bar is grown to match it so the
-    /// traffic lights come down with the tabs — otherwise giving the row room
-    /// to breathe just leaves it sitting below three buttons it used to line
-    /// up with. Shorter tab bar, with the tabs across the top, takes it down
-    /// to a few points above and below the 28-point tabs: a strip, not a
-    /// toolbar. The column keeps the full band, as its first row shares it.
-    @MainActor static var strip: CGFloat {
-        Shared.prefs.compactStrip && !Shared.prefs.sidebar ? 36 : 52
-    }
+    /// The band across the column's top that the traffic lights sit in,
+    /// with back, forward and reload beside them. The window's title bar is
+    /// grown to match it, so the lights come down level with the doors
+    /// rather than sitting above them.
+    static let strip: CGFloat = 52
     /// With the tabs down the side the page is a card: this far from the
     /// window's edges (and from the column, folded away), and its corners
     /// this round.
     static let cardGap: CGFloat = 8
     static let cardRadius: CGFloat = 10
-    /// Where the first tab starts. The traffic lights run from 19 to 79 —
-    /// measured, not guessed — so this leaves them the same air on their right
-    /// that the window gives them on their left.
-    static let lights: CGFloat = 100
-    /// Back, forward and reload, at the far end of the row: three doors and
-    /// the air before the next one.
+    /// Back, forward and reload: three doors and the air before the next
+    /// one.
     static let helm: CGFloat = 3 * 26 + 2 * 2 + 8
     /// The same three doors again, in the sidebar, where they sit right of
     /// the lights instead. The column already has 10 of horizontal padding
@@ -179,23 +171,6 @@ enum Metrics {
     static let sideLights: CGFloat = 80
     /// The three doors' own width, without the air after them.
     static let helmDoors: CGFloat = 3 * 26 + 2 * 4
-    /// The band left at the top when there is no strip: just enough for the
-    /// traffic lights to sit in, and nothing else.
-    static let bare: CGFloat = 34
-    /// Tabs are a fixed width rather than the width of their titles, so the
-    /// cross always lands in the same place and the row never rearranges
-    /// itself while you read it. They give way when there are too many:
-    /// narrower than tabTitled they show their site's mark alone, and they
-    /// stop at tabMinWidth, the mark and its air. Past that the row scrolls,
-    /// inside its own edges.
-    static let tabWidth: CGFloat = 186
-    static let tabTitled: CGFloat = 80
-    static let tabMinWidth: CGFloat = 36
-    static let tabGap: CGFloat = 2
-    /// A pinned tab is a square the height of the row, holding one letter.
-    static let pinWidth: CGFloat = 30
-    /// The square at the end of the row that opens a new page.
-    static let plusWidth: CGFloat = 30
     /// The address field raised over another app (Launcher.swift); over a
     /// page it is as wide as Omnibox.Layout makes it.
     static let fieldWidth: CGFloat = 560
@@ -327,10 +302,10 @@ enum Motion {
     }
 
     /// How far a tab gives while it is pressed (see Give): enough to feel
-    /// under the pointer, about 3 points on a pill and 7 on a column row.
+    /// under the pointer, about 7 points on a column row.
     static let give: CGFloat = 0.97
 
-    /// The folded column or strip coming out over the page, and going back.
+    /// The folded column coming out over the page, and going back.
     /// On glide it was slow both ways, next to Arc and Dia timed frame by
     /// frame on the same Mac: each slides its sidebar 90% of the way out in
     /// about 95ms and back in about 70ms, where glide took over 200ms. These
@@ -578,7 +553,7 @@ struct CardEdge: ViewModifier {
     let on: Bool
 
     // One shape of view, on or off: a page whose view were rebuilt as the
-    // card comes and goes (the tabs across the top, a video taking the
+    // card comes and goes (Settings' page as a card, a video taking the
     // screen) would be handed to a new stage just as WebKit takes it to its
     // full screen window. Off, the clip reaches far past the page and cuts
     // nothing, and the edge and shadow are clear.

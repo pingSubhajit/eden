@@ -33,7 +33,7 @@ def session(n):
 
 
 def measure(n):
-    sv.setup(sidebar=True)
+    sv.setup()
     session(n)
     sv.launch()
     sv.cmd({"do": "resize", "width": 1100, "height": 820, "steps": 1})

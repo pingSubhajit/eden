@@ -25,7 +25,7 @@ def wander(id, to):
     sv.cmd({"do": "go", "id": id, "url": f"{sv.BASE}/{to}"}); sv.cmd({"do": "wait", "id": id}); time.sleep(0.3)
 
 try:
-    sv.setup(sidebar=True); sv.launch()
+    sv.setup(); sv.launch()
     a = sv.page("a"); sv.page("b")
     said = pin(a)
     t.ok("pinned at a", last(said["home"]) == "a", said)

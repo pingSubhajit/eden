@@ -94,7 +94,6 @@ def main():
         t.ok("peek gone: the page hears the pointer again", heard(600, 400))
 
         # The folded column out over the page.
-        sv.cmd({"do": "ui", "sidebar": True}); time.sleep(0.3)
         sv.cmd({"do": "ui", "folded": True}); time.sleep(0.6)
         sv.cmd({"do": "ui", "peek": True}); time.sleep(0.8)
         p = sv.cmd({"do": "probe"})
@@ -157,7 +156,6 @@ def main():
              lambda: sv.sp("state")["finding"], points=top)
 
         # Split View: the field stands over the focused pane alone.
-        sv.cmd({"do": "ui", "sidebar": False}); time.sleep(0.4)
         sv.sp("enabled", on=True)
         left = sv.page("left"); right = sv.page("right")
         sv.sp("pair", id=right, **{"with": left}, side="right"); sv.sp("select", id=right); time.sleep(1)

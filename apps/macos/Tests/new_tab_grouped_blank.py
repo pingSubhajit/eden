@@ -31,7 +31,7 @@ def gid(s, tab):
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"tabs.groups": True, "sidebar": True})
+        sv.setup(**{"tabs.groups": True})
         sv.launch()
         a = sv.page("a")
         b = sv.page("b")

@@ -12,7 +12,8 @@ final class SettingsIndexTests: XCTestCase {
         super.setUp()
     }
 
-    private let touched = ["sidebar", "sidebar.position", "tabs.sleep", SleepPace.key, "float.leave", "float.away",
+    private let touched = ["sidebar", "manner", "sidebar.settled", "sidebar.icons", "sidebar.foldIcons", "tabs.compact",
+                           "toolbar.left", "sidebar.position", "tabs.sleep", SleepPace.key, "float.leave", "float.away",
                            "pins.home", "pins.peek", "links.peek", "links.peekClick", "pages.120", "pages.120.mode",
                            "swipe.history", "links.show", "float.flicks", "spaces", "pins.list", "pins.folders",
                            "search.shift", "search.shiftCustom"]
@@ -73,11 +74,8 @@ final class SettingsIndexTests: XCTestCase {
     func testMergedControlsWriteTheOldKeys() {
         fresh {
             let prefs = Preferences()
-            prefs.tabsLayout = .right
-            XCTAssertEqual(Store.settings.object(forKey: "sidebar") as? Bool, true)
+            prefs.sidePosition = .right
             XCTAssertEqual(Store.settings.string(forKey: "sidebar.position"), "right")
-            prefs.tabsLayout = .top
-            XCTAssertEqual(Store.settings.object(forKey: "sidebar") as? Bool, false)
             prefs.sleepChoice = .never
             XCTAssertEqual(Store.settings.object(forKey: "tabs.sleep") as? Bool, false)
             prefs.sleepChoice = .sooner
@@ -100,13 +98,13 @@ final class SettingsIndexTests: XCTestCase {
     func testSetUpLikeArcAndUndo() {
         fresh {
             let prefs = Preferences()
-            prefs.tabsLayout = .top
+            prefs.sidePosition = .right
             let before = prefs.arcSnapshot
             XCTAssertFalse(prefs.looksLikeArc)
             XCTAssertEqual(prefs.setUpLikeArc(), ["tabs on the left", "Spaces"])
             XCTAssertTrue(prefs.looksLikeArc)
             prefs.restore(before)
-            XCTAssertEqual(prefs.tabsLayout, .top)
+            XCTAssertEqual(prefs.sidePosition, .right)
             XCTAssertFalse(prefs.usesSpaces)
         }
     }
@@ -116,13 +114,35 @@ final class SettingsIndexTests: XCTestCase {
     func testPinSwitchesAreGone() {
         fresh {
             for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"] { Store.settings.set(false, forKey: key) }
-            let prefs = Preferences()
+            _ = Preferences()
             for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"] {
                 XCTAssertNil(Store.settings.object(forKey: key), key)
             }
-            prefs.tabsLayout = .left
-            XCTAssertTrue(prefs.showsPinRows)
             for id in ["pins.list", "pins.folders", "pins.keep"] { XCTAssertNil(SettingsIndex.item(id), id) }
+        }
+    }
+
+    /// The tabs are only ever down a side, with their titles (#27): what
+    /// the tabs across the top, the column as icons only and their switches
+    /// kept goes at launch, their rows leave Settings, and the side is the
+    /// one choice left, on the left until asked otherwise.
+    func testOnlyTheSidebarIsLeft() {
+        fresh {
+            let gone = ["sidebar", "manner", "sidebar.settled", "sidebar.icons", "sidebar.foldIcons",
+                        "tabs.compact", "toolbar.left"]
+            Store.settings.set(false, forKey: "sidebar")
+            Store.settings.set("top", forKey: "manner")
+            for key in gone.dropFirst(2) { Store.settings.set(true, forKey: key) }
+            let prefs = Preferences()
+            for key in gone { XCTAssertNil(Store.settings.object(forKey: key), key) }
+            XCTAssertEqual(prefs.sidePosition, .left)
+            for id in ["tabs.layout", "sidebar.foldIcons", "toolbar.left", "tabs.compact"] {
+                XCTAssertNil(SettingsIndex.item(id), id)
+            }
+            XCTAssertNotNil(SettingsIndex.item("sidebar.position"))
+            XCTAssertTrue(SettingsIndex.apply("sidebar.position", "right", to: prefs))
+            XCTAssertEqual(prefs.sidePosition, .right)
+            XCTAssertFalse(SettingsIndex.apply("sidebar.position", "top", to: prefs))
         }
     }
 
@@ -150,7 +170,7 @@ final class SettingsIndexTests: XCTestCase {
     }
 
     func testFindByWords() {
-        XCTAssertTrue(SettingsIndex.find("vertical tabs").contains { $0.id == "tabs.layout" })
+        XCTAssertTrue(SettingsIndex.find("vertical tabs").contains { $0.id == "sidebar.position" })
         XCTAssertTrue(SettingsIndex.find("pip").contains { $0.id == "float.own" })
         XCTAssertTrue(SettingsIndex.find("autoplay").contains { $0.id == "media.click" })
         XCTAssertTrue(SettingsIndex.find("spelling").contains { $0.id == "autocorrect" })

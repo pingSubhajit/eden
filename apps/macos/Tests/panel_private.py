@@ -97,7 +97,7 @@ def main():
     if PICTURES: os.makedirs(PICTURES, exist_ok=True)
     folder = make()
     try:
-        sv.setup(sidebar=True); sv.launch()
+        sv.setup(); sv.launch()
         plain = sv.page("a")
         ext = add(folder, "Panel Private")
         page = sv.cmd({"do": "ext-page", "id": ext["id"], "path": "page.html"})["id"]

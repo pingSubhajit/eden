@@ -129,7 +129,7 @@ def main():
     t = sv.T()
     folder = make()
     try:
-        sv.setup(sidebar=True); sv.launch()
+        sv.setup(); sv.launch()
         sv.cmd({"do": "open", "url": f"{SITE}/login"}); time.sleep(1.0)
         sv.cmd({"do": "ext-folder", "path": folder, "yes": True})
         ext = None
