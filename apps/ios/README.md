@@ -112,7 +112,6 @@ without devices.
 
 ## The icon
 
-`Resources/AppIcon.icon` is an Icon Composer document written by the Mac
-app's icon script, so both apps draw the one mark. After the mark changes:
-
-    apps/ios/scripts/make-icon.sh
+The icon is `brand/AppIcon.icon` at the top of the repository, an Icon
+Composer document the Mac app builds from too. Open it in Icon Composer to
+change it; the project points at it where it is.

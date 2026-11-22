@@ -4,7 +4,7 @@
 # fetches.
 #
 #   ./build.sh                 debug-free release build, ad-hoc signed: runs here
-#   EDEN_DEV=1 ./build.sh    the same as a dev build: yellow icon, named for
+#   EDEN_DEV=1 ./build.sh    the same as a dev build: sage icon, named for
 #                              the branch (Eden-split-view from
 #                              claude/split-view-4a6927)
 #   EDEN_DEV=1 EDEN_FEATURE=name ./build.sh
@@ -59,7 +59,7 @@ case "$ARCH" in
 esac
 APP="$OUT/Eden.app"
 NAME="Eden"
-# Asked for with EDEN_DEV=1, a dev build, on a yellow plate and named for
+# Asked for with EDEN_DEV=1, a dev build, with a sage icon and named for
 # the feature it's built from: "Eden-split-view" in the menu bar, the Dock
 # and ⌘Tab, so it's never taken for the installed app beside it, or for the
 # dev build from another worktree. Only the name people see changes. The
@@ -139,40 +139,48 @@ if [ "$CONFIG" = "release" ]; then
   strip -x "$APP/Contents/MacOS/$NAME"
 fi
 
-# The icon, drawn fresh each time — it is thirty lines of Swift, not an asset
-# to keep in step with anything.
-ICONSET="build/AppIcon.iconset"
+# The icon is an Icon Composer document, the iPhone's too: brand/AppIcon.icon,
+# or for a dev build brand/AppIconDev.icon, the same arch on sage. It is
+# copied in as AppIcon.icon, the name actool and Info.plist know it by.
+# Both tools come with Xcode, and Eden has no icon without them.
 ICONDOC="build/AppIcon.icon"
-rm -rf "$ICONSET" "$ICONDOC"
-EDEN_DEV="$DEV" swift Icon/icon.swift "$ICONSET" "$ICONDOC" > /dev/null
+ICONSOURCE="../../brand/AppIcon.icon"
+[ "$DEV" = 1 ] && ICONSOURCE="../../brand/AppIconDev.icon"
+ICTOOL="$(xcode-select -p)/../Applications/Icon Composer.app/Contents/Executables/ictool"
+[ -x "$ICTOOL" ] || { echo "the icon needs Icon Composer, which comes with Xcode" >&2; exit 1; }
+rm -rf "$ICONDOC"
+cp -R "$ICONSOURCE" "$ICONDOC"
+# The pictures in AppIcon.icns, the disk image's icon and what macOS 14 and
+# 15 show, rendered by Icon Composer itself, glass and all. actool's own
+# .icns has only the 16 and 128 point sizes, which is too few for that.
+ICONSET="build/AppIcon.iconset"
+rm -rf "$ICONSET"
+mkdir -p "$ICONSET"
+for POINTS in 16 32 128 256 512; do
+  for SCALE in 1 2; do
+    SUFFIX=""
+    [ "$SCALE" = 2 ] && SUFFIX="@2x"
+    "$ICTOOL" "$PWD/$ICONDOC" --export-image --platform macOS --rendition Default \
+      --width "$POINTS" --height "$POINTS" --scale "$SCALE" \
+      --output-file "$PWD/$ICONSET/icon_${POINTS}x${POINTS}${SUFFIX}.png" > /dev/null
+  done
+done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 # macOS 26's Dark, Clear and Tinted Dock styles read the icon from an asset
-# catalog compiled from the Icon Composer document; without one the Dock
-# darkens the flat image and the mark goes black on black (#337). actool
-# comes with Xcode 26 — with anything older, or only the command-line tools,
-# the app keeps the .icns alone, as before. Only Assets.car is kept, not
-# actool's own .icns: the one above goes on being the disk image's icon and
-# the fallback. (macOS 14 and 15 show the flat pictures actool puts in
-# Assets.car, drawn from the same document: the same mark, to within a
-# pixel, on a plate with Apple's own corners.) --optimization space keeps
-# those pictures zipped rather than lzfse'd: 666 KB of catalog instead of
-# 800, every style still in it.
-ICONNAME=""
+# catalog compiled from the document. Only Assets.car is kept, not actool's
+# .icns. --optimization space keeps the catalog's pictures zipped rather
+# than lzfse'd, which makes it smaller, every style still in it.
 ICONCAR="build/AppIcon.car"
 rm -rf "$ICONCAR"
 mkdir -p "$ICONCAR"
 # Full paths: actool hands the document to a helper that runs elsewhere, and
 # with "build/…" it finds nothing ("Icon export exited with status 255").
-if xcrun actool "$PWD/$ICONDOC" --compile "$PWD/$ICONCAR" --platform macosx \
-     --minimum-deployment-target "$MINIMUM" --app-icon AppIcon --optimization space \
-     --output-partial-info-plist "$PWD/$ICONCAR/partial.plist" > /dev/null 2>&1 \
-   && [ -f "$ICONCAR/Assets.car" ]; then
-  cp "$ICONCAR/Assets.car" "$APP/Contents/Resources/Assets.car"
-  ICONNAME="<key>CFBundleIconName</key><string>AppIcon</string>"
-else
-  echo "note: actool from Xcode 26 didn't compile the icon — no Dark or Tinted style this time" >&2
-fi
+xcrun actool "$PWD/$ICONDOC" --compile "$PWD/$ICONCAR" --platform macosx \
+  --minimum-deployment-target "$MINIMUM" --app-icon AppIcon --optimization space \
+  --output-partial-info-plist "$PWD/$ICONCAR/partial.plist" > /dev/null
+[ -f "$ICONCAR/Assets.car" ] || { echo "actool didn't compile the icon" >&2; exit 1; }
+cp "$ICONCAR/Assets.car" "$APP/Contents/Resources/Assets.car"
 rm -rf "$ICONCAR" "$ICONDOC"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -188,7 +196,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  $ICONNAME
+  <key>CFBundleIconName</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>$MINIMUM</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>© Subhajit Kundu · Eden</string>
