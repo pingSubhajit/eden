@@ -126,6 +126,10 @@ mv "$APP/Contents/MacOS/$NAME.sdk" "$APP/Contents/MacOS/$NAME"
 # The AppleScript dictionary (Scripting.swift): read-only, tabs' addresses
 # and titles. The plist below points to it.
 cp Eden.sdef "$APP/Contents/Resources/"
+# The painting the welcome's first page stands in front of (Welcome.swift),
+# a public-domain landscape, kept small: 2000 pixels across at JPEG 60, as
+# it is mostly veiled.
+cp ../../brand/welcome.jpg "$APP/Contents/Resources/Welcome.jpg"
 
 # Symbols stay out of the app. The linker leaves every function's name and a
 # map back to the source in the binary — 15,000 entries, more than half of

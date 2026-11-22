@@ -11,6 +11,7 @@ the paragraph in `NOTES.md`. What is planned but not done yet lives in
 ## Unreleased
 
 - Headings and larger text have a face of their own, with SF for everything else: on the Mac the welcome, the titles of Settings and of pages such as History, and Eden's name in About, and on iPhone the start page's headings, which now grow with the text size you choose. They are in Astheric Extra Light where it is installed, and in the system's serif, light, until it comes with the app (#37).
+- On the Mac, the welcome's first page stands in front of a landscape at dusk, veiled in the middle so its words read as on the pages after it (#37).
 - Eden has a new mark and icon, on Mac and iPhone: an arch on two columns, in glass, on the pink and sage of a sky at dusk, with its own dark, tinted and clear looks, in place of the pill with an E cut out of it. A dev build of the Mac app shows the arch on sage rather than a yellow plate (#37).
 - On the Mac, Clear on the line in the sidebar comes up to full ink under the pointer, fades in without the line jumping or crossing its text, and stays hidden on a quick pass.
 - On the Mac, the tab you go to in a column too long for the window is scrolled into sight again, by ⌘1–9, ⇧⌘] or a link opened beside the page, where the column had stayed where it was since pins replaced bookmarks. The hidden checks of where new tabs and links go, the column's scroll, Split View and Settings now ask for the new tab position they read, and follow Settings as it is (#29).
