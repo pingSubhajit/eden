@@ -495,6 +495,22 @@ struct ContentView: View {
             // side by side are a card each (see PaneStage).
             stage
                 .modifier(CardEdge(on: cards && !browser.prefs.splitView))
+                // The band of window above the card, with a pill in it while
+                // the page in front loads (see LoadingPill.swift). Only with
+                // the page as a card: without one, the page reaches the
+                // window's top and there is no band to put it in. In Split
+                // View each page has its own, over its own card (see
+                // SplitStage).
+                .overlay(alignment: .top) {
+                    if cards, !browser.prefs.splitView, let tab = browser.active {
+                        LoadingPill(tab: tab, prefs: browser.prefs)
+                            .frame(height: Metrics.cardGap)
+                            .offset(y: -Metrics.cardGap)
+                            // A pill of its own for each tab, so one tab's
+                            // load doesn't carry on in the next one's.
+                            .id(tab.id)
+                    }
+                }
                 .padding(.leading, sideOnRight ? farGap + panelRoom : 0)
                 .padding(.trailing, sideOnRight ? 0 : farGap + panelRoom)
                 .padding(.bottom, farGap)

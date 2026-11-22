@@ -48,7 +48,10 @@ struct SplitStage: View {
             accounts: browser.suggesting.map { (browser, $0) },
             pairing: browser.applePairing.map { (browser, $0) },
             corner: corner,
-            immersed: immersed
+            immersed: immersed,
+            // Each page's load in the band over its own card, with the
+            // pages as cards (see LoadingPill.swift).
+            pills: corner > 0 ? browser.prefs : nil
         )
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
