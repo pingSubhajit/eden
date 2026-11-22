@@ -46,7 +46,7 @@ enum Typeface {
     /// The licensed face first, then the trial copy installed on the owner's
     /// Mac, which stands in until the licensed files are bundled.
     /// TODO(type): bundle the licensed files in both apps and drop the trial
-    /// copy's name (TODO.md, #37).
+    /// copy's name (TODO.md, #38).
     static let candidates = ["Astheric-ExtraLight", "FONTSPRINGDEMO-AsthericVariableExtLtRegular"]
 
     /// CoreText hands back another font for a name it doesn't have, so a
