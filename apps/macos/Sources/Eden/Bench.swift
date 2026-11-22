@@ -2331,10 +2331,15 @@ final class Bench {
                     return [Double(rect.minX), Double(rect.minY), Double(rect.width), Double(rect.height)]
                 }
                 if let scroll = column(), let document = scroll.documentView {
-                    out["scrolls"] = true
+                    // The column is one scroll view whether its rows fit or
+                    // not, still and only as tall as they are while they do
+                    // (Side.swift), so it scrolls only when what it holds
+                    // runs past what it shows.
+                    let visible = Double(scroll.contentView.bounds.height), content = Double(document.frame.height)
+                    out["scrolls"] = content > visible + 0.5
                     out["offset"] = Double(scroll.contentView.bounds.minY)
-                    out["visible"] = Double(scroll.contentView.bounds.height)
-                    out["content"] = Double(document.frame.height)
+                    out["visible"] = visible
+                    out["content"] = content
                 }
                 answer(out)
             }

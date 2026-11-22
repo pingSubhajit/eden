@@ -24,8 +24,9 @@ def loose(state, pins):
 
 def run(t, place):
     sv.setup(**{"tabs.groups": True, "splitView": True})
-    if place != "next":
-        subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", place], check=True)
+    # Every place written, After current too: it was the default until
+    # 969dc3e (19 Nov 2026) made new tabs go to the top.
+    subprocess.run(["defaults", "write", sv.SUITE, "tabs.newPlace", place], check=True)
     sv.launch()
     try:
         a = sv.page("a")
