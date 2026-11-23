@@ -323,6 +323,45 @@ extension Browser {
         }
     }
 
+    /// A pinned row of this space's own moved to where another stands
+    /// (`target`, a tab's id or a row's held as data, by the id its tab
+    /// has), as chrome.tabs.move asks: into the target's folder, or the top
+    /// level, at its place — after it when moving down the row (`forward`),
+    /// before it moving up — as the column's carry puts a row there
+    /// (move(_:to:)). The target's folder, if any of its rows are held as
+    /// data, has them made tabs for the move, whether the target is one of
+    /// them or not, so it lands among them exactly, as the extension sees
+    /// the row, and they go back to data after. The row moved is kept a tab
+    /// meanwhile (keepingOpen): one made a tab for the move, holding
+    /// nothing yet, was let go to data again as the target's folder was
+    /// made tabs, and the move had nothing to move. False, and nothing
+    /// moved, unless both are such rows.
+    @discardableResult
+    func moveRow(_ tab: Tab, toRowOf target: Tab.ID, forward: Bool) -> Bool {
+        guard fitsKeptGroup(tab), tabs.contains(where: { $0 === tab }) else { return false }
+        return keepingOpen([tab.pinID].compactMap { $0 }) {
+            let folder = heldPin(tab: target).flatMap { Pins.def($0)?.group } ?? tabs.first { $0.id == target }?.keptGroupID
+            if let folder { showHeld(group: folder) }
+            guard tabs.contains(where: { $0 === tab }), let anchor = tabs.first(where: { $0.id == target }), anchor !== tab,
+                  fitsKeptGroup(anchor) else { return false }
+            let group = keptGroup(of: anchor)
+            let index: Int
+            if let group {
+                let members = members(ofGroup: group).filter { $0 !== tab }
+                guard let at = members.firstIndex(where: { $0 === anchor }) else { return false }
+                index = at + (forward ? 1 : 0)
+            } else {
+                let items = ownKeptItems(without: [tab.id])
+                guard let at = items.firstIndex(where: { $0.id == .tab(anchor.id) }) else { return false }
+                index = everywhereRows.count + at + (forward ? 1 : 0)
+            }
+            let moved = move(tab, to: ColumnPlace(area: .kept, group: group, index: index))
+            // The rows made tabs for it, back to data.
+            pinsChanged(in: spaceID)
+            return moved
+        }
+    }
+
     /// What is carried with `tab` put at `place` (the column's carry): the
     /// tab alone, or with its pair, as move(_:to:detaching:) puts it; with
     /// several picked, everything picked that can stand there, pins of

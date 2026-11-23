@@ -1,5 +1,6 @@
 import AppKit
 import EdenCore
+import WebKit
 import XCTest
 @testable import Eden
 
@@ -271,8 +272,23 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertEqual(browser.heldRows(ofGroup: work).map(\.title), ["w2"], "w2 still held")
     }
 
+    /// As chrome.tabs.move asks, a row of a folder half held goes exactly
+    /// to the place of the row it is moved to, past a held row or not, as
+    /// an extension sees the row; and the held row is data again after.
+    func testARowMovedInAFolderHalfHeldGoesExactlyThere() throws {
+        let browser = makeBrowser()
+        let work = try halfHeld(browser)
+        XCTAssertTrue(browser.moveRow(try tab(browser, "w1"), toRowOf: try tab(browser, "w3").id, forward: true))
+        XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "w1 Work", "B", "d1 Docs", "d2 Docs"], "w1 past w2 and w3")
+        XCTAssertEqual(browser.heldRows(ofGroup: work).map(\.title), ["w2"])
+        let w2 = try XCTUnwrap(heldPin(browser, "w2"))
+        XCTAssertTrue(browser.moveRow(try tab(browser, "w3"), toRowOf: browser.pinTabID(w2), forward: false))
+        XCTAssertEqual(saved(browser), ["A", "w3 Work", "w2 Work", "w1 Work", "B", "d1 Docs", "d2 Docs"], "w3 up to w2's place")
+        XCTAssertEqual(browser.placesInRow.count, 7)
+    }
+
     /// A row from outside put in before a tab of a folder half held goes
-    /// in right before it.
+    /// in right before it, carried in the column or moved by an extension.
     func testARowPutInBeforeATabOfAFolderHalfHeldGoesThere() throws {
         let browser = makeBrowser()
         let work = try halfHeld(browser)
@@ -280,19 +296,23 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertEqual(saved(browser), ["A", "B Work", "w1 Work", "w2 Work", "w3 Work", "d1 Docs", "d2 Docs"], "before w1")
         XCTAssertTrue(browser.move(try tab(browser, "A"), to: ColumnPlace(area: .kept, group: work, index: 2)))
         XCTAssertEqual(saved(browser), ["B Work", "w1 Work", "w2 Work", "A Work", "w3 Work", "d1 Docs", "d2 Docs"], "before w3")
-        XCTAssertTrue(browser.heldRows(ofGroup: work).contains { $0.title == "w2" }, "w2 still held")
+        XCTAssertTrue(browser.moveRow(try tab(browser, "d1"), toRowOf: try tab(browser, "w3").id, forward: false))
+        XCTAssertEqual(saved(browser), ["B Work", "w1 Work", "w2 Work", "A Work", "d1 Work", "w3 Work", "d2 Docs"],
+                       "an extension's: right before w3")
+        XCTAssertEqual(browser.heldRows(ofGroup: work).map(\.title), ["B", "w2", "A", "d1"],
+                       "the rows put in, holding nothing their pins don't, held as data with w2")
     }
 
-    /// A tab of a folder half held taken out of it leaves the rest of the
-    /// folder where it was.
+    /// A tab of a folder half held taken out of it, carried or moved by an
+    /// extension, leaves the rest of the folder as it was.
     func testARowTakenOutOfAFolderHalfHeldLeavesItAsItWas() throws {
         let browser = makeBrowser()
         let work = try halfHeld(browser)
         // The top level: A, Work, B, Docs; after B.
         XCTAssertTrue(browser.move(try tab(browser, "w1"), to: ColumnPlace(area: .kept, index: 3)))
         XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "B", "w1", "d1 Docs", "d2 Docs"])
-        XCTAssertTrue(browser.move(try tab(browser, "w3"), to: ColumnPlace(area: .kept, index: 0)))
-        XCTAssertEqual(saved(browser), ["w3", "A", "w2 Work", "B", "w1", "d1 Docs", "d2 Docs"], "Work where it stood")
+        XCTAssertTrue(browser.moveRow(try tab(browser, "w3"), toRowOf: try tab(browser, "A").id, forward: false))
+        XCTAssertEqual(saved(browser), ["w3", "A", "w2 Work", "B", "w1", "d1 Docs", "d2 Docs"])
         XCTAssertEqual(browser.heldRows(ofGroup: work).map(\.title), ["w2"])
     }
 
@@ -432,6 +452,147 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertEqual(browser.placesInRow.map(\.id), held, "and held again by them")
     }
 
+    /// A pinned row moved, as chrome.tabs.move asks, to a held row's place
+    /// lands there, in its folder, before it moving up the row and after it
+    /// moving down, and the folder's rows go back to data.
+    func testARowMovedToAHeldRowsPlaceGoesThere() throws {
+        let browser = makeBrowser()
+        _ = try keep(browser)
+        let w2 = try XCTUnwrap(heldPin(browser, "w2")), w3 = try XCTUnwrap(heldPin(browser, "w3"))
+        let b = try XCTUnwrap(browser.tabs.first { $0.title == "B" })
+        XCTAssertTrue(browser.moveRow(b, toRowOf: browser.pinTabID(w2), forward: false))
+        XCTAssertEqual(saved(browser), ["A", "w1 Work", "B Work", "w2 Work", "w3 Work", "d1 Docs", "d2 Docs"])
+        XCTAssertEqual(rows(browser), ["A", "d1", "d2"], "the folder's rows, B among them now, data again")
+        let a = try XCTUnwrap(browser.tabs.first { $0.title == "A" })
+        XCTAssertTrue(browser.moveRow(a, toRowOf: browser.pinTabID(w3), forward: true))
+        XCTAssertEqual(saved(browser), ["w1 Work", "B Work", "w2 Work", "w3 Work", "A Work", "d1 Docs", "d2 Docs"])
+        let d1 = try XCTUnwrap(browser.tabs.first { $0.title == "d1" })
+        XCTAssertFalse(browser.moveRow(d1, toRowOf: UUID(), forward: true), "nowhere to go")
+    }
+
+    /// What an extension is told of the row, by the shim's own calls: held
+    /// rows in their places, by the ids their tabs have, at their pages,
+    /// each place read once a query; and a row moved to a held row's place
+    /// goes there.
+    func testAnExtensionReadsAndMovesAmongHeldRows() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let browser = makeBrowser()
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        _ = try keep(browser)
+        let (folder, context) = try await extensionContext()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let owner = Extensions.shared
+        let rows = owner.visibleRows(of: browser, for: context)
+        XCTAssertEqual(rows.map(\.id), browser.placesInRow.map(\.id))
+        XCTAssertEqual(rows.map { $0.indexInWindow(for: context) }, Array(rows.indices))
+        let w2 = try XCTUnwrap(heldPin(browser, "w2"))
+        let at = try XCTUnwrap(rows.firstIndex { $0.id == browser.pinTabID(w2) })
+        XCTAssertNil(rows[at].tab, "held, it has no tab")
+
+        let described = try await ExtensionShims.answer(["api": "tabs.describe", "args": [Array(rows.indices)]],
+                                                        from: context, owner: owner) as? [String: Any]
+        let urls = (described?["value"] as? [Any])?.compactMap { ($0 as? [String: Any])?["url"] as? String } ?? []
+        XCTAssertEqual(urls.filter { $0.hasPrefix("https://w") }, ["https://w1.example/", "https://w2.example/", "https://w3.example/"])
+
+        let b = try XCTUnwrap(rows.firstIndex { $0.tab?.title == "B" })
+        let moved = try await ExtensionShims.answer(["api": "tabs.move", "args": [b, at]], from: context, owner: owner) as? [String: Any]
+        XCTAssertNil(moved?["error"], "\(String(describing: moved))")
+        XCTAssertEqual(saved(browser), ["A", "w1 Work", "B Work", "w2 Work", "w3 Work", "d1 Docs", "d2 Docs"])
+    }
+
+    /// An extension acting on a held row taken out of the pins meanwhile,
+    /// elsewhere, is told there is no such tab, rather than nothing done
+    /// and said to be.
+    func testAnExtensionActingOnARowGoneIsToldSo() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let browser = makeBrowser()
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        _ = try keep(browser)
+        let (folder, context) = try await extensionContext()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let w2 = try XCTUnwrap(heldPin(browser, "w2"))
+        let row = try XCTUnwrap(Extensions.shared.visibleRows(of: browser, for: context).first { $0.id == browser.pinTabID(w2) })
+        browser.pinShelf.remove(w2)
+        do {
+            try await row.activate(for: context)
+            XCTFail("activated a row that is gone")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "No tab with that id.")
+        }
+        do {
+            try await row.reload(fromOrigin: false, for: context)
+            XCTFail("reloaded a row that is gone")
+        } catch {}
+    }
+
+    /// An adapter is right as soon as its row is made a tab or let go,
+    /// not when the row is next followed: a held row unpinned by one call
+    /// is found by the next as the tab it is now, unpinned, and a row made
+    /// a tab and unpinned in the column reads so at once.
+    func testAnExtensionsRowIsRightAtOnceWhateverChangesIt() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let browser = makeBrowser()
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        _ = try keep(browser)
+        let (folder, context) = try await extensionContext()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        func row(_ title: String) throws -> ExtensionTab {
+            let pin = try XCTUnwrap(heldPin(browser, title), title)
+            return try XCTUnwrap(Extensions.shared.visibleRows(of: browser, for: context).first { $0.id == browser.pinTabID(pin) })
+        }
+        let w1 = try row("w1")
+        XCTAssertEqual(Extensions.shared.heldShown[w1.id]?.address, "https://w1.example/",
+                       "what it shows kept from the first, so its first change is told")
+        try await w1.setPinned(false, for: context)
+        XCTAssertFalse(w1.isPinned(for: context), "unpinned, at once")
+        let url = try XCTUnwrap(URL(string: "https://w1-next.example/"))
+        try await w1.loadURL(url, for: context)
+        XCTAssertEqual(browser.tabs.first { $0.id == w1.id }?.pin, nil, "the same tab, a pin no more")
+
+        let w2 = try row("w2")
+        let pin = try XCTUnwrap(heldPin(browser, "w2"))
+        let tab = try XCTUnwrap(browser.showHeld(pin))
+        browser.unpin(tab)
+        XCTAssertFalse(w2.isPinned(for: context), "made a tab and unpinned in the column, read so at once")
+        XCTAssertFalse(w2.isHeld)
+
+        // Folded again, a tab holding nothing is held again, at once too.
+        let w3 = try row("w3")
+        let made = try XCTUnwrap(w3.actingTab())
+        XCTAssertFalse(w3.isHeld)
+        XCTAssertTrue(made.holdsNothing)
+        browser.pinsChanged(in: browser.spaceID)
+        XCTAssertTrue(w3.isHeld, "let go to data, held at once")
+    }
+
+    /// chrome.tabs.group with a held row among the tabs fails whole, as it
+    /// does with that row's tab, a pin: none of them grouped.
+    func testGroupingAHeldRowFailsAsItsTabWould() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let browser = makeBrowser(groups: true)
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        _ = try keep(browser)
+        let url = try XCTUnwrap(URL(string: "https://loose.example/"))
+        let loose = browser.open(url, foreground: false, atEnd: true)
+        loose.restore(url: url, title: "loose")
+        let (folder, context) = try await extensionContext()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let rows = Extensions.shared.visibleRows(of: browser, for: context)
+        let w2 = try XCTUnwrap(heldPin(browser, "w2"))
+        let held = try XCTUnwrap(rows.firstIndex { $0.id == browser.pinTabID(w2) })
+        let open = try XCTUnwrap(rows.firstIndex { $0.tab === loose })
+        let reply = try await ExtensionShims.answer(["api": "tabs.group", "args": [[open, held], -1]], from: context, owner: Extensions.shared)
+            as? [String: Any]
+        XCTAssertNotNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertNil(loose.groupID, "the loose tab left out of any group too")
+        XCTAssertTrue(browser.tabGroups.isEmpty)
+        XCTAssertTrue(browser.holds(pin: w2), "and the row held still")
+    }
+
     func testFolderTakenAwayOrCarriedBelowTheLineMakesItsRowsTabs() throws {
         let browser = makeBrowser(groups: true)
         let kept = try keep(browser)
@@ -523,6 +684,21 @@ final class HeldPinsTests: XCTestCase {
     }
 
     // MARK: - the pieces
+
+    /// An extension's context, as Eden installs one, with the tabs and
+    /// tab groups permissions.
+    @available(macOS 15.4, *)
+    private func extensionContext() async throws -> (URL, WKWebExtensionContext) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("held-pins-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let manifest: [String: Any] = ["manifest_version": 3, "name": "Held rows", "version": "1",
+                                       "permissions": ["tabs", "tabGroups"]]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appendingPathComponent("manifest.json"))
+        let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: folder))
+        context.uniqueIdentifier = "held-pins-\(UUID().uuidString)"
+        context.setPermissionStatus(.grantedExplicitly, for: .tabs)
+        return (folder, context)
+    }
 
     /// The pin of a held row by its title.
     private func heldPin(_ browser: Browser, _ title: String) -> UUID? {

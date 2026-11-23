@@ -5005,7 +5005,13 @@ enum ExtensionShims {
             switch api {
             case "tabs.move":
                 let wanted = args.dropFirst().first as? Int ?? -1
-                let target = visible[wanted < 0 || wanted >= visible.count ? visible.count - 1 : wanted]
+                let to = wanted < 0 || wanted >= visible.count ? visible.count - 1 : wanted
+                let target = visible[to]
+                let from = owner.index(of: row, in: browser, for: context) ?? to
+                // A pinned row to another's place, a folded folder's held
+                // as data among them: the row moves there, its pin with it
+                // (Browser.moveRow). Anything else as the row has it.
+                if target.id != tab.id, browser.moveRow(tab, toRowOf: target.id, forward: from < to) { return nil }
                 if let index = browser.tabs.firstIndex(where: { $0.id == target.id }) { browser.move(tab, to: index) }
             case "tabs.discard":
                 if tab.id != browser.activeID { browser.sleep(tab) }
