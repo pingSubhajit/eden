@@ -232,7 +232,7 @@ final class HeldPinsTests: XCTestCase {
         let id = try XCTUnwrap(offer.tab)
         let pin = try XCTUnwrap(browser.heldPin(tab: id), "offered by the id its tab will have")
         XCTAssertTrue(browser.openPages(matching: "").allSatisfy { browser.heldPin(tab: $0.tab ?? UUID()) == nil },
-                      "nothing typed, only what is open")
+                      "nothing typed, only what has been looked at")
 
         browser.take(offer)
         let tab = try XCTUnwrap(browser.active)
@@ -297,6 +297,39 @@ final class HeldPinsTests: XCTestCase {
     }
 
     // MARK: - as they were while tabs
+
+    /// The row of a folded folder looked at last is still the one ⌘1–9, the
+    /// address field and the folder's card go by, held or not, across a
+    /// relaunch too.
+    func testTheRowLookedAtLastIsKeptWhileHeld() throws {
+        let browser = makeBrowser()
+        let kept = try keep(browser)
+        let w1 = try XCTUnwrap(heldPin(browser, "w1")), w3 = try XCTUnwrap(heldPin(browser, "w3"))
+        let a = try XCTUnwrap(browser.tabs.first { $0.title == "A" })
+        // w3 gone to and put down, then w1 earlier: w3 is the last looked at.
+        try go(to: w1, in: browser, then: a)
+        try go(to: w3, in: browser, then: a)
+        XCTAssertEqual(rows(browser), ["A", "B", "d1", "d2"], "both held again")
+        XCTAssertNotNil(browser.lookedAt(heldPin: w3))
+
+        let at = try XCTUnwrap(browser.tabShortcutTargets.firstIndex { $0.id == kept.work })
+        browser.select(index: at)
+        XCTAssertEqual(browser.active?.pinID, w3, "⌘N goes to the row looked at last, not the first")
+        browser.select(a)
+        browser.closeTab(try XCTUnwrap(browser.tabs.first { $0.pinID == w3 }))
+
+        let open = browser.openPages(matching: "")
+        XCTAssertEqual(open.compactMap { $0.tab.flatMap(browser.heldPin(tab:)) }, [w3, w1],
+                       "with nothing typed, the held rows looked at, the last first")
+
+        // Written with the session, and read back by a window opened anew.
+        browser.writeSession(now: true)
+        let again = makeBrowser()
+        XCTAssertEqual(rows(again), ["A", "B", "d1", "d2"])
+        let target = try XCTUnwrap(again.tabShortcutTargets.firstIndex { $0.id == kept.work })
+        again.select(index: target)
+        XCTAssertEqual(again.active?.pinID, w3)
+    }
 
     /// A page handed over by another device, or a link with Settings'
     /// "go to the tab that has it", goes to a held row of that page, made a

@@ -174,6 +174,28 @@ final class PinCostTests: XCTestCase {
         print("PIN-COST 1500 held adapters, kept right (rowsSettled): \(Self.ms(settling)) ms a time")
     }
 
+    /// 750 folded folders of two rows each, every row held: what ⌘1–9
+    /// works out its targets from, and the hints shown while ⌘ is held,
+    /// each finding the row of every folder looked at last.
+    func testMeasureNumberKeysAmongManyFolded() async throws {
+        let browser = makeBrowser()
+        browser.pinShelf.take(Self.folders(750, of: 2), into: nil)
+        for group in browser.keptGroups where !group.collapsed { browser.setGroupFolded(group.id, true) }
+        XCTAssertEqual(browser.heldRows.count, 1_500)
+        var began = CACurrentMediaTime()
+        for _ in 0..<10 { XCTAssertEqual(browser.tabShortcutTargets.count, 750) }
+        let targets = (CACurrentMediaTime() - began) / 10
+        let shows = browser.prefs.showsTabShortcuts
+        defer { browser.prefs.showsTabShortcuts = shows }
+        browser.prefs.showsTabShortcuts = true
+        browser.commandHeld = true
+        began = CACurrentMediaTime()
+        for _ in 0..<10 { XCTAssertEqual(browser.tabShortcutNumbers.count, 9) }
+        let hints = (CACurrentMediaTime() - began) / 10
+        print("PIN-COST ⌘1–9 among 750 folded folders, the targets: \(Self.ms(targets)) ms a time")
+        print("PIN-COST ⌘1–9 among 750 folded folders, the hints: \(Self.ms(hints)) ms a time")
+    }
+
     /// The same 1,500 brought in from a bookmarks file, as Import does it.
     func testMeasureFifteenHundredPinsFromAFile() async throws {
         let first = makeBrowser()

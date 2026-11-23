@@ -2058,7 +2058,16 @@ final class Tab: ObservableObject, Identifiable {
         icon = nil
     }
 
-    func touch(at when: Date = Date()) { touched = when }
+    func touch(at when: Date = Date()) {
+        touched = when
+        lookedAt = when
+    }
+
+    /// When it was last looked at, as `touched`, but nil for a tab never
+    /// looked at since it was made: a pinned row's tab made only because
+    /// its folder was unfolded hasn't been, and keeps no time when it is
+    /// held as data again (Browser.heldLooks).
+    private(set) var lookedAt: Date?
 
     /// True when the web view holds nothing — never loaded, or emptied —
     /// while the tab still names a page. The white page, in other words.

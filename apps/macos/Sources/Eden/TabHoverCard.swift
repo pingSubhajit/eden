@@ -435,12 +435,28 @@ enum TabHoverCard {
         return Array(ordered.prefix(4))
     }
 
-    /// A group's collage: the tabs you were in last, then, in a folder whose
-    /// rows are held as data (HeldPins.swift), stand-ins for its first rows
-    /// (Browser.standIns), four in all.
+    /// A group's collage, as `recent`, with a folder's rows held as data
+    /// (HeldPins.swift) among its tabs by when each was last looked at, as
+    /// stand-ins (Browser.standIns); those never looked at last, in order.
     fileprivate static func collage(_ id: UUID, in browser: Browser) -> [Tab] {
-        let shown = recent(browser.members(ofGroup: id), in: browser)
-        return shown + browser.standIns(for: Array(browser.heldRows(ofGroup: id).prefix(4 - shown.count)))
+        struct Part {
+            let front: Bool
+            let at: Date
+            let tab: Tab?
+            let pin: UUID?
+        }
+        let shown = browser.visibleTabIDs
+        let tabs = browser.members(ofGroup: id).map { Part(front: shown.contains($0.id), at: $0.touched, tab: $0, pin: nil) }
+        let rows = browser.heldRows(ofGroup: id)
+        let held = rows.map { Part(front: false, at: browser.lookedAt(heldPin: $0.id) ?? .distantPast, tab: nil, pin: $0.id) }
+        let picked = (tabs + held).enumerated().sorted { a, b in
+            if a.element.front != b.element.front { return a.element.front }
+            if a.element.at != b.element.at { return a.element.at > b.element.at }
+            return a.offset < b.offset
+        }.prefix(4).map(\.element)
+        let wanted = Set(picked.compactMap(\.pin))
+        let standIns = browser.standIns(for: rows.filter { wanted.contains($0.id) })
+        return picked.compactMap { part in part.tab ?? standIns.first { $0.pinID == part.pin } }
     }
 
     /// The cards the frame has left, once they have faded.

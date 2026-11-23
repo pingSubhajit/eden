@@ -3457,9 +3457,10 @@ final class Browser: NSObject, ObservableObject {
                 && !opening.contains(def.id) && keptOpen[def.id] == nil
             if holds, found.map({ $0.holdsNothing && !keeping.contains($0.id) }) ?? true {
                 if let found {
-                    // Its id kept, for the tab made for it again
-                    // (HeldPins.swift).
+                    // Its id and when it was last looked at kept, for the tab
+                    // made for it again (HeldPins.swift).
                     keepTabID(found.id, forPin: def.id)
+                    if let looked = found.lookedAt { heldLooks[def.id] = looked }
                     found.close()
                 }
                 continue
@@ -3476,6 +3477,9 @@ final class Browser: NSObject, ObservableObject {
                 // the row's tabs has taken it since.
                 let id = sharedIDs.contains(def.id) ? nil : Optional(pinTabID(def.id)).flatMap { rowIDs.contains($0) ? nil : $0 }
                 tab = pinTab(def, space: space, id: id)
+            }
+            if let looked = heldLooks.removeValue(forKey: def.id), tab.lookedAt.map({ $0 < looked }) ?? true {
+                tab.touch(at: looked)
             }
             if !sharedIDs.contains(def.id) { keepTabID(tab.id, forPin: def.id) }
             shown.insert(def.id)
@@ -3551,6 +3555,12 @@ final class Browser: NSObject, ObservableObject {
     /// The held rows' pages, by space, worked out when first asked after
     /// they change (heldPages(in:)).
     var heldPageCache: [UUID: [String: UUID]] = [:]
+
+    /// When each row now held as data was last looked at, by pin: kept from
+    /// its tab as it was let go, or from the session (restoreRow), and given
+    /// back to the tab made for it again. What ⌘1–9 on a folded folder, its
+    /// card and the address field go by, as they go by a tab's.
+    var heldLooks: [UUID: Date] = [:]
 
     /// The id each of the spaces' own pinned rows has for its tab in this
     /// window, by pin, kept while the row is held as data so its tab is made
@@ -4084,7 +4094,14 @@ final class Browser: NSObject, ObservableObject {
             return Session.Split(tabs: places, axis: pair.axis, sizes: sizes,
                                  focused: pair.focused.flatMap { indices[$0] })
         }
-        return .init(tabs: entries, active: active, groups: keptGroups, splits: savedSplits)
+        // When the rows held as data were last looked at, which no entry
+        // keeps for them (HeldPins.swift).
+        let looked = space.map { space in
+            Dictionary(heldPinIDs(in: space).compactMap { pin in heldLooks[pin].map { (pin.uuidString, $0) } },
+                       uniquingKeysWith: { first, _ in first })
+        }
+        return .init(tabs: entries, active: active, groups: keptGroups, splits: savedSplits,
+                     looked: looked.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// Whether a tab goes into the session: not a private one or the
@@ -6227,17 +6244,21 @@ final class Browser: NSObject, ObservableObject {
         let squares = row.filter { $0.pin != nil && !$0.listed }
         let kept = keptItems()
         let open = prefs.usesTabGroups ? items(of: row) : row.filter { $0.pin == nil }.map(SideItem.tab)
+        let held = Dictionary((heldPins[spaceID] ?? []).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return squares.map { (id: $0.id, tab: Optional($0)) } + (kept + open).flatMap { item -> [(id: UUID, tab: Tab?)] in
             switch item {
             case .tab(let tab):
                 return [(tab.id, tab)]
             case .group(let group, let members):
                 guard group.collapsed else { return members.map { (id: $0.id, tab: Optional($0)) } }
-                let current = active.flatMap { columnGroupID(of: $0) == group.id ? $0 : nil }
-                guard let tab = current ?? members.max(by: { $0.touched < $1.touched }) else {
-                    return heldRows(ofGroup: group.id).isEmpty ? [] : [(group.id, nil)]
-                }
-                return [(group.id, tab)]
+                if let current = active.flatMap({ columnGroupID(of: $0) == group.id ? $0 : nil }) { return [(group.id, current)] }
+                // The row you were in last, a tab or one held as data
+                // (HeldPins.swift): held, it has no tab yet, and is made one
+                // when gone to (select(index:)).
+                let tab = members.max(by: { $0.touched < $1.touched })
+                guard let looked = held[group.id].flatMap(lastLooked(in:)) else { return tab.map { [(group.id, $0)] } ?? [] }
+                if let tab, tab.touched >= lookedAt(heldPin: looked.id) ?? .distantPast { return [(group.id, tab)] }
+                return [(group.id, nil)]
             }
         }
     }
@@ -6338,7 +6359,7 @@ final class Browser: NSObject, ObservableObject {
         let targets = tabShortcutTargets
         guard targets.indices.contains(index) else { return }
         let target = targets[index]
-        guard let found = target.tab ?? heldRows(ofGroup: target.id).first.flatMap({ showHeld($0.id) }) else { return }
+        guard let found = target.tab ?? lastLooked(heldOf: target.id).flatMap({ showHeld($0.id) }) else { return }
         let tab = entry(found)
         if prefs.pinNumberGoesBack, tab.pin != nil, activeID == tab.id, let back = tabBefore(tab) {
             select(back)
@@ -6812,9 +6833,17 @@ final class Browser: NSObject, ObservableObject {
         // or its sound turned off: those come back as tabs.
         let paired = Set(saved.splits.flatMap(\.tabs))
         let holding = holdable(in: space)
+        // When the rows held last time were last looked at; a row skipped
+        // below takes its entry's. Never later than now, as a tab's.
+        for (key, at) in saved.looked ?? [:] {
+            if let pin = UUID(uuidString: key) { heldLooks[pin] = min(at, Date()) }
+        }
         for (savedIndex, entry) in saved.tabs.enumerated() {
             if let id = entry.pinID, entry.pin != nil, holding.contains(id), savedIndex != saved.active,
-               !paired.contains(savedIndex), entry.keepsake == nil, !entry.muted { continue }
+               !paired.contains(savedIndex), entry.keepsake == nil, !entry.muted {
+                if let at = entry.touched { heldLooks[id] = min(at, Date()) }
+                continue
+            }
             // An empty page is never written; the first builds of Split View
             // on main wrote one for an empty half. The bookmarks page is gone
             // (InternalPage.retired): a tab left on it goes with it.
@@ -7860,18 +7889,20 @@ final class Browser: NSObject, ObservableObject {
                 let address = tab.address.map { Address.pretty($0) } ?? ""
                 return tab.label.lowercased().contains(needle) || address.contains(needle)
             }
-            .sorted { $0.touched > $1.touched }
+            .map { tab -> (at: Date, offer: Suggestion?) in
+                (tab.touched, tab.address.map { url in
+                    Suggestion(key: tab.label, title: Address.pretty(url), url: url, kind: .open, tab: tab.id)
+                })
+            }
+        // The rows held as data in folded folders (HeldPins.swift) are as
+        // open as their tabs were, by when each was last looked at, one
+        // never looked at found only by what is typed: offered by the id
+        // their tab will have, made as it is taken (openTab).
+        let held = heldOffers(matching: needle).map { (at: $0.at ?? .distantPast, offer: Optional($0.offer)) }
+        return (found + held).enumerated()
+            .sorted { $0.element.at != $1.element.at ? $0.element.at > $1.element.at : $0.offset < $1.offset }
             .prefix(limit)
-        let open = found.compactMap { tab -> Suggestion? in
-            guard let url = tab.address else { return nil }
-            return Suggestion(key: tab.label, title: Address.pretty(url), url: url, kind: .open, tab: tab.id)
-        }
-        // The rows held as data in folded folders (HeldPins.swift) are
-        // pinned pages as much as their tabs were, found by what is typed
-        // after the tabs: offered by the id their tab will have, made as it
-        // is taken (openTab).
-        guard !needle.isEmpty, found.count < limit else { return open }
-        return open + heldOffers(matching: needle, limit: limit - found.count)
+            .compactMap(\.element.offer)
     }
 
     /// A row clicked in the list, taken directly rather than through the

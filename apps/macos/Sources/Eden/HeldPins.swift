@@ -454,6 +454,34 @@ extension Browser {
         tabs.contains { $0.id == id } || heldPin(tab: id) != nil
     }
 
+    // MARK: - when each was last looked at
+
+    /// When a row held as data was last looked at, as its tab had it before
+    /// it was let go, or the session (heldLooks); nil when it never was.
+    func lookedAt(heldPin pin: UUID) -> Date? { heldLooks[pin] }
+
+    /// A folded folder's row held as data looked at last, or its first when
+    /// none was, for what goes to the row of a folder you were in last.
+    func lastLooked(heldOf group: UUID) -> PinDef? {
+        heldPins[spaceID]?.first { $0.id == group }.flatMap(lastLooked(in:))
+    }
+
+    /// The same for a held group in hand: ⌘1–9's targets look it up once
+    /// for every folder (tabShortcutTargets), where looking for each among
+    /// the held groups made 750 folded folders 31 ms a look, and a look
+    /// each time ⌘ is held for the hints.
+    func lastLooked(in group: HeldGroup) -> PinDef? {
+        var best: (def: PinDef, at: Date)?
+        var first: PinDef?
+        for pin in group.rows where group.held.contains(pin) {
+            guard let def = Pins.def(pin) else { continue }
+            if first == nil { first = def }
+            guard let at = heldLooks[pin] else { continue }
+            if best.map({ at > $0.at }) ?? true { best = (def, at) }
+        }
+        return best?.def ?? first
+    }
+
     // MARK: - by their pages
 
     /// The rows held as data in `space`, by their pages (History.identity):
@@ -480,19 +508,22 @@ extension Browser {
     // MARK: - the address field
 
     /// The rows held as data whose name or page holds `needle` (lowercased),
-    /// offered in the address field as open pages are, by the id their tab
-    /// will have (pinTabID).
-    func heldOffers(matching needle: String, limit: Int) -> [Suggestion] {
-        guard limit > 0, let held = heldPins[spaceID] else { return [] }
-        var out: [Suggestion] = []
+    /// with when each was last looked at, offered in the address field as
+    /// open pages are, by the id their tab will have (pinTabID). With
+    /// nothing typed, only those that have been looked at: the rest were
+    /// never open.
+    func heldOffers(matching needle: String) -> [(at: Date?, offer: Suggestion)] {
+        guard let held = heldPins[spaceID] else { return [] }
+        var out: [(at: Date?, offer: Suggestion)] = []
         for group in held {
             for id in group.rows where group.held.contains(id) {
+                let at = heldLooks[id]
+                if needle.isEmpty, at == nil { continue }
                 guard let def = Pins.def(id), let url = URL(string: def.home) else { continue }
                 let address = Address.pretty(url)
                 let label = def.name.flatMap { $0.isEmpty ? nil : $0 } ?? (def.title.isEmpty ? address : def.title)
-                guard label.lowercased().contains(needle) || address.contains(needle) else { continue }
-                out.append(Suggestion(key: label, title: address, url: url, kind: .open, tab: pinTabID(id)))
-                if out.count == limit { return out }
+                guard needle.isEmpty || label.lowercased().contains(needle) || address.contains(needle) else { continue }
+                out.append((at, Suggestion(key: label, title: address, url: url, kind: .open, tab: pinTabID(id))))
             }
         }
         return out
