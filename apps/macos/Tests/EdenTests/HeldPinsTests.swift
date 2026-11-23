@@ -501,6 +501,75 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertEqual(saved(browser), ["A", "w1 Work", "B Work", "w2 Work", "w3 Work", "d1 Docs", "d2 Docs"])
     }
 
+    // MARK: - a held row sent anywhere
+
+    /// A row held as data, never opened, sent by chrome.tabs.move to the
+    /// place of a held row in another folded folder: it goes there, into
+    /// that folder, and is held again, where it was lost before (the row
+    /// made a tab for the move was let go again as the other folder's rows
+    /// were made tabs).
+    func testAHeldRowSentToAHeldRowInAnotherFolderGoesThere() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("w1", toPlaceOf: "o2")
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "B", "o1 Other", "o2 Other", "w1 Other", "d1 Docs", "d2 Docs"])
+        XCTAssertNotNil(heldPin(browser, "w1"), "held again, in its new folder")
+    }
+
+    func testAHeldRowSentToAHeldRowOfItsOwnFolderGoesThere() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("w1", toPlaceOf: "w3")
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "w1 Work", "B", "o1 Other", "o2 Other", "d1 Docs", "d2 Docs"])
+        XCTAssertNotNil(heldPin(browser, "w1"))
+    }
+
+    func testAHeldRowSentBackToAHeldRowInAnotherFolderGoesThere() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("o1", toPlaceOf: "w2")
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w1 Work", "o1 Work", "w2 Work", "w3 Work", "B", "o2 Other", "d1 Docs", "d2 Docs"])
+    }
+
+    /// To a tab of a folder half held: beside it, in that folder.
+    func testAHeldRowSentToATabOfAFolderHalfHeldGoesThere() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("w1", toPlaceOf: "d1")
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "B", "o1 Other", "o2 Other", "d1 Docs", "w1 Docs", "d2 Docs"])
+        let docs = try XCTUnwrap(browser.keptGroups.first { $0.name == "Docs" }?.id)
+        XCTAssertEqual(browser.heldRows(ofGroup: docs).map(\.title), ["w1", "d2"], "held there with d2, d1 still a tab")
+    }
+
+    /// To a row at the top: out of its folder, there, a tab now.
+    func testAHeldRowSentToATopRowGoesThere() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("w1", toPlaceOf: "B")
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "B", "w1", "o1 Other", "o2 Other", "d1 Docs", "d2 Docs"])
+        XCTAssertTrue(rows(browser).contains("w1"))
+    }
+
+    /// To a tab in an open group, under the line: a pinned row goes no
+    /// further than the last row, in its folder.
+    func testAHeldRowSentAmongTheTabsStopsAtTheLastRow() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("w1", toPlaceOf: "x", groups: true)
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w2 Work", "w3 Work", "B", "o1 Other", "o2 Other", "d1 Docs", "d2 Docs", "w1 Docs"])
+        XCTAssertFalse(browser.tabs.contains { $0.title == "w1" && $0.pin == nil }, "still a pin")
+    }
+
+    /// To another window: a pin is in every window already, so the call
+    /// fails, and nothing moves.
+    func testAHeldRowSentToAnotherWindowFails() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let (browser, reply) = try await send("w1", toPlaceOf: nil)
+        XCTAssertNotNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(saved(browser), ["A", "w1 Work", "w2 Work", "w3 Work", "B", "o1 Other", "o2 Other", "d1 Docs", "d2 Docs"])
+        XCTAssertNotNil(heldPin(browser, "w1"), "the tab made for the move let go again")
+    }
+
     /// An extension acting on a held row taken out of the pins meanwhile,
     /// elsewhere, is told there is no such tab, rather than nothing done
     /// and said to be.
@@ -750,6 +819,68 @@ final class HeldPinsTests: XCTestCase {
     /// The window's pinned tab titled so.
     private func tab(_ browser: Browser, _ title: String) throws -> Eden.Tab {
         try XCTUnwrap(browser.tabs.first { $0.pin != nil && $0.title == title }, title)
+    }
+
+    /// A, a folded Work of three, B, a folded Other of two, and a folded
+    /// Docs of two half held (d1 a tab, its sound off, d2 held), and with
+    /// groups on, tabs x and y in an open group; `title`'s row then sent by
+    /// chrome.tabs.move to the place of `target`'s, or, with none, to
+    /// another window's end.
+    @available(macOS 15.4, *)
+    private func send(_ title: String, toPlaceOf target: String?, groups: Bool = false) async throws
+        -> (browser: Browser, reply: [String: Any]?) {
+        let browser = makeBrowser(groups: groups)
+        Browsers.register(browser)
+        addTeardownBlock { @MainActor in Browsers.discard(browser) }
+        func site(_ title: String) -> Bookmark { Bookmark(title: title, url: "https://\(title.lowercased()).example/", children: nil) }
+        browser.pinShelf.take([
+            site("A"), Bookmark(title: "Work", url: nil, children: [site("w1"), site("w2"), site("w3")]),
+            site("B"), Bookmark(title: "Other", url: nil, children: [site("o1"), site("o2")]),
+            Bookmark(title: "Docs", url: nil, children: [site("d1"), site("d2")]),
+        ], into: nil)
+        let docs = try XCTUnwrap(browser.keptGroups.first { $0.name == "Docs" }?.id)
+        browser.setGroupFolded(docs, false)
+        try XCTUnwrap(browser.tabs.first { $0.title == "d1" }).muted = true
+        for group in browser.keptGroups { browser.setGroupFolded(group.id, true) }
+        XCTAssertEqual(rows(browser), ["A", "B", "d1"])
+        if groups {
+            let loose = try ["x", "y"].map { word in
+                let url = try XCTUnwrap(URL(string: "https://\(word).example/"))
+                let tab = browser.open(url, foreground: false, atEnd: true)
+                tab.restore(url: url, title: word)
+                return tab
+            }
+            let open = browser.addTabGroup(containing: loose[0])
+            browser.editingGroupID = nil
+            browser.move(loose[1], toGroup: open)
+        }
+        let (folder, context) = try await extensionContext()
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let rows = Extensions.shared.visibleRows(of: browser, for: context)
+        func place(_ title: String) throws -> Int {
+            try XCTUnwrap(rows.firstIndex { row in
+                row.tab.map { $0.title == title } ?? (browser.heldRows.first { browser.pinTabID($0.id) == row.id }?.title == title)
+            }, title)
+        }
+        var args: [Any] = [try place(title)]
+        if let target {
+            args.append(try place(target))
+        } else {
+            let other = makeBrowser(groups: groups)
+            Browsers.register(other)
+            addTeardownBlock { @MainActor in Browsers.discard(other) }
+            let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 800, height: 600), styleMask: .borderless,
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            other.window = window
+            addTeardownBlock { @MainActor in window.close() }
+            let frame = window.frame
+            let height = (window.screen ?? NSScreen.main)?.frame.height ?? 0
+            args += [-1, ["left": frame.minX, "top": height - frame.maxY, "width": frame.width, "height": frame.height]]
+        }
+        let reply = try await ExtensionShims.answer(["api": "tabs.move", "args": args], from: context, owner: Extensions.shared)
+            as? [String: Any]
+        return (browser, reply)
     }
 
     /// The pinned rows the window has tabs for, in its order.

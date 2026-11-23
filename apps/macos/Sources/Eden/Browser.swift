@@ -4422,9 +4422,11 @@ final class Browser: NSObject, ObservableObject {
     /// several picked, every picked tab of its kind with their pairs, in the
     /// row's order. A pin carried leaves the picked tabs where they are, and
     /// a tab leaves the pins; the picked pins of the other shape (square or
-    /// row) stay too, as the shapes don't mix (see joins).
-    func carried(with tab: Tab) -> [Tab] {
-        let picked = pickedTabs
+    /// row) stay too, as the shapes don't mix (see joins). Not `picked`:
+    /// the tab and its pair alone, whatever is picked, as an extension's
+    /// move has it, which names the tabs it moves.
+    func carried(with tab: Tab, picked: Bool = true) -> [Tab] {
+        let picked = picked ? pickedTabs : []
         guard picked.count > 1, picked.contains(where: { $0.id == tab.id }) else {
             return split(for: tab).map { pair in tabs.filter { pair.contains($0.id) } } ?? [tab]
         }
@@ -4548,12 +4550,14 @@ final class Browser: NSObject, ObservableObject {
         focusPane(other)
     }
 
-    func moveDisplayedTab(_ tab: Tab, to index: Int) {
+    /// A tab carried to `index` among the tabs shown, with what a drag of
+    /// it carries (carried(with:)); not `picked`, without the tabs picked.
+    func moveDisplayedTab(_ tab: Tab, to index: Int, picked: Bool = true) {
         let shown = displayedTabs
         guard shown.indices.contains(index),
               let representative = split(for: tab)?.left ?? (tabs.contains(where: { $0.id == tab.id }) ? tab.id : nil),
               let from = shown.firstIndex(where: { $0.id == representative }), from != index else { return }
-        let moving = carried(with: tab)
+        let moving = carried(with: tab, picked: picked)
         let ids = Set(moving.map(\.id))
         // The block lands beside the tab nearest the drop that stays put:
         // with several picked, the place dropped on may be one of their own.
@@ -5479,13 +5483,53 @@ final class Browser: NSObject, ObservableObject {
         closedGroups = closedGroups.filter { id, _ in ghosts.contains { $0.groupID == id } }
     }
 
-    /// Dragged from one place in the row to another.
-    func move(_ tab: Tab, to index: Int) {
+    /// Dragged from one place in the row to another; `picked` as
+    /// moveDisplayedTab has it.
+    func move(_ tab: Tab, to index: Int, picked: Bool = true) {
         guard tabs.indices.contains(index) else { return }
         let target = tabs[index]
         let representative = split(for: target)?.left ?? target.id
         guard let destination = displayedTabs.firstIndex(where: { $0.id == representative }) else { return }
-        moveDisplayedTab(tab, to: destination)
+        moveDisplayedTab(tab, to: destination, picked: picked)
+    }
+
+    /// A tab under the line moved by an extension (chrome.tabs.move) beside
+    /// `target`: after it moving down the row (`forward`), before it moving
+    /// up, with the other pages of its split, the pick left as it is. Its
+    /// group follows where it lands, as the extensions API has it: next to
+    /// a tab of its own group it stays in it; between two tabs of another
+    /// group it joins that one; anywhere else it is in none. The column's
+    /// drag keeps a tab's group wherever it goes (moveDisplayedTab), and the
+    /// row then gathered it back to its group: a tab moved out of its group
+    /// stayed where it was, and one moved into the middle of a group was
+    /// put after it.
+    func moveForExtension(_ tab: Tab, beside target: Tab.ID, forward: Bool) {
+        let moving = carried(with: tab, picked: false)
+        let ids = Set(moving.map(\.id))
+        guard !ids.contains(target), let anchor = tabs.first(where: { $0.id == target }) else { return }
+        var row = tabs.filter { !ids.contains($0.id) }
+        // A split stands as one: beside the whole of it.
+        let block = split(for: anchor)?.tabs ?? [target]
+        let places = row.indices.filter { block.contains(row[$0].id) }
+        guard let first = places.first, let last = places.last else { return }
+        let at = forward ? last + 1 : first
+        row.insert(contentsOf: moving, at: at)
+        if prefs.usesTabGroups {
+            let before = tab.groupID
+            func group(_ index: Int) -> UUID? { row.indices.contains(index) && row[index].pin == nil ? row[index].groupID : nil }
+            let left = group(at - 1), right = group(at + moving.count)
+            var after = before
+            if before != left && before != right {
+                let joins = left != nil && left == right && moving.allSatisfy { !$0.shy && !$0.bench }
+                after = joins ? left : nil
+            }
+            for member in moving where member.groupID != after { member.groupID = after }
+            tabs = row
+            if let before, before != after { removeEmptyGroup(before) }
+        } else {
+            tabs = row
+        }
+        rememberSession()
     }
 
     /// Put a tab in another space. If its store changes, ask only when the
@@ -5712,6 +5756,20 @@ final class Browser: NSObject, ObservableObject {
     func isPastEdge(_ point: NSPoint) -> Bool {
         guard let window else { return false }
         return !window.frame.insetBy(dx: -12, dy: -12).contains(point)
+    }
+
+    /// A tab moved to another window by an extension (chrome.tabs.move
+    /// with a windowId): into its row where a new tab goes, in front there
+    /// as Move to Window has it, with neither window brought forward. False
+    /// for a pin, which every window has already, or a window it can't go
+    /// to.
+    func hand(_ tab: Tab, to target: Browser) -> Bool {
+        guard target !== self, !target.isPopup, target.profileID == profileID, tab.pin == nil,
+              tabs.contains(where: { $0 === tab }) else { return false }
+        stepAside(from: [tab])
+        detach(tab)
+        target.receive([tab], front: tab)
+        return true
     }
 
     /// Out of this row, not closed: it is on its way to another window.

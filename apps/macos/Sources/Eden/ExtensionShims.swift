@@ -2557,16 +2557,6 @@ enum ExtensionShims {
             await native("tabs.ungroup", [await indexes(ids)]);
             groupsChanged();
           }),
-          move: withCallback(async (ids, props = {}) => {
-            const list = Array.isArray(ids) ? ids : [ids];
-            const out = [];
-            let at = props.index ?? -1;
-            for (const id of list) {
-              out.push(await byIndex("tabs.move")(id, at));
-              if (at !== -1) at++;
-            }
-            return Array.isArray(ids) ? out : out[0];
-          }),
           discard: withCallback((id) => id === undefined
             ? chrome.tabs.query({ active: false, currentWindow: true }).then((t) => t[0] && byIndex("tabs.discard")(t[0].id))
             : byIndex("tabs.discard")(id)),
@@ -2578,6 +2568,59 @@ enum ExtensionShims {
             return chrome.windows ? chrome.windows.getCurrent({ populate: true }) : undefined;
           }),
         });
+        // chrome.tabs.move: WebKit's own, where it has one that works; where
+        // it answers that it isn't implemented, as every WebKit so far has,
+        // the browser moves tabs, as the API has it. One id or several, in
+        // their order, to `index` in their window or the one `windowId` names (-1:
+        // the end), each where the one before it went, plus one; pins stay
+        // among pins. Every id is looked up first, and a bad one fails the
+        // whole call, nothing moved. The tabs come back as they now are;
+        // onMoved, onDetached and onAttached are told as for any move.
+        const webkitMove = typeof chrome.tabs.move === "function" ? chrome.tabs.move.bind(chrome.tabs) : null;
+        let ownMove = !webkitMove;
+        const moveTabs = async (ids, props) => {
+          if (!props || typeof props !== "object" || typeof props.index !== "number") {
+            throw new Error("Error in invocation of tabs.move(): No matching signature.");
+          }
+          const list = Array.isArray(ids) ? ids : [ids];
+          const tabs = [];
+          for (const id of list) {
+            if (typeof id !== "number") throw new Error("Error in invocation of tabs.move(): No matching signature.");
+            tabs.push(await chrome.tabs.get(id).catch(() => { throw new Error("No tab with id: " + id + "."); }));
+          }
+          // The window to go to, by its frame and the pages it has, in
+          // their order, read afresh for each tab: two windows can have one
+          // frame, and only what is in each tells them apart (WebKit's
+          // window numbers mean nothing to Eden).
+          const windowNamed = async () => {
+            const frame = (await frames()).get(props.windowId);
+            if (!frame) throw new Error("No window with id: " + props.windowId + ".");
+            const inside = await Promise.resolve(chrome.tabs.query({ windowId: props.windowId })).catch(() => []);
+            return { ...frame, u: (inside || []).sort((a, b) => a.index - b.index).map((t) => t.url || t.pendingUrl || "") };
+          };
+          if (props.windowId !== undefined) await windowNamed();
+          let at = props.index;
+          for (const tab of tabs) {
+            const now = await chrome.tabs.get(tab.id).catch(() => tab);
+            const place = placeOf(now, await frames());
+            await native("tabs.move", props.windowId !== undefined ? [place, at, await windowNamed()] : [place, at]);
+            await settle();
+            // The next after this one, wherever it landed: a place among
+            // the pins, for a tab that isn't one, lands after them.
+            if (at !== -1) at = ((await chrome.tabs.get(tab.id).catch(() => now)).index ?? at) + 1;
+          }
+          const out = await Promise.all(tabs.map((t) => chrome.tabs.get(t.id).catch(() => t)));
+          return Array.isArray(ids) ? out : out[0];
+        };
+        put(chrome.tabs, "move", withCallback(async (ids, props) => {
+          if (!ownMove) {
+            try { return await webkitMove(ids, props); } catch (e) {
+              if (!/not implemented/i.test(String(e && e.message))) throw e;
+              ownMove = true;
+            }
+          }
+          return moveTabs(ids, props);
+        }));
       }
       fill("windows", {
         // Chrome's, and not WebKit's: an extension subscribing to it at
@@ -4326,6 +4369,47 @@ enum ExtensionShims {
         return visible.indices.contains(index) ? visible[index] : nil
     }
 
+    /// A tab moved to `wanted` in its window's row as `context` sees it
+    /// (-1 or past the end: the end), as the API has it: it ends up at
+    /// that place, after what stood there moving down the row, before it
+    /// moving up. Pins stay among pins, squares among squares and rows
+    /// among rows, and the rest after them: a place among another kind is
+    /// the nearest of its own. A pinned row goes to another's place, held
+    /// as data or not, into its folder (Browser.moveRow). Only the tab
+    /// named moves, with the other pages of its split as a drag of it
+    /// alone takes them: never the tabs picked with it in the column, which
+    /// stay picked where they are. A tab under the line takes the group
+    /// of where it lands (Browser.moveForExtension).
+    private static func moveInRow(_ tab: Tab, of browser: Browser, to wanted: Int, context: WKWebExtensionContext,
+                                  owner: Extensions, strict: Bool = true) throws {
+        let visible = owner.visibleRows(of: browser, for: context)
+        guard let from = visible.firstIndex(where: { $0.tab === tab }) else { throw Unsupported(what: "No tab there") }
+        // 0 a square, 1 a pinned row, a held one too, 2 any other tab.
+        func kind(_ row: ExtensionTab) -> Int {
+            guard let tab = row.tab else { return 1 }
+            return tab.pin == nil ? 2 : tab.listed ? 1 : 0
+        }
+        let own = kind(visible[from])
+        var to = wanted < 0 || wanted >= visible.count ? visible.count - 1 : wanted
+        if kind(visible[to]) > own, let last = visible.lastIndex(where: { kind($0) == own }) { to = last }
+        if kind(visible[to]) < own, let first = visible.firstIndex(where: { kind($0) == own }) { to = first }
+        guard to != from else { return }
+        let target = visible[to]
+        // A place within its own split, which moves whole: there already.
+        if browser.carried(with: tab, picked: false).contains(where: { $0.id == target.id }) { return }
+        if browser.moveRow(tab, toRowOf: target.id, forward: from < to) { return }
+        if tab.pin == nil {
+            browser.moveForExtension(tab, beside: target.id, forward: from < to)
+        } else if let index = browser.tabs.firstIndex(where: { $0.id == target.id }) {
+            browser.move(tab, to: index, picked: false)
+        }
+        // A move that couldn't be made fails, rather than say it was; with
+        // nothing changed, as this is the only way it can fail.
+        guard !strict || owner.visibleRows(of: browser, for: context).firstIndex(where: { $0.id == tab.id }) != from else {
+            throw Unsupported(what: "The tab can't be moved there")
+        }
+    }
+
     /// Each icon drawn once; the image is held so its identity stays its own.
     private static var favIcons: [ObjectIdentifier: (icon: NSImage, url: String)] = [:]
     static func forgetIcons() { favIcons.removeAll() }
@@ -4996,26 +5080,48 @@ enum ExtensionShims {
                 return Browsers.all.contains { $0.tabs.contains { $0.shy && owner.seen($0, for: context) } }
             }
             return places.map { located($0, context: context, owner: owner)?.shy == true }
-        case "tabs.move", "tabs.discard", "tabs.activate":
+        case "tabs.move":
+            // chrome.tabs.move, one tab a call (the shim's own move, where
+            // WebKit's isn't there): to `index` in its window, or in the
+            // window of the frame given, -1 its end.
+            guard let row = located(first, context: context, owner: owner) else { throw Unsupported(what: "No tab there") }
+            let wanted = args.dropFirst().first as? Int ?? -1
+            var into: Browser?
+            if let frame = args.dropFirst(2).first as? [String: Any] {
+                let number = { (key: String) in (frame[key] as? NSNumber)?.doubleValue ?? .nan }
+                let rect = CGRect(x: number("left"), y: number("top"), width: number("width"), height: number("height"))
+                // One window of that frame, or the one of them with the pages
+                // the extension sees there: the first of that frame was taken,
+                // and two windows of one frame sent a tab to the wrong one, or
+                // moved it in its own.
+                into = owner.browser(windowFrame: rect, pages: frame["u"] as? [String], for: context)
+                guard into != nil else { throw Unsupported(what: "No window there") }
+            }
+            guard let tab = row.actingTab(), let browser = owner.browser(of: tab) else { throw Unsupported(what: "No tab there") }
+            // A held row's tab, made for the move, kept one until it is done,
+            // and data again after, the move made or not (Browser.keepingOpen).
+            try browser.keepingOpen([tab.pinID].compactMap { $0 }) {
+                if let into, into !== browser {
+                    // A pin is in every window already: it has nowhere to go.
+                    guard browser.hand(tab, to: into) else { throw Unsupported(what: "A pinned tab can't move to another window") }
+                    // Gone to the other window, the call has done what it
+                    // can't take back: its place there is made as well as
+                    // it can be, with no error after.
+                    try moveInRow(tab, of: into, to: wanted, context: context, owner: owner, strict: false)
+                } else {
+                    try moveInRow(tab, of: browser, to: wanted, context: context, owner: owner)
+                }
+            }
+            return nil
+
+        case "tabs.discard", "tabs.activate":
             guard let row = located(first, context: context, owner: owner) else { throw Unsupported(what: "No tab there") }
             // A pinned row held as data is at rest already (HeldPins.swift).
             if api == "tabs.discard", row.tab == nil { return nil }
             guard let tab = row.actingTab(), let browser = owner.browser(of: tab) else { throw Unsupported(what: "No tab there") }
-            let visible = owner.visibleRows(of: browser, for: context)
-            switch api {
-            case "tabs.move":
-                let wanted = args.dropFirst().first as? Int ?? -1
-                let to = wanted < 0 || wanted >= visible.count ? visible.count - 1 : wanted
-                let target = visible[to]
-                let from = owner.index(of: row, in: browser, for: context) ?? to
-                // A pinned row to another's place, a folded folder's held
-                // as data among them: the row moves there, its pin with it
-                // (Browser.moveRow). Anything else as the row has it.
-                if target.id != tab.id, browser.moveRow(tab, toRowOf: target.id, forward: from < to) { return nil }
-                if let index = browser.tabs.firstIndex(where: { $0.id == target.id }) { browser.move(tab, to: index) }
-            case "tabs.discard":
+            if api == "tabs.discard" {
                 if tab.id != browser.activeID { browser.sleep(tab) }
-            default:
+            } else {
                 browser.activateForExtension(tab)
             }
             return nil

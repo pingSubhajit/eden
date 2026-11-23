@@ -482,14 +482,7 @@ final class Extensions: NSObject, ObservableObject {
     /// one window) are told apart by the tab's address at that place, when
     /// the extension gave it (#872); still two, it is neither.
     func tab(windowFrame frame: CGRect, index: Int, address: String? = nil, for context: WKWebExtensionContext) -> ExtensionTab? {
-        let match = Browsers.all.filter { browser in
-            guard let nsWindow = browser.window else { return false }
-            let window = nsWindow.frame
-            let height = (nsWindow.screen ?? NSScreen.main)?.frame.height ?? 0
-            return abs(window.minX - frame.minX) <= 2 && abs((height - window.maxY) - frame.minY) <= 2
-                && abs(window.width - frame.width) <= 2 && abs(window.height - frame.height) <= 2
-        }
-        let found = match.compactMap { browser -> ExtensionTab? in
+        let found = browsers(windowFrame: frame).compactMap { browser -> ExtensionTab? in
             let rows = visibleRows(of: browser, for: context)
             return rows.indices.contains(index) ? rows[index] : nil
         }
@@ -498,6 +491,58 @@ final class Extensions: NSObject, ObservableObject {
         let blank = address.isEmpty || address == "about:blank"
         let same = found.filter { blank ? $0.tab?.isBlank == true : $0.address?.absoluteString == address }
         return same.count == 1 ? same[0] : nil
+    }
+
+    /// The ones of `before` that moved to make `after`, the same ids in
+    /// another order: all but the most that kept their order among
+    /// themselves (a longest run in order), in `after`'s order. One tab
+    /// moved past five is one move, not six.
+    nonisolated static func moved(from before: [Tab.ID], to after: [Tab.ID]) -> [Tab.ID] {
+        let rank = Dictionary(before.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let ranks = after.map { rank[$0] ?? 0 }
+        // Patience sorting: the smallest end of a run of each length, and
+        // where each place's run came from.
+        var ends: [Int] = []
+        var endAt: [Int] = []
+        var from = [Int](repeating: -1, count: ranks.count)
+        for (at, value) in ranks.enumerated() {
+            var low = 0, high = ends.count
+            while low < high {
+                let middle = (low + high) / 2
+                if ends[middle] < value { low = middle + 1 } else { high = middle }
+            }
+            if low > 0 { from[at] = endAt[low - 1] }
+            if low == ends.count { ends.append(value); endAt.append(at) } else { ends[low] = value; endAt[low] = at }
+        }
+        var stayed = Set<Int>()
+        var at = endAt.last ?? -1
+        while at >= 0 { stayed.insert(at); at = from[at] }
+        return after.indices.filter { !stayed.contains($0) }.map { after[$0] }
+    }
+
+    /// The window of `frame` an extension names, told apart from another of
+    /// the same frame by the pages it has, in their order, as that extension
+    /// sees them (`pages`): nil when there is none, or still more than one.
+    func browser(windowFrame frame: CGRect, pages: [String]?, for context: WKWebExtensionContext) -> Browser? {
+        let matching = browsers(windowFrame: frame)
+        guard matching.count > 1 else { return matching.first }
+        guard let pages else { return nil }
+        let same = matching.filter { browser in
+            visibleRows(of: browser, for: context).map { $0.url(for: context)?.absoluteString ?? "" } == pages
+        }
+        return same.count == 1 ? same[0] : nil
+    }
+
+    /// The windows of this frame, as an extension has it (see
+    /// tab(windowFrame:index:)): one, or two that share it.
+    func browsers(windowFrame frame: CGRect) -> [Browser] {
+        Browsers.all.filter { browser in
+            guard let nsWindow = browser.window else { return false }
+            let window = nsWindow.frame
+            let height = (nsWindow.screen ?? NSScreen.main)?.frame.height ?? 0
+            return abs(window.minX - frame.minX) <= 2 && abs((height - window.maxY) - frame.minY) <= 2
+                && abs(window.width - frame.width) <= 2 && abs(window.height - frame.height) <= 2
+        }
     }
 
     /// The window a tab is in, when it is in one's row: looked up in every
@@ -662,15 +707,18 @@ final class Extensions: NSObject, ObservableObject {
             }
             watch(tab)
         }
-        // Moves: anything whose position changed among the ones that stayed,
-        // in each extension's own count.
+        // Moves: of the ones that stayed, in each extension's own count,
+        // those that moved, as Chrome tells them: the fewest whose moving
+        // makes the new order (Extensions.moved), not every tab one moved
+        // past, each told once.
         for context in contexts.values {
             let oldOrder = oldOrders[context.uniqueIdentifier] ?? []
             let stayed = oldOrder.filter(present.contains)
             let current = visibleRows(of: browser, for: context).map(\.id)
             let kept = Set(stayed)
-            for (id, now) in zip(stayed, current.filter(kept.contains)) where id != now {
-                if let adapter = adapters[id], let oldIndex = oldOrder.firstIndex(of: id), current.firstIndex(of: id) != oldIndex {
+            let was = Dictionary(oldOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            for id in Extensions.moved(from: stayed, to: current.filter(kept.contains)) {
+                if let adapter = adapters[id], let oldIndex = was[id] {
                     context.didMoveTab(adapter, from: oldIndex, in: window(of: browser))
                 }
             }
