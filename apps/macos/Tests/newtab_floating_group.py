@@ -12,7 +12,9 @@ new tab has always gone.
 
 Left as they were, and checked so the fix reaches no further: the field
 raised over a tab in no group puts its tab beside that one, and ⌘Return from
-the address of a grouped tab still opens in its group.
+the address of a grouped tab still opens in its group. Beside is where After
+current puts a new tab, so the probe asks for it: new tabs go to the top by
+default since 969dc3e, which this probe predates.
 """
 import sys
 import time
@@ -47,7 +49,7 @@ def gid(s, page):
 
 def start():
     """a and b in Basics, then two tabs in no group."""
-    sv.setup(**{"tabs.groups": True})
+    sv.setup(**{"tabs.groups": True}, **sv.IN_ORDER)
     sv.launch()
     a, b, c, d = (sv.page(n) for n in ("a", "b", "c", "d"))
     sv.cmd({"do": "group", "id": a, "new": True, "name": "Basics"})
