@@ -3496,15 +3496,10 @@ final class Browser: NSObject, ObservableObject {
             splits.removeAll { pair in
                 !pair.tabs.allSatisfy { id in tabs.contains { $0.id == id } }
             }
-            // The pin in front taken away there: back to the tab you were on
-            // before it, or else the first loose tab, or nothing in front —
-            // never a tab made for the purpose. Nothing in front already
+            // The pin in front taken away there. Nothing in front already
             // stays so.
             if let gone = activeID, !tabs.contains(where: { $0.id == gone }) {
-                let standing = tabs.filter(standsInRow)
-                let back = tabSwitcher.lastLeft(among: Set(standing.map(\.id)), other: gone)
-                    .flatMap { id in standing.first { $0.id == id } }
-                if let next = back ?? standing.first(where: { $0.pin == nil }) { select(next) } else { showNothing() }
+                if let next = landing(after: gone, in: tabs, splits: splits) { select(next) } else { showNothing() }
             }
             writeRow(spaceID, session(tabs, active: activeID, groups: tabGroups, splits: splits), now: false)
         } else if var row = parked[space] {
@@ -3512,11 +3507,29 @@ final class Browser: NSObject, ObservableObject {
             row.splits.removeAll { pair in
                 !pair.tabs.allSatisfy { id in row.tabs.contains { $0.id == id } }
             }
+            // The same for a space not on screen. It took the first loose
+            // tab alone, so a space of only pins, its pin in front made Only
+            // in This Space from another, was left with nothing in front,
+            // the pin it had been on before standing there.
             if let active = row.active, !row.tabs.contains(where: { $0.id == active }) {
-                row.active = row.tabs.first { $0.pin == nil }?.id
+                row.active = landing(after: active, in: row.tabs, splits: row.splits)?.id
             }
             parked[space] = row
         }
+    }
+
+    /// Where a row goes once the pin in front is taken away: back to the tab
+    /// you were on before it, or else the first loose tab, or nothing in
+    /// front, never a tab made for the purpose. A pair's later pages stand
+    /// in its first one's place, as in `standsInRow`.
+    private func landing(after gone: Tab.ID, in row: [Tab], splits: [TabSplit]) -> Tab? {
+        let standing = row.filter { tab in
+            guard prefs.splitView, let pair = splits.first(where: { $0.contains(tab.id) }) else { return true }
+            return pair.left == tab.id
+        }
+        let before = tabSwitcher.lastLeft(among: Set(standing.map(\.id)), other: gone)
+            .flatMap { id in standing.first { $0.id == id } }
+        return before ?? standing.first { $0.pin == nil }
     }
 
     /// The shared pins ahead of the space's own, squares ahead of rows (see
