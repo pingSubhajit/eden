@@ -68,6 +68,15 @@ struct EdenApp: App {
                     .shortcut("file.newTab")
                 Button("New Private Tab") { browser.newShyTab() }
                     .shortcut("file.newPrivateTab")
+                // Here, where their keys can reach them: the window's own key
+                // handling leaves ⌥ and ⌃ to the menus. Always listed, as a
+                // line that comes after launch doesn't take its key.
+                Button("New Tab in Group") { browser.newTab(inGroup: nil) }
+                    .shortcut("tabs.newTabInGroup")
+                    .disabled(!browser.prefs.usesTabGroups || browser.activeGroupID == nil)
+                Button("New Group") { browser.newGroup() }
+                    .shortcut("tabs.newGroup")
+                    .disabled(!browser.prefs.usesTabGroups)
                 Button(browser.reopenTitle) { browser.reopen() }
                     .shortcut("file.reopen")
                     .disabled(browser.ghosts.isEmpty && Browsers.lastClosedAt == nil)
@@ -107,8 +116,9 @@ struct EdenApp: App {
                 Divider()
                 Button("Find on Page…") { browser.openFind() }
                     .shortcut("edit.find")
-                    // On the Settings tab, ⌘F finds a setting.
-                    .disabled(!(browser.active?.isWeb ?? false) && browser.active?.page?.kind != .settings)
+                    // On Settings, History, Passwords and Archived Tabs, ⌘F
+                    // goes to their search field.
+                    .disabled(!(browser.active?.isWeb ?? false) && !browser.findsInPage)
                 Button("Find Next") { browser.look(forward: true) }
                     .shortcut("edit.findNext")
                     .disabled(!browser.finding)
@@ -157,12 +167,16 @@ struct EdenApp: App {
                     .shortcut("view.unfoldGroups")
                     .disabled(!browser.canUnfoldAllGroups)
                 Divider()
+                // With nothing in front these have no page to act on.
                 Button("Reload Page") { browser.reload() }
                     .shortcut("view.reload")
+                    .disabled(browser.active == nil && !browser.peekInFront)
                 Button("Reload Page From Origin") { browser.reload(fromOrigin: true) }
                     .shortcut("view.reloadOrigin")
+                    .disabled(browser.active == nil && !browser.peekInFront)
                 Button("Reading Mode") { browser.toggleReader() }
                     .shortcut("view.reader")
+                    .disabled(browser.active == nil)
                 Button("Float Video") { browser.toggleFloat() }
                     .shortcut("view.float")
                 // Websites in the side panel, only once they are on
@@ -214,23 +228,31 @@ struct EdenApp: App {
                 }
                 Button("Hide Elements…") { browser.toggleHiding() }
                     .shortcut("view.hide")
+                    .disabled(browser.active == nil && !browser.veiling)
                 Button("Hidden on This Site…") { browser.reviewing.toggle() }
                     .shortcut("view.hidden")
+                    .disabled(browser.active == nil && !browser.reviewing)
                 Divider()
                 Button("Zoom In") { browser.zoom(by: 1.1) }
                     .shortcut("view.zoomIn")
+                    .disabled(browser.active == nil)
                 Button("Zoom Out") { browser.zoom(by: 1 / 1.1) }
                     .shortcut("view.zoomOut")
+                    .disabled(browser.active == nil)
                 Button("Actual Size") { browser.resetZoom() }
                     .shortcut("view.actualSize")
+                    .disabled(browser.active == nil)
                 Divider()
                 // The Web Inspector, on the keys Chrome and Arc use (see Inspector.swift).
                 Button("Web Inspector") { browser.toggleInspector() }
                     .shortcut("view.inspector")
+                    .disabled(!(browser.active?.isWeb ?? false))
                 Button("JavaScript Console") { browser.showConsole() }
                     .shortcut("view.console")
+                    .disabled(!(browser.active?.isWeb ?? false))
                 Button("Inspect Element") { browser.inspectElement() }
                     .shortcut("view.inspect")
+                    .disabled(!(browser.active?.isWeb ?? false))
             }
             CommandMenu("Tabs") {
                 Button("Back") { browser.back() }
@@ -248,7 +270,7 @@ struct EdenApp: App {
                 if browser.prefs.splitView {
                     // The same key puts a pair apart: on a pair, the item
                     // says so, and the one below it without a key goes.
-                    Button(browser.activeSplit == nil || browser.pickedSplit != nil ? "Split Current Page" : "Separate Split Tabs") {
+                    Button(browser.activeSplit == nil || browser.pickedSplit != nil ? "Split Current Page" : "Separate Pages") {
                         browser.splitKey()
                     }
                         .shortcut("tabs.split")
@@ -269,7 +291,7 @@ struct EdenApp: App {
                         .shortcut("tabs.swapSplit")
                         .disabled(browser.activeSplit == nil)
                     if browser.activeSplit == nil || browser.pickedSplit != nil {
-                        Button("Separate Split Tabs") {
+                        Button("Separate Pages") {
                             if let tab = browser.active { browser.detachSplit(tab) }
                         }
                         .shortcut("tabs.separateSplit")
@@ -281,7 +303,7 @@ struct EdenApp: App {
                 }
                 if let tab = browser.active {
                     if tab.pin == nil {
-                        Button("Pin Tab") { browser.pin(tab) }
+                        Button("Pin Tab") { browser.pin(browser.frontTabs, listed: false) }
                             .shortcut("tabs.pin")
                             .disabled(!tab.isWeb || tab.shy)
                         // ⌘D, as in Arc: the way a page is kept (#6).
@@ -293,12 +315,20 @@ struct EdenApp: App {
                         if !tab.listed {
                             Button("Change Letter") { browser.editLetter(tab) }
                         }
-                        // ⌘D unpins any pin; a key of Pin Tab's own shows on a square.
-                        Button("Unpin Tab") { browser.unpin(tab) }
-                            .shortcut(!tab.listed && shortcuts.key(for: "tabs.pin") != nil ? "tabs.pin" : "tabs.pinRow")
+                        // ⌘D unpins any pin, and the pins picked with it; a
+                        // key of Pin Tab's own shows on a square. Picked with
+                        // tabs that aren't pins, ⌘D pins them instead
+                        // (togglePinRow).
+                        if browser.frontTabs.allSatisfy({ $0.pin != nil }) {
+                            Button("Unpin Tab") { browser.unpin(browser.frontTabs) }
+                                .shortcut(!tab.listed && shortcuts.key(for: "tabs.pin") != nil ? "tabs.pin" : "tabs.pinRow")
+                        } else {
+                            Button("Pin Tab as Row") { browser.togglePinRow() }
+                                .shortcut("tabs.pinRow")
+                        }
                     }
                 }
-                Button("Rename Tab") { if let tab = browser.active { browser.beginTabRename(tab) } }
+                Button("Rename Tab…") { if let tab = browser.active { browser.beginTabRename(tab) } }
                     .shortcut("tabs.rename")
                     .disabled(browser.active == nil)
                 Button("Duplicate Tab") { browser.duplicate() }
@@ -312,13 +342,22 @@ struct EdenApp: App {
                     .disabled(!(browser.active?.isWeb ?? false))
                 Button("Paste and Go") { browser.pasteAndGo() }
                     .shortcut("tabs.pasteAndGo")
+                Button(browser.active?.muted == true ? "Unmute Tab" : "Mute Tab") { browser.toggleMute() }
+                    .shortcut("tabs.mute")
+                    .disabled(browser.active == nil)
+                // Each of your other devices sync knows, as the tab's menu
+                // has them (SendToMenu).
+                SendToMenu(browser: browser, tabs: browser.frontTabs)
                 Divider()
                 Button("Close Other Tabs") { if let tab = browser.active { browser.closeOthers(but: tab) } }
                     .shortcut("tabs.closeOthers")
-                    .disabled(browser.tabs.count < 2)
-                Button("Stop Sound in Tab") { browser.pauseMedia() }
-                    .shortcut("tabs.mute")
+                    .disabled(browser.active.map { browser.othersToClose(but: $0).isEmpty } ?? true)
+                // Clear on the line, from the menu bar too.
+                Button("Clear Tabs") { browser.clearTabs() }
+                    .shortcut("tabs.clear")
+                    .disabled(!browser.canClearTabs)
             }
+            SpacesMenu(browser: browser, shortcuts: shortcuts)
             CommandMenu("History") {
                 Section("Recently Visited") {
                     ForEach(browser.recentlyVisited) { trace in
@@ -369,6 +408,35 @@ struct EdenApp: App {
                     .shortcut("app.passwords")
             }
             QuitAndHelp()
+        }
+    }
+}
+
+/// The Spaces menu: every space, the one on screen ticked, each with its
+/// key as Settings › Shortcuts has it (⌃1–⌃9 unless moved), and New Space….
+/// Counted as the space icon's menu counts them, through every profile's
+/// with profiles in one window. Always there, as a menu line that comes
+/// after launch doesn't take its key; with Spaces off, its lines are off
+/// and ⌃1–⌃9 go on to the page.
+private struct SpacesMenu: Commands {
+    let browser: Browser
+    /// Watched by the app already: the keys are read as they stand.
+    let shortcuts: ShortcutStore
+
+    var body: some Commands {
+        CommandMenu("Spaces") {
+            let on = browser.prefs.usesSpaces
+            ForEach(Array(browser.everySpace.enumerated()), id: \.element.id) { index, space in
+                Toggle(isOn: Binding(get: { space.id == browser.spaceID },
+                                     set: { _ in browser.switchSpace(index: index) })) {
+                    Label(space.name, systemImage: space.symbol)
+                }
+                .keyboardShortcut(index < 9 ? shortcuts.key(for: "spaces.\(index + 1)")?.swiftUI : nil)
+                .disabled(!on)
+            }
+            Divider()
+            Button("New Space…") { browser.askForSpace() }
+                .disabled(!on)
         }
     }
 }
@@ -494,7 +562,9 @@ struct ContentView: View {
             // top and on the column's side in the room (see chrome). Two pages
             // side by side are a card each (see PaneStage).
             stage
-                .modifier(CardEdge(on: cards && !browser.prefs.splitView))
+                // Nothing in front, Split View or not, is one card of plain
+                // ground, as the page's would be (see stage).
+                .modifier(CardEdge(on: cards && (!browser.prefs.splitView || browser.active == nil)))
                 // The band of window above the card, with a pill in it while
                 // the page in front loads (see LoadingPill.swift). Only with
                 // the page as a card: without one, the page reaches the
@@ -538,9 +608,11 @@ struct ContentView: View {
 
     // With Split View off, the stage is the one it always was: a single
     // Page that is never rebuilt from one tab to the next (see Stage.swift).
+    // With nothing in front, Split View or not, the window's plain ground:
+    // no start page, no field until ⌘T or ⌘L raises one, no empty tab.
     @ViewBuilder
     private var stage: some View {
-        if browser.prefs.splitView {
+        if browser.prefs.splitView, browser.active != nil {
             SplitStage(browser: browser, corner: cards ? Metrics.cardRadius : 0, immersed: fullscreenTab?.id)
         } else if let tab = browser.active {
             Page(tab: tab, corner: cards ? Metrics.cardRadius : 0, browser: browser)
@@ -707,9 +779,11 @@ struct ContentView: View {
     private var field: some View {
         // SplitStage owns the field whenever Split View is enabled, including
         // an ordinary tab that is not currently paired. Drawing it here too
-        // leaves two offset address fields on a blank tab.
-        if !browser.prefs.splitView {
-            Omnibox(browser: browser, over: !(browser.active?.isBlank ?? true))
+        // leaves two offset address fields on a blank tab. With nothing in
+        // front there is no SplitStage, and the field ⌘T raises is this one,
+        // over the empty ground: a click beside it puts it away.
+        if !browser.prefs.splitView || browser.active == nil {
+            Omnibox(browser: browser, over: browser.active?.isBlank != true)
                 // Centred on the page, not on the window. The column of tabs
                 // is not what the field is standing over, and dimming it along
                 // with the page says otherwise.
@@ -776,6 +850,11 @@ struct ContentView: View {
             if let tab = browser.active {
                 WindowTitle(tab: tab, window: window).id(tab.id)
                 Handoff.Offer(tab: tab, prefs: browser.prefs, browser: browser, window: window).id(tab.id)
+            } else {
+                // Nothing in front: named for the app, not the page that went.
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .onAppear { if let window { WindowTitle.setNothing(in: window) } }
             }
         }
     }
@@ -1119,11 +1198,7 @@ struct ContentView: View {
         if let old = ContentView.monitors[id] { NSEvent.removeMonitor(old) }
         ContentView.monitors[id] = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
             if event.type != .keyDown, event.type != .flagsChanged {
-                // A click in this window means a close is no longer the last
-                // thing done (Browser.lastClose). On the way down, so the
-                // close a click on a tab's cross makes, on the way up, is.
                 guard let window, event.window === window else { return event }
-                Browser.lastClose = nil
                 // A click on the tab switcher, in this window only (see
                 // Browser.clickTabSwitcher), turned into the top-left
                 // coordinates SwiftUI's frames are in.
@@ -1152,7 +1227,6 @@ struct ContentView: View {
                 }
                 return event
             }
-            ContentView.keyed(event)
             // Escape on a page filling the screen is WebKit's, which leaves
             // on the first one, as Safari does. Its window isn't a browser's,
             // so the key came here first and put away what was left up in
@@ -1198,17 +1272,8 @@ struct ContentView: View {
             return take(event) ? nil : event
         }
         ContentView.keyHooks[id] = { event in
-            ContentView.keyed(event)
-            return take(event) ? nil : event
+            take(event) ? nil : event
         }
-    }
-
-    /// Any key but ⌘Z itself means a close is no longer the last thing
-    /// done, and ⌘Z no longer undoes it (Browser.lastClose). Before anything
-    /// acts on the key: ⌘W's own close is then the last.
-    private static func keyed(_ event: NSEvent) {
-        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        if flags != .command || event.shortcutCharacters != "z" { Browser.lastClose = nil }
     }
 
     /// Each browser's key monitor. Kept here rather than in the view, so
@@ -1331,6 +1396,14 @@ struct ContentView: View {
     private static func inAddressField(_ window: NSWindow) -> Bool {
         guard let editor = window.firstResponder as? NSTextView else { return false }
         return (editor.delegate as? NSTextField)?.delegate is AddressField.Coordinator
+    }
+
+    /// Whether the caret is in the field a row opens for its address
+    /// (TabAddressField), which takes ⌘Return and ⇧Return as the window's
+    /// address field does.
+    private static func inTabField(_ window: NSWindow) -> Bool {
+        guard let editor = window.firstResponder as? NSTextView else { return false }
+        return (editor.delegate as? NSTextField)?.delegate is TabAddressField.Coordinator
     }
 
     /// Whether the tab switcher can come up: in this window, with nothing
@@ -1483,9 +1556,18 @@ struct ContentView: View {
                 browser.close(blank)
                 return true
             }
-            guard browser.editing, browser.active?.isBlank == false else { return false }
-            browser.dismiss()
-            return true
+            // The field raised over a page, or over nothing in front: put away.
+            if browser.editing, browser.active?.isBlank != true {
+                browser.dismiss()
+                return true
+            }
+            // Last, the tabs picked with ⌘- or ⇧-click, which ⌘W would
+            // otherwise close: let go of, as Escape lets go of a selection.
+            if !browser.selectedTabIDs.isEmpty {
+                browser.clearTabSelection()
+                return true
+            }
+            return false
         }
 
         // Keep split focus ahead of WebKit's arrow-key handling. Its panes
@@ -1558,8 +1640,17 @@ struct ContentView: View {
            let window, event.window === window, ContentView.inAddressField(window) {
             return browser.submitToShiftEngine()
         }
+        // The same in a row's own field (TabAddressField).
+        if event.keyCode == 36 || event.keyCode == 76,
+           flags.intersection([.command, .shift, .option, .control]) == .shift,
+           browser.prefs.shiftEngine != nil, browser.editingTab != nil,
+           let window, event.window === window, ContentView.inTabField(window) {
+            return browser.commitTabEditToShiftEngine()
+        }
 
-        // Space keys have no menu; other commands arrive here when rebound.
+        // Space keys are taken here, ahead of the Spaces menu, whose lines
+        // for spaces made since launch wouldn't take theirs; other commands
+        // arrive here when rebound.
         // A key taken off a command goes back to the page.
         if ShortcutStore.shared.anyChanged || browser.prefs.usesSpaces, let combo = KeyCombo(event: event) {
             if let command = ShortcutStore.shared.customCommand(on: combo) {
@@ -1628,6 +1719,13 @@ struct ContentView: View {
            browser.editingTab == nil, let window, event.window === window,
            ContentView.inAddressField(window) {
             browser.submit(aside: true, front: shifted)
+            return true
+        }
+        // The same in a row's own field (TabAddressField): the row's tab
+        // left as it was.
+        if event.keyCode == 36 || event.keyCode == 76, browser.editingTab != nil,
+           let window, event.window === window, ContentView.inTabField(window) {
+            browser.commitTabEditAside(front: shifted)
             return true
         }
 
@@ -1702,7 +1800,7 @@ struct ContentView: View {
         case "g":
             browser.look(forward: !shifted)
         case "m" where shifted:
-            browser.pauseMedia()
+            browser.toggleMute()
         case "p" where shifted:
             browser.toggleFloat()
         case "s" where !shifted:
@@ -1715,22 +1813,10 @@ struct ContentView: View {
         case "u" where shifted:
             browser.reviewing.toggle()
         case "z" where !shifted:
-            // While pointing, the last thing hidden comes back.
-            if browser.veiling {
-                browser.undoHiding()
-                return true
-            }
-            // With Settings › Tabs › ⌘Z reopens a closed tab on, the tab
-            // just closed, as ⇧⌘T would bring it back, while closing it is
-            // still the last thing done (Browser.lastClose): anything typed
-            // or clicked since, and ⌘Z is the page's as before. A caret in a
-            // text box the tab landed on doesn't keep it: nothing has been
-            // typed there to undo. Only once the page has left the key
-            // unused (pageFirst): a document or a drawing keeps its own
-            // undo. Not in a panel or another window.
-            guard browser.prefs.undoReopensTab, let window, event.window === window,
-                  browser.canUndoClose else { return false }
-            browser.undoClose()
+            // While pointing, the last thing hidden comes back. Otherwise
+            // ⌘Z is the page's: ⇧⌘T is what brings a tab back.
+            guard browser.veiling else { return false }
+            browser.undoHiding()
         // ⌘+ arrives as "=" or "+" depending on the keyboard; both mean bigger.
         case "=", "+":
             browser.zoom(by: 1.1)

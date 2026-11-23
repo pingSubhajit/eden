@@ -388,8 +388,14 @@ enum GroupMenu {
             keptMenu(menu, for: group, in: browser)
             return menu
         }
-        menu.addItem(item("New Tab in Group", key: "t", modifiers: [.option, .command]) { browser.newTab(inGroup: group.id) })
-        menu.addItem(item("New Group", key: "n", modifiers: [.control, .command]) { browser.newGroup() })
+        // With the keys File › New Tab in Group and New Group have now, so
+        // a key moved in Settings › Shortcuts is shown moved here too.
+        let inGroup = item("New Tab in Group") { browser.newTab(inGroup: group.id) }
+        inGroup.shortcut("tabs.newTabInGroup")
+        menu.addItem(inGroup)
+        let newGroup = item("New Group") { browser.newGroup() }
+        newGroup.shortcut("tabs.newGroup")
+        menu.addItem(newGroup)
         menu.addItem(.separator())
         menu.addItem(item(group.collapsed ? "Expand Group" : "Collapse Group") {
             withAnimation(GroupLook.fold) { browser.toggleTabGroup(group.id) }
@@ -397,14 +403,21 @@ enum GroupMenu {
         menu.addItem(item("Separate Tabs") { browser.removeTabGroup(group.id) })
         menu.addItem(item("Duplicate") { browser.duplicateTabGroup(group.id) })
         menu.addItem(item("Copy All Links") { browser.copyLinks(of: group.id) })
-        // The whole group into another space, still a group there.
-        if browser.prefs.usesSpaces, browser.spaces.count > 1 {
+        // The whole group into another space, still a group there, or into
+        // a new one, as a tab's Move to Space offers.
+        if browser.prefs.usesSpaces {
             let spaces = NSMenu()
             for space in browser.spaces where space.id != browser.spaceID {
                 let entry = item(space.name) { browser.move(group: group.id, toSpace: space.id) }
                 entry.image = NSImage(systemSymbolName: space.symbol, accessibilityDescription: nil)
                 spaces.addItem(entry)
             }
+            if browser.spaces.count > 1 { spaces.addItem(.separator()) }
+            spaces.addItem(item("New Space…") {
+                browser.askForSpace { space in
+                    browser.move(group: group.id, toSpace: space.id) { browser.switchSpace(to: space.id) }
+                }
+            })
             let holder = NSMenuItem(title: "Move Group to Space", action: nil, keyEquivalent: "")
             holder.submenu = spaces
             menu.addItem(holder)

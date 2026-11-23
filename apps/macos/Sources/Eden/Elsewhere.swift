@@ -70,6 +70,128 @@ extension Tab {
 extension Sync {
     /// The devices with tabs open, as sync last heard: none while it is off.
     var devicesWithTabs: [DeviceTabs] { elsewhere.filter(\.hasTabs) }
+
+    /// Why `device` won't open `tab` sent from `space`, as said when it is
+    /// let go on that device's group or sent from a menu; nil when it will.
+    /// It takes a page the other devices can be shown (Sync.page(of:in:))
+    /// that it hasn't open already. A pin goes only once it has gone on
+    /// from its home: at its home it is on every device already.
+    func refusal(sending tab: Tab, from space: UUID, to device: DeviceTabs) -> String? {
+        let name = device.name
+        guard let page = Sync.page(of: tab, in: space), let url = URL(string: page.url) else {
+            if tab.shy { return "Private tabs stay on this Mac" }
+            if tab.pin != nil, tab.isHome(tab.restAddress) { return "\(name) has this pin already" }
+            return "This page can't be opened on \(name)"
+        }
+        let identity = History.identity(for: url)
+        guard !device.tabs.contains(where: { URL(string: $0.url).map(History.identity(for:)) == identity }) else {
+            return "Already open on \(name)"
+        }
+        return nil
+    }
+
+    /// Why `device` won't open any of `tabs`, sent together: nil when it
+    /// takes at least one. Turned down all for one reason, that reason;
+    /// for several, that these pages can't be opened there.
+    func refusal(sending tabs: [Tab], from space: UUID, to device: DeviceTabs) -> String? {
+        var refusals: [String] = []
+        for tab in tabs {
+            guard let why = refusal(sending: tab, from: space, to: device) else { return nil }
+            refusals.append(why)
+        }
+        return Sync.saying(refusals, on: device)
+    }
+
+    /// What is said of `refusals` from one device: the one reason they
+    /// share, or that the pages can't be opened there. Nil for none.
+    static func saying(_ refusals: [String], on device: DeviceTabs) -> String? {
+        guard let first = refusals.first else { return nil }
+        return Set(refusals).count == 1 ? first : "These pages can't be opened on \(device.name)"
+    }
+}
+
+extension Browser {
+    /// Send to ‹device›, from a tab's menu or Tabs in the menu bar, and
+    /// tabs let go on its group in the column (`dropped`): each tab opened
+    /// on that device too, and kept here (Sync.askToOpen). A device needn't
+    /// have tabs in this space, or any, to be sent one. What it won't take
+    /// is said, either way. What it will is said from a menu, as the device
+    /// may be out of sight in the column; let go on its group, nothing is
+    /// said, the rows coming into that group under the hand.
+    func send(_ tabs: [Tab], to device: DeviceTabs, dropped: Bool = false) {
+        let sync = Sync.shared
+        guard sync.on, !tabs.isEmpty else { return }
+        var refusals: [String] = []
+        var sent = 0
+        for tab in tabs {
+            // As the device is shown now, with what was just sent to it, so
+            // two tabs of one page go once.
+            let now = sync.elsewhere.first { $0.device == device.device } ?? device
+            if let why = sync.refusal(sending: tab, from: spaceID, to: now) {
+                refusals.append(why)
+            } else if sync.askToOpen(tab, in: spaceID, on: device.device) {
+                sent += 1
+            }
+        }
+        guard let why = refusals.first else {
+            if !dropped { announce("Sent to \(device.name)", look: .done) }
+            return
+        }
+        if sent > 0, !dropped {
+            announce("Sent \(sent) of \(tabs.count) to \(device.name)", look: .done)
+        } else {
+            // Let go on its group, what went is in sight there: only why
+            // the rest didn't is said.
+            announce(sent > 0 ? why : Sync.saying(refusals, on: device) ?? why)
+        }
+    }
+
+    /// Open in New Tab, from another device's row: always a tab of its own
+    /// here, in front, even when the page is open here already (a click
+    /// on the row goes to that one), shown as it was left there.
+    func openInNewTab(_ offer: Elsewhere.Offer) {
+        guard let url = URL(string: offer.page.url) else { return }
+        let tab = open(url, foreground: true, from: active, loose: true)
+        tab.arrival = Tab.Arrival(page: url, scroll: offer.page.scroll, reading: offer.page.reading == true,
+                                  from: offer.deviceName)
+    }
+
+    /// Open All Here, from another device's group: its pages in this space
+    /// not open here yet, each a tab behind the one you are on, in their
+    /// order; the ones open here already are left where they are.
+    func openAllHere(_ pages: [DeviceTabs.Page], of device: DeviceTabs) {
+        let open = openHere
+        for page in pages {
+            guard let url = URL(string: page.url), !open.contains(History.identity(for: url)) else { continue }
+            let tab = self.open(url, foreground: false, from: active, loose: true)
+            tab.arrival = Tab.Arrival(page: url, scroll: page.scroll, reading: page.reading == true, from: device.name)
+        }
+    }
+}
+
+/// Send to, in a tab's menu and Tabs in the menu bar: each of your other
+/// devices sync knows, by name, whether or not it has tabs open in this
+/// space. Not there while sync knows of none.
+struct SendToMenu: View {
+    @ObservedObject private var sync = Sync.shared
+    let browser: Browser
+    let tabs: [Tab]
+
+    var body: some View {
+        let devices = sync.elsewhere
+        if !devices.isEmpty {
+            Menu("Send to") {
+                ForEach(devices, id: \.device) { device in
+                    Button {
+                        browser.send(tabs, to: device)
+                    } label: {
+                        Label(device.name, systemImage: device.kind.symbol)
+                    }
+                }
+            }
+            .disabled(tabs.isEmpty)
+        }
+    }
 }
 
 extension DeviceTabs.Kind {
@@ -175,13 +297,24 @@ struct DeviceGroup: View {
             }
             .help(opened ? "Hide the tabs open on \(device.name)" : "Show the tabs open on \(device.name)")
             .groupAccessibility(name: device.name, collapsed: !opened, toggle: toggle)
+            // As a group's heading has its menu: what can be done with all
+            // of the device's pages here.
+            .contextMenu {
+                Button("Open All Here") { browser.openAllHere(pages, of: device) }
+                    .disabled(pages.allSatisfy { page in URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? true })
+                Button("Copy All Links") { browser.copy(links: pages.map(\.url)) }
+                Divider()
+                Button(opened ? "Collapse" : "Expand", action: toggle)
+            }
         } rows: {
             // By page, each once on its device, as your tabs' rows are by
             // tab: one closed goes as a tab's does (sideRow).
             ForEach(pages, id: \.url) { page in
                 ElsewhereRow(prefs: prefs, page: page, deviceName: device.name,
                              openHere: URL(string: page.url).map { open.contains(History.identity(for: $0)) } ?? false,
-                             close: { Sync.shared.askToClose(page, on: device.device) }) {
+                             close: { Sync.shared.askToClose(page, on: device.device) },
+                             openInNewTab: { browser.openInNewTab(Elsewhere.Offer(device: device, page: page)) },
+                             copy: { browser.copy(addresses: [page.url]) }) {
                     browser.open(Elsewhere.Offer(device: device, page: page))
                 }
                 .transition(.sideRow)
@@ -203,6 +336,9 @@ private struct ElsewhereRow: View {
     let openHere: Bool
     /// Closes it on its device (Sync.askToClose).
     let close: () -> Void
+    /// Its menu's Open in New Tab and Copy Address.
+    let openInNewTab: () -> Void
+    let copy: () -> Void
     let open: () -> Void
     @State private var hovering = false
 
@@ -250,6 +386,14 @@ private struct ElsewhereRow: View {
         }
         .onHover { hovering = $0 }
         .animation(Motion.quick, value: hovering)
+        // Its own menu, as your tabs' rows have theirs.
+        .contextMenu {
+            Button("Open", action: open)
+            Button("Open in New Tab", action: openInNewTab)
+            Button("Copy Address", action: copy)
+            Divider()
+            Button("Close on \(deviceName)", action: close)
+        }
         .help(openHere ? "Open here already: switch to it" : (url.map(Address.pretty) ?? page.url))
         .accessibilityLabel(openHere ? "\(title), open here" : title)
         .accessibilityHint(openHere ? "Switches to it here" : "Opens it here")

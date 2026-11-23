@@ -296,7 +296,7 @@ final class PinDragTests: XCTestCase {
         // one reused.
         browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three", "four", "five", "six"].prefix(count) {
-            if browser.tabs.last?.isBlank == false { browser.newTab() }
+            if browser.tabs.last?.isBlank != true { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)
         }
         return browser

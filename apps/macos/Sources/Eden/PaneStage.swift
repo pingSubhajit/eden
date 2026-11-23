@@ -904,9 +904,10 @@ final class PaneDivider: NSView {
     /// may be folded away.
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
-        let all = (stage?.pageCount ?? 2) > 2 ? "Close All" : "Close Both"
+        // In the same words as the tab's menu and the Tabs menu.
+        let all = (stage?.pageCount ?? 2) > 2 ? "Close All Pages" : "Close Both Pages"
         for (title, action) in [("Swap Pages", PaneStage.Action.swap), ("Even Out", .even),
-                                ("Separate", .separate), (all, .closeBoth)] {
+                                ("Separate Pages", .separate), (all, .closeBoth)] {
             let item = NSMenuItem(title: title, action: #selector(chose(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = action

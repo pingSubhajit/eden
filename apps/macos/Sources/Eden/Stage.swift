@@ -707,17 +707,22 @@ struct DragStrip: NSViewRepresentable {
     /// empty column rather than title bar: the empty space below the tabs,
     /// where a double-click opens a new tab instead of zooming the window.
     var onDoubleClick: (() -> Void)? = nil
+    /// What a right-click, or a ⌃-click, there opens: the column's own menu
+    /// in the room under the tabs (ColumnMenu). None in the title bar.
+    var menu: (() -> NSMenu)? = nil
 
     func makeNSView(context: Context) -> NSView { Strip() }
 
     func updateNSView(_ view: NSView, context: Context) {
         (view as? Strip)?.below = below
         (view as? Strip)?.onDoubleClick = onDoubleClick
+        (view as? Strip)?.makeMenu = menu
     }
 
     private final class Strip: NSView {
         var below: CGFloat = 0 { didSet { if below != oldValue { aimCursor() } } }
         var onDoubleClick: (() -> Void)?
+        var makeMenu: (() -> NSMenu)?
 
         private var pressed: NSEvent?
         private var moved = false
@@ -779,7 +784,17 @@ struct DragStrip: NSViewRepresentable {
 
         private func aimCursor() { window?.invalidateCursorRects(for: self) }
 
+        /// AppKit's right-click asks for it, and shows it.
+        override func menu(for event: NSEvent) -> NSMenu? {
+            makeMenu?() ?? super.menu(for: event)
+        }
+
         override func mouseDown(with event: NSEvent) {
+            if event.modifierFlags.contains(.control), let menu = makeMenu?() {
+                pressed = nil
+                NSMenu.popUpContextMenu(menu, with: event, for: self)
+                return
+            }
             pressed = event
             moved = false
             NSCursor.arrow.set()

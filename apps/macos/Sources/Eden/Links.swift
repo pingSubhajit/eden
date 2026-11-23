@@ -431,7 +431,7 @@ final class Links: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// In a small window of its own, for whoever chose that (see
+    /// In a small window of its own (see
     /// Little.swift), and nothing else: the browser's window stays where it
     /// is — closed, in the Dock, behind another app, or never opened by a
     /// launch this link made. It went through `deliver`, which brings a
@@ -439,7 +439,6 @@ final class Links: NSObject, NSApplicationDelegate {
     /// every time. Open in Eden is what brings it now.
     @MainActor
     private static func little(_ url: URL) -> Bool {
-        guard Shared.prefs.littleLinks else { return false }
         // A site sent to a space opens there, with that space's sign-ins.
         if SpaceRoutes.space(for: url) != nil { return false }
         if Shared.prefs.littleFindsTabs, goToOpen(url) { return true }

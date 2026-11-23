@@ -29,7 +29,8 @@ final class SpaceCardTests: XCTestCase {
         browser.spaces = [Space(id: first, name: "First", colour: 0),
                           Space(id: second, name: "Second", colour: 1)]
         browser.closeAll()
-        browser.showRow([], active: nil, blank: true)
+        browser.showRow([], active: nil)
+        browser.newTab()
 
         var stale: Space?
         browser.afterSpaceCreated = { stale = $0 }

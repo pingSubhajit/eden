@@ -869,24 +869,26 @@ private struct HoverCard: View {
         Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: 18)
     }
 
-    /// The tab's own few things, then its sound.
+    /// The tab's own few things, then its sound: the tab menu's actions
+    /// (Browser's one set of tab actions), on this tab alone, picked or not,
+    /// as the card is about it. Its copy shows a tick in place of the toast
+    /// the menu's says.
     private var controls: [CardControl] {
         var controls: [CardControl] = []
-        if let url = tab.address {
+        if tab.address != nil {
             controls.append(CardControl(id: "copy", symbol: copied ? "checkmark" : "link", help: "Copy Address") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                browser.copyAddresses(of: [tab], quietly: true)
                 copied = true
             })
             controls.append(CardControl(id: "duplicate", symbol: "plus.square.on.square", help: "Duplicate") {
-                browser.open(url, foreground: true, from: tab)
+                browser.duplicate([tab])
                 TabHoverCard.hide()
             })
         }
         if pinnable {
             controls.append(CardControl(id: "pin", symbol: tab.pin == nil ? "pin" : "pin.slash",
                                     help: tab.pin == nil ? "Pin" : "Unpin") {
-                if tab.pin == nil { browser.pin(tab) } else { browser.unpin(tab) }
+                if tab.pin == nil { browser.pin([tab], listed: false) } else { browser.unpin([tab]) }
                 TabHoverCard.hide()
             })
         }
@@ -898,7 +900,9 @@ private struct HoverCard: View {
         }
         if playing || tab.muted {
             controls.append(CardControl(id: "mute", symbol: tab.muted ? "speaker.slash" : "speaker.wave.2",
-                                    help: tab.muted ? "Unmute Tab" : "Mute Tab", act: tab.toggleMute))
+                                    help: tab.muted ? "Unmute Tab" : "Mute Tab") {
+                browser.mute([tab], !tab.muted)
+            })
         }
         return controls
     }

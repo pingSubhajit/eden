@@ -43,7 +43,8 @@ final class SpaceFloatTests: XCTestCase {
         browser.spaces = [Space(id: first, name: "First", colour: 0),
                           Space(id: second, name: "Second", colour: 1)]
         browser.closeAll()
-        browser.showRow([], active: nil, blank: true)
+        browser.showRow([], active: nil)
+        browser.newTab()
 
         browser.prefs.floatsOnLeave = false
         browser.switchSpace(to: second)

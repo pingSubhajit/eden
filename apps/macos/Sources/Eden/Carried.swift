@@ -79,6 +79,15 @@ struct Carried: ViewModifier {
     var gap: ((CGPoint?) -> CarryGap)? = nil
     /// Let go: true when it went into the gap that was open for it.
     var placed: ((CarriedDrop) -> Bool)? = nil
+    /// A pin, carried: the tab you were on before the press that brought it
+    /// forward comes back once the carry is over (PressBack).
+    var back: PressBack? = nil
+    /// Asked at pick-up: what puts the column back as it stood then, true
+    /// when it could. The places taken on the way are given back so (over
+    /// another device, called off) rather than by moving this one back to
+    /// where it was, which leaves the tabs picked with it, moved with it,
+    /// where they went.
+    var keep: (() -> () -> Bool)? = nil
     /// Down the column: kept within the scrolling column's view however far
     /// the hand goes. Carried past the last row, or above the first, it was
     /// drawn outside the view and cut off at its edge where it went. What is
@@ -110,6 +119,10 @@ struct Carried: ViewModifier {
     /// Cancelled with Escape: put down until the hand lets go, not picked
     /// up again by its next move.
     @State private var escaped = false
+    /// The tab to go back to once the carry is over (`back`).
+    @State private var backTo: Tab.ID?
+    /// The column as it stood at pick-up (`keep`).
+    @State private var kept: (() -> Bool)?
 
     func body(content: Content) -> some View {
         // What it has travelled, less the ground its new place has already
@@ -162,7 +175,9 @@ struct Carried: ViewModifier {
                             start = Carried.leading(of: index, in: steps)
                             length = steps.indices.contains(index) ? max(0, steps[index] - SideBar.gap) : 0
                             origin = nil
-                            CarryGuard.open(ticket, end: callOff)
+                            backTo = back?.before()
+                            kept = keep?()
+                            CarryGuard.open(ticket, end: callOff, escape: escape)
                         }
                         travel = value.translation.height
                         // Asked every move, so the block it left lets go
@@ -195,7 +210,7 @@ struct Carried: ViewModifier {
                             case .copy:
                                 // Kept where it was: the places it took on
                                 // the way given back, so it stays put.
-                                if index != from { withAnimation(Motion.settle) { move(from) } }
+                                if index != from || reordered { withAnimation(Motion.settle) { giveBack() } }
                                 return
                             }
                         } else if let browser, let tab, browser.prefs.usesTabGroups, tab.pin == nil,
@@ -251,7 +266,7 @@ struct Carried: ViewModifier {
                                                            drawn: origin.map { $0 + travel }, point: value.location)) == true { break }
                                     _ = browser.dragOut(source, at: finished.point)
                                 case .cancelled:
-                                    if reordered { move(from) }
+                                    if reordered { giveBack() }
                                 }
                             }
                         } else {
@@ -269,6 +284,7 @@ struct Carried: ViewModifier {
                             travel = 0
                             reordered = false
                         }
+                        goBack()
                     }
             )
             .onChange(of: carrying) { _, now in if !now { callOff() } }
@@ -281,16 +297,33 @@ struct Carried: ViewModifier {
             .onDisappear { if lifted { TabLift.shared.put() } }
             .onReceive(TabDrag.shared.$cancelledID) { id in
                 guard id == tab?.id, held else { return }
-                CarryGuard.close(ticket)
-                escaped = true
-                TabLift.shared.put()
-                if let tab { TabDrag.shared.callOff(tab) }
-                _ = land?(nil)
-                if reordered { move(from) }
-                held = false
-                travel = 0
-                reordered = false
+                escape()
             }
+    }
+
+    /// Called off with Escape (CarryGuard.escape), the button still down:
+    /// back where it was picked up, nothing dropped anywhere, and put down
+    /// until the hand lets go.
+    private func escape() {
+        CarryGuard.close(ticket)
+        guard held else { return }
+        escaped = true
+        TabLift.shared.put()
+        if let tab { TabDrag.shared.callOff(tab) }
+        _ = land?(nil)
+        if reordered { giveBack() }
+        held = false
+        travel = 0
+        reordered = false
+        goBack()
+    }
+
+    /// A pin's carry over, however it ended: back on the tab you were on.
+    private func goBack() {
+        kept = nil
+        guard let id = backTo else { return }
+        backTo = nil
+        back?.go(to: id)
     }
 
     /// The offset that moves what is carried, `length` long and starting at
@@ -338,8 +371,15 @@ struct Carried: ViewModifier {
             _ = gap?(nil)
             return
         }
-        guard gap?(location) == .copy, index != from else { return }
-        withAnimation(Motion.settle) { move(from) }
+        guard gap?(location) == .copy, index != from || reordered else { return }
+        withAnimation(Motion.settle) { giveBack() }
+    }
+
+    /// The places it took on the way given back: the column as it stood
+    /// at pick-up, or else this one back where it was.
+    private func giveBack() {
+        if kept?() == true { return }
+        if index != from { move(from) }
     }
 
     /// Off to the side of the row, with some slack for a hand that wanders,
@@ -378,6 +418,48 @@ struct Carried: ViewModifier {
             travel = 0
             reordered = false
         }
+        goBack()
+    }
+}
+
+/// A pin carried by hand, as a square or a row, and the tab you were on
+/// before the press that picked it up. A pin comes to the front as the
+/// button goes down on it (TabPress), before anything says whether the
+/// press is a click or the start of a carry; carried somewhere — along the
+/// pins, into a folder, across the line, onto another device — it was left
+/// in front, and the page you had been reading went behind it. Once the
+/// carry is over, that page comes back, as it does for a tab carried onto
+/// its own page (TabDrag.bringBack). The pin's own page has been woken by
+/// then: the press can't wait to know.
+@MainActor
+struct PressBack {
+    let browser: Browser
+    let pin: Tab
+
+    /// At pick-up: the tab the press put behind the pin, if the press did.
+    func before() -> Tab.ID? {
+        guard pin.pin != nil else { return nil }
+        return PressBack.before(pin, in: browser)
+    }
+
+    /// The carry over: back on `id`, while the pin it went behind is still
+    /// the one in front and `id` still open.
+    func go(to id: Tab.ID) {
+        guard browser.visibleTabIDs.contains(pin.id), !browser.visibleTabIDs.contains(id),
+              let tab = browser.tabs.first(where: { $0.id == id }) else { return }
+        browser.select(tab)
+    }
+
+    /// The tab on screen before the press that just brought `tab` forward,
+    /// if it is still open and no longer on screen. A press long ago, or
+    /// one that opened nothing, gives nothing.
+    static func before(_ tab: Tab, in browser: Browser) -> Tab.ID? {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard let opened = TabPress.openedAt, now - opened < TabDrag.pressed,
+              let came = browser.cameFrom, came.at >= opened, let before = came.id,
+              browser.visibleTabIDs.contains(tab.id), !browser.visibleTabIDs.contains(before),
+              browser.tabs.contains(where: { $0.id == before }) else { return nil }
+        return before
     }
 }
 
@@ -393,20 +475,41 @@ struct Carried: ViewModifier {
 /// the button anywhere in Eden, which can't go down again before the
 /// carry it was holding is over. A row is carried the same way and guarded
 /// the same way.
+///
+/// Escape, with the button still down, calls off every carry under way
+/// (`escape`): a tab, a pinned row or square, a group by its heading. It
+/// used to reach only a tab under the line with Split View on, through the
+/// split's own watch for it (TabDrag); a pin, a row above the line and a
+/// heading went on being carried.
 @MainActor
 enum CarryGuard {
-    private static var carries: [UUID: () -> Void] = [:]
+    private struct Carry {
+        let end: () -> Void
+        let escape: () -> Void
+    }
+
+    private static var carries: [UUID: Carry] = [:]
     private static var monitor: Any?
+    private static var keys: Any?
 
     /// Carries under way, for the tests.
     static var count: Int { carries.count }
 
-    static func open(_ id: UUID, end: @escaping () -> Void) {
-        carries[id] = end
+    /// `escape`: what Escape does to it, its end if nothing is said.
+    static func open(_ id: UUID, end: @escaping () -> Void, escape: (() -> Void)? = nil) {
+        carries[id] = Carry(end: end, escape: escape ?? end)
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             MainActor.assumeIsolated { CarryGuard.endAll() }
             return event
+        }
+        // Only while the button is down: a carry SwiftUI took away without
+        // a word stays open until the next press, and its watch must not
+        // eat an Escape meant for something else, a video's full screen
+        // among them, in the meantime.
+        keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53, NSEvent.pressedMouseButtons & 1 != 0 else { return event }
+            return MainActor.assumeIsolated { CarryGuard.escape() } ? nil : event
         }
     }
 
@@ -423,11 +526,25 @@ enum CarryGuard {
         let stale = carries.values
         carries = [:]
         stop()
-        for end in stale { end() }
+        for carry in stale { carry.end() }
+    }
+
+    /// Escape: every carry under way called off, each back where it was
+    /// picked up and nothing dropped. True when there was one to call off.
+    @discardableResult
+    static func escape() -> Bool {
+        guard !carries.isEmpty else { return false }
+        let escaping = carries.values
+        carries = [:]
+        stop()
+        for carry in escaping { carry.escape() }
+        return true
     }
 
     private static func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if let keys { NSEvent.removeMonitor(keys) }
+        keys = nil
     }
 }

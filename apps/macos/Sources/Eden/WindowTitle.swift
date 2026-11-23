@@ -33,7 +33,16 @@ struct WindowTitle: View {
     /// Names the window for the tab in front. Also called as the window is
     /// first set (WindowSetup), so its name doesn't wait for the next change.
     static func set(_ tab: Tab, in window: NSWindow) {
-        let title = name(page: tab.name ?? tab.title, private: tab.shy)
+        set(name(page: tab.name ?? tab.title, private: tab.shy), in: window)
+    }
+
+    /// Names the window with nothing in front: the app's name, not the page
+    /// last in front, which is gone.
+    static func setNothing(in window: NSWindow) {
+        set(name(page: "", private: false), in: window)
+    }
+
+    private static func set(_ title: String, in window: NSWindow) {
         guard window.title != title else { return }
         window.title = title
         // A new title makes AppKit lay the title bar out again, and the

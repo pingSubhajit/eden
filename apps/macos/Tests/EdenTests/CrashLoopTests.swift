@@ -24,6 +24,8 @@ final class CrashLoopTests: XCTestCase {
         defer { server.stop() }
         let browser = Browser(record: WindowRecord())
         defer { browser.closeAll() }
+        // A window opens with nothing in front: the tab is asked for.
+        browser.newTab()
         let tab = try XCTUnwrap(browser.active)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)

@@ -123,6 +123,8 @@ final class ShortcutTests: XCTestCase {
         _ = NSApplication.shared
         ShortcutStore.shared.resetAll()
         let browser = Browser(record: WindowRecord())
+        // A window opens with nothing in front: the tab is asked for.
+        browser.newTab()
         let tab = try XCTUnwrap(browser.active)
         tab.show(InternalPage(.history))
         tab.show(InternalPage(.downloads))

@@ -81,6 +81,8 @@ struct PasswordsPanel: View {
         .animation(Motion.settle, value: adding)
         .animation(Motion.settle, value: open)
         .onAppear { hunting = true }
+        // ⌘F, as on Settings: into the search field.
+        .onChange(of: browser.searchFind) { _, _ in if browser.active?.page?.kind == .passwords { hunting = true } }
     }
 
     /// A site, and under it its accounts once opened.

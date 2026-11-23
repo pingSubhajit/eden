@@ -51,14 +51,15 @@ final class TabCaptureTests: XCTestCase {
         XCTAssertEqual(otherWeb.microphoneCaptureState, .active)
     }
 
-    func testClosingLastTabEndsCaptureAndLeavesBlankTab() async throws {
+    /// The last tab closed ends its capture and leaves nothing in front:
+    /// no empty tab is made in its place.
+    func testClosingLastTabEndsCaptureAndLeavesNothingInFront() async throws {
         let tab = try await capture()
         let web = tab.web
         XCTAssertEqual(browser.tabs.count, 1)
         browser.close(tab)
         try await ended(web)
-        XCTAssertEqual(browser.tabs.count, 1)
-        XCTAssertTrue(browser.tabs[0].isBlank)
+        XCTAssertTrue(browser.tabs.isEmpty, "no empty tab made in its place")
     }
 
     func testClosingPinnedTabEndsCaptureAndKeepsPin() async throws {

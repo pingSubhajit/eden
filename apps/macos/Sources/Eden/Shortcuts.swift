@@ -250,7 +250,7 @@ struct Command: Identifiable {
             guard browser.prefs.splitView else { return }
             browser.swapSplit()
         },
-        Command("tabs.separateSplit", "Separate Split Tabs", .tabs, nil) { browser in
+        Command("tabs.separateSplit", "Separate Pages", .tabs, nil) { browser in
             guard browser.prefs.splitView, let tab = browser.active else { return }
             browser.detachSplit(tab)
         },
@@ -258,11 +258,12 @@ struct Command: Identifiable {
         // Pin Tab has no key until you give it one; Pin Tab as Row is ⌘D,
         // as in Arc, where pins took the place of bookmarks (#6).
         Command("tabs.pin", "Pin Tab", .tabs, nil) { browser in
-            guard let tab = browser.active else { return }
-            if tab.pin != nil { browser.unpin(tab) } else if tab.isWeb { browser.pin(tab) }
+            // The tab in front and those picked with it, as ⌘D takes them.
+            let tabs = browser.frontTabs
+            if tabs.allSatisfy({ $0.pin != nil }) { browser.unpin(tabs) } else { browser.pin(tabs, listed: false) }
         },
         Command("tabs.pinRow", "Pin Tab as Row", .tabs, KeyCombo("d")) { $0.togglePinRow() },
-        Command("tabs.rename", "Rename Tab", .tabs, nil) { browser in
+        Command("tabs.rename", "Rename Tab…", .tabs, nil) { browser in
             if let tab = browser.active { browser.beginTabRename(tab) }
         },
         // ⌘D was Duplicate Tab's until it pinned, as in Arc (#6).
@@ -273,7 +274,10 @@ struct Command: Identifiable {
         Command("tabs.closeOthers", "Close Other Tabs", .tabs, nil) { browser in
             if let tab = browser.active { browser.closeOthers(but: tab) }
         },
-        Command("tabs.mute", "Stop Sound in Tab", .tabs, KeyCombo("m", shift: true)) { $0.pauseMedia() },
+        // Was Stop Sound in Tab, which paused the page: under the same id,
+        // so a key of your own for it carries over.
+        Command("tabs.mute", "Mute Tab", .tabs, KeyCombo("m", shift: true)) { $0.toggleMute() },
+        Command("tabs.clear", "Clear Tabs", .tabs, nil) { $0.clearTabs() },
 
         Command("history.show", "Show History…", .history, KeyCombo("y")) { $0.recalling = true },
         Command("history.downloads", "Downloads…", .history, KeyCombo("j", shift: true)) { $0.showDownloads() },
@@ -378,7 +382,8 @@ final class ShortcutStore: ObservableObject {
     }
     var anyChanged: Bool { !changed.isEmpty }
 
-    /// Changed commands, and Space keys which have no menu to handle their defaults.
+    /// Changed commands, and Space keys, which the Spaces menu can't be
+    /// trusted with: a line for a space made after launch doesn't take its key.
     func customCommand(on combo: KeyCombo) -> Command? {
         Command.all.first { (changed[$0.id] != nil || $0.section == .spaces) && key(for: $0.id) == combo }
     }
@@ -517,6 +522,42 @@ extension KeyCombo {
         if option { flags.insert(.option) }
         if control { flags.insert(.control) }
         return flags
+    }
+
+    /// The key as an AppKit menu line shows it (NSMenuItem.keyEquivalent),
+    /// for menus made in AppKit, such as a group's: nil for one it can't.
+    var menuKey: String? {
+        let unicode: Int?
+        switch key {
+        case "left": unicode = NSLeftArrowFunctionKey
+        case "right": unicode = NSRightArrowFunctionKey
+        case "up": unicode = NSUpArrowFunctionKey
+        case "down": unicode = NSDownArrowFunctionKey
+        case "return": return "\r"
+        case "delete": return "\u{8}"
+        case "space": return " "
+        case "tab": return "\t"
+        case "escape": return "\u{1b}"
+        default:
+            if isFunctionKey, let n = Int(key.dropFirst()) { unicode = NSF1FunctionKey + n - 1 }
+            else { return key.count == 1 ? key : nil }
+        }
+        return unicode.flatMap(UnicodeScalar.init).map { String(Character($0)) }
+    }
+}
+
+extension NSMenuItem {
+    /// Wears the key `id` has as things stand (Settings › Shortcuts), or
+    /// none: the same key the menu bar shows for that command.
+    @MainActor
+    func shortcut(_ id: String) {
+        guard let combo = ShortcutStore.shared.key(for: id), let key = combo.menuKey else {
+            keyEquivalent = ""
+            keyEquivalentModifierMask = []
+            return
+        }
+        keyEquivalent = key
+        keyEquivalentModifierMask = combo.flags
     }
 }
 

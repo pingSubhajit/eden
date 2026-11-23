@@ -120,6 +120,8 @@ private struct SplitTabHalf: View {
     let interactive: Bool
     @Binding var hovered: Tab.ID?
     @State private var selectedOnPress = false
+    /// The button down on it: it gives, as a row does (Give).
+    @State private var pressed = false
 
     private var hovering: Bool { hovered == tab.id }
     private var title: String { tab.label.isEmpty ? "New Tab" : tab.label }
@@ -128,6 +130,13 @@ private struct SplitTabHalf: View {
     /// What the page warns of, on the half you're on: a glyph before its
     /// title (TabTitle).
     private var warning: AtRest? { focused ? AtRest.warning(tab.restAddress) : nil }
+    /// What its cross does, and says, as a row's (CloseMark).
+    private var closeMark: CloseMark { CloseMark.of(tab, putsAway: browser.putsAway(tab)) }
+
+    /// Its cross pressed, or its named action, as a row's.
+    private func close() {
+        if closeMark == .delete { browser.deletePin(tab) } else { browser.closeTab(tab) }
+    }
 
     private var laidOut: some View {
         row
@@ -142,6 +151,7 @@ private struct SplitTabHalf: View {
 
     private var handled: some View {
         laidOut
+            .modifier(Give(pressed: pressed && prefs.tabsGive))
             .modifier(OneClick(double: false) {
                 guard interactive, !selectedOnPress, TabClick.flags.intersection([.command, .shift, .option]).isEmpty else { return }
                 browser.clearTabSelection()
@@ -184,7 +194,7 @@ private struct SplitTabHalf: View {
             .accessibilityValue(focused ? "Focused page" : "")
             .accessibilityHint(interactive ? "Click to focus this page; right-click for tab actions" : "")
             .accessibilityAction(named: "Focus page") { browser.focusPane(tab) }
-            .accessibilityAction(named: "Close tab") { if interactive { browser.closeTab(tab) } }
+            .accessibilityAction(named: closeMark.name) { if interactive { close() } }
             // Its speaker is hidden with the line's other controls: the same
             // press, named.
             .accessibilityAction(named: tab.muted ? "Unmute tab" : "Mute tab") {
@@ -230,7 +240,8 @@ private struct SplitTabHalf: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: height)
                 .contentShape(Rectangle())
-                .modifier(TabPress(enabled: interactive && !editing && !browser.isPickedAmongOthers(tab), active: focused, selected: $selectedOnPress) {
+                .modifier(TabPress(enabled: interactive && !editing && !browser.isPickedAmongOthers(tab), active: focused,
+                                   selected: $selectedOnPress, pressing: $pressed) {
                     browser.clearTabSelection()
                     browser.focusPane(tab)
                 })
@@ -298,14 +309,17 @@ private struct SplitTabHalf: View {
         }
     }
 
-    /// Each line's own cross, a tab's (RowCross); the click taken by
+    /// Each line's own cross, a tab's (RowCross), a minus where its page
+    /// is put away rather than closed, as a row's; the click taken by
     /// CloseClick.
     private var closeButton: some View {
-        RowCross(height: height)
+        RowCross(symbol: closeMark.symbol, height: height)
+            .help(closeMark.help)
             .opacity(hovering ? 1 : 0)
             .overlay {
-                CloseClick(armed: hovering) { browser.closeTab(tab) }
+                CloseClick(armed: hovering, act: close)
                     .frame(width: RowCross.reachWidth, height: height)
             }
+            .closeClickOnly()
     }
 }

@@ -42,8 +42,6 @@ enum WhatsNew {
         Toggle(title: "Hand off pages to your other devices", detail: "Pick up the page in front on your iPhone, iPad or another Mac, with Handoff.",
                since: "0.2.0", get: { $0.handsOff }, set: { $0.handsOff = $1 }),
 
-        Toggle(title: "Commands in the address field", detail: "Type the name of any menu command or setting, as in Arc's Command Bar.",
-               since: "0.1.0", get: { $0.commandBar }, set: { $0.commandBar = $1 }),
         Toggle(title: "Capture", detail: "View › Capture… takes a picture of part of a page, or all of it.",
                since: "0.1.0", get: { $0.capturesPages }, set: { $0.capturesPages = $1 }),
 
@@ -150,7 +148,7 @@ enum WhatsNew {
             version: "0.1.0", date: "18 November 2026",
             headline: "The first version of Eden: a small, fast, quiet browser for the Mac, made of the WebKit already in macOS.",
             new: [
-                "Tabs down the side or across the top, pins, spaces and Split View.",
+                "Tabs down the side of the window, pins, spaces and Split View.",
                 "One field for addresses and searches, finishing from your own history.",
                 "Ads and trackers blocked before they load; anything on a page can be hidden for good.",
                 "Passwords and passkeys in your keychain; Chrome extensions from the Chrome Web Store on macOS 15.4 or later.",

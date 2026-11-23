@@ -246,12 +246,6 @@ final class Preferences: ObservableObject {
     @Published var lazyTabs: Bool {
         didSet { store.set(lazyTabs, forKey: "tabs.lazy") }
     }
-    /// Closing the last tab that isn't a pin, with pins beside it, leaves a
-    /// new tab instead of taking you to a pin (see Browser.close, #537).
-    /// Off unless asked for.
-    @Published var newTabAfterLast: Bool {
-        didSet { store.set(newTabAfterLast, forKey: "tabs.newAfterLast") }
-    }
     /// Closing the tab on screen goes back to the one viewed before it
     /// rather than the neighbour (see Browser.close). Off unless asked for.
     @Published var closeGoesBack: Bool {
@@ -262,11 +256,6 @@ final class Preferences: ObservableObject {
     /// page then go to them, through Apple.
     @Published var handsOff: Bool {
         didSet { store.set(handsOff, forKey: "handoff") }
-    }
-    /// ⌘Z reopens the tab just closed, as in Safari, while closing it is
-    /// still the last thing done (Browser.lastClose). Off unless asked for.
-    @Published var undoReopensTab: Bool {
-        didSet { store.set(undoReopensTab, forKey: "tabs.undoReopens") }
     }
     /// ⌃Tab shows a link opened behind the page right after the page, so a
     /// quick ⌃Tab goes to it; off, the tab left last keeps that place and
@@ -513,31 +502,9 @@ final class Preferences: ObservableObject {
     @Published var readerFollowsLook: Bool {
         didSet { store.set(readerFollowsLook, forKey: "reader.follows") }
     }
-    /// A link from another app opens in a small window of its own (see
-    /// Little.swift). On for a new install, off as it was for one from
-    /// before (see settleLittleLinks).
-    @Published var littleLinks: Bool {
-        didSet { store.set(littleLinks, forKey: Preferences.littleKey) }
-    }
-    nonisolated static let littleKey = "links.little"
-
-    /// Small windows for links became the default for new installs (Drice,
-    /// 17 Nov 2026); an install from before keeps its links in the browser's
-    /// window, as they always went, rather than finding them changed by an
-    /// update. Settled once, the first time a build with this runs: no line
-    /// yet, and a line from an earlier launch (the welcome walked through,
-    /// a glyph chosen, or the passkey lines every launch has written since
-    /// 1.0.1) means an install from before, which gets its old value, off,
-    /// written down. A new one gets on, written down too, so the next launch
-    /// (which finds those lines) doesn't take it for an old one. A choice
-    /// already made stands. Before anything else in init writes a line.
-    nonisolated static func settleLittleLinks(in store: UserDefaults) {
-        guard store.object(forKey: littleKey) == nil else { return }
-        let before = ["welcomed", "glyph", "passkeys.for", "passkeys.entitled"].contains { store.object(forKey: $0) != nil }
-        store.set(!before, forKey: littleKey)
-    }
-    /// With those small windows on: a link to a page already open in a tab
-    /// goes to that tab instead (see Links.little). Off unless asked for.
+    /// A link from another app always opens in a small window of its own
+    /// (see Little.swift). With this on, a link to a page already open in a
+    /// tab goes to that tab instead (see Links.little). Off unless asked for.
     @Published var littleFindsTabs: Bool {
         didSet { store.set(littleFindsTabs, forKey: "links.little.tabs") }
     }
@@ -750,13 +717,6 @@ final class Preferences: ObservableObject {
     /// adds a command, so there is no switch. Still a property, for the
     /// code that asks and the tests that turn it off; never written.
     @Published var switcherKeys = true
-    /// "settings", "new tab" and the like, typed alone in the address field,
-    /// reach that part of the app instead of asking a search engine for the
-    /// word; part of one is offered (see AddressCommands.swift). Off unless
-    /// asked for.
-    @Published var commandBar: Bool {
-        didSet { store.set(commandBar, forKey: "commandbar") }
-    }
     /// The address field from any app, as Spotlight's comes: a key of your
     /// own raises it over the app in front, and Return opens what was typed
     /// in Eden (see Launcher.swift). Off unless asked for, and no key
@@ -776,7 +736,6 @@ final class Preferences: ObservableObject {
     }
 
     init() {
-        Preferences.settleLittleLinks(in: store)
         // Carried over from when there were four ways of holding the browser
         // and this was one of them.
         // The Mac's own unless asked otherwise — a Mac in dark mode expects
@@ -819,10 +778,8 @@ final class Preferences: ObservableObject {
         tabLife = TabLife(rawValue: store.integer(forKey: "tabs.close.after")) ?? .never
         sleepPace = SleepPace.chosen
         lazyTabs = store.bool(forKey: "tabs.lazy")
-        newTabAfterLast = store.bool(forKey: "tabs.newAfterLast")
         closeGoesBack = store.bool(forKey: "tabs.closeGoesBack")
         handsOff = store.bool(forKey: "handoff")
-        undoReopensTab = store.bool(forKey: "tabs.undoReopens")
         switcherBehindFirst = store.bool(forKey: "tabs.switcherBehindFirst")
         switcherLeavesOutPins = store.bool(forKey: "tabs.switcherLeavesOutPins")
         frontLinksBeside = store.bool(forKey: "tabs.frontBeside")
@@ -899,7 +856,6 @@ final class Preferences: ObservableObject {
         ai = AI.shipped && store.bool(forKey: "ai")
         aiProvider = store.string(forKey: "ai.provider").flatMap(AIProvider.init(rawValue:))
         aiModels = store.dictionary(forKey: "ai.models") as? [String: String] ?? [:]
-        commandBar = store.bool(forKey: "commandbar")
         // ⌘T's field over the page is the only new tab now: the switch
         // between it and a blank tab is gone, and so is what it kept.
         store.removeObject(forKey: "newtab.floating")
@@ -935,7 +891,6 @@ final class Preferences: ObservableObject {
         peekStays = store.bool(forKey: "links.peek.stays")
         readsTwins = store.bool(forKey: "reader.twins")
         readerFollowsLook = store.bool(forKey: "reader.follows")
-        littleLinks = store.bool(forKey: Preferences.littleKey)
         littleFindsTabs = store.bool(forKey: "links.little.tabs")
         sendsLinksToSpaces = store.bool(forKey: SpaceRoutes.key)
         spaceRoutes = (store.array(forKey: SpaceRoutes.rulesKey) ?? []).compactMap(SpaceRoute.init(plist:))
@@ -991,6 +946,17 @@ final class Preferences: ObservableObject {
                     "tabs.compact", "toolbar.left"] {
             store.removeObject(forKey: key)
         }
+        // One behaviour for everyone (#41): ⇧⌘T reopens a tab and ⌘Z is the
+        // page's, the address field always knows Eden's commands, and links
+        // from other apps always open in a small window. Their switches are
+        // gone, and so is what they kept.
+        for key in ["tabs.undoReopens", "commandbar", "links.little"] {
+            store.removeObject(forKey: key)
+        }
+        // A close never makes a new tab now: with nothing to go back to, the
+        // window shows nothing in front (see Browser.landing). The switch
+        // that left a new tab after the last one is gone, and its line too.
+        store.removeObject(forKey: "tabs.newAfterLast")
     }
 
     /// The folder the settings file is in, watched for as long as the app

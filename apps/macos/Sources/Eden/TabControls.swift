@@ -157,23 +157,19 @@ struct TabAddressField: NSViewRepresentable {
     }
 }
 
-/// What a right-click on any tab offers, wherever the tab is drawn.
+/// What a right-click on any tab offers, wherever the tab is drawn. Its
+/// actions are the hover card's and the menu bar's (Browser's one set of
+/// tab actions), and none goes to the tab unless going there is the point.
+/// Right-clicked among tabs picked in the column, each acts on all of them.
 struct TabMenu: View {
     @ObservedObject var browser: Browser
     @ObservedObject var tab: Tab
     let close: () -> Void
 
-    var body: some View {
-        singleMenu
-        if browser.selectedTabIDs.contains(tab.id) && browser.visibleSelectedTabCount > 1 {
-            Divider()
-            Button("Copy Addresses") { browser.copySelectedTabLinks() }
-                .disabled(browser.selectedTabLinkCount == 0)
-        }
-    }
+    /// What the actions act on: the picked tabs, or this one alone.
+    private var tabs: [Tab] { browser.acting(on: tab) }
 
-    @ViewBuilder
-    private var singleMenu: some View {
+    var body: some View {
         if browser.prefs.usesTabGroups && tab.pin == nil && !tab.shy && !tab.bench {
             // Right-clicked among tabs picked in the column: all of them, as
             // a drag onto a group takes them (see carried).
@@ -195,9 +191,9 @@ struct TabMenu: View {
             }
         }
         if tab.pin == nil {
-            Button("Pin") { browser.pin(tab) }
+            Button("Pin") { browser.pin(tabs, listed: false) }
                 .disabled(!tab.isWeb || tab.shy)
-            Button("Pin as Row") { browser.pin(tab, listed: true) }
+            Button("Pin as Row") { browser.pin(tabs, listed: true) }
                 .disabled(!tab.isWeb || tab.shy)
         } else {
             Button(tab.listed ? "Show as Square" : "Show as Row") { browser.setListed(tab, !tab.listed) }
@@ -235,7 +231,7 @@ struct TabMenu: View {
                     if tab.everywhere { browser.keepHere(tab) } else { browser.shareEverywhere(tab) }
                 }
             }
-            Button("Unpin") { browser.unpin(tab) }
+            Button("Unpin") { browser.unpin(tabs) }
             // Away for good in one go, where Unpin, finding the row and its
             // × took three (#834); ⇧⌘T brings it back a pin.
             Button("Delete") { browser.deletePin(tab) }
@@ -243,10 +239,12 @@ struct TabMenu: View {
         // A shared pin is in every space already: nowhere to move it.
         if browser.prefs.usesSpaces, !tab.bench, !tab.everywhere,
            tab.address.flatMap({ Browser.extensionHost(of: $0) }) == nil {
+            // Not the pins every space shows among those picked: they stay.
+            let moving = browser.movableToSpace(tabs)
             Menu("Move to Space") {
                 ForEach(browser.spaces.filter { $0.id != browser.spaceID }) { space in
                     Button {
-                        browser.move(tab, toSpace: space.id)
+                        browser.move(moving, toSpace: space.id)
                     } label: {
                         Label(space.name, systemImage: space.symbol)
                     }
@@ -254,12 +252,13 @@ struct TabMenu: View {
                 if browser.spaces.count > 1 { Divider() }
                 Button("New Space…") {
                     browser.askForSpace { space in
-                        browser.move(tab, toSpace: space.id) {
+                        browser.move(moving, toSpace: space.id) {
                             browser.switchSpace(to: space.id)
                         }
                     }
                 }
             }
+            .disabled(moving.isEmpty)
             .help("Pages moved to a Space with different sign-ins reopen there.")
         }
         // Settings › Spaces & Pins › Send links to a space, from here: the
@@ -290,7 +289,7 @@ struct TabMenu: View {
                     // This page alone out of it; the others stay together.
                     Button("Remove from Split View") { browser.leaveSplit(tab) }
                 }
-                Button("Separate Split Tabs") { browser.detachSplit(tab) }
+                Button("Separate Pages") { browser.detachSplit(tab) }
                 Button(pair.tabs.count > 2 ? "Close All Pages" : "Close Both Pages") {
                     browser.focusPane(tab)
                     browser.closeSplit()
@@ -301,85 +300,94 @@ struct TabMenu: View {
                 let current = browser.active
                 let adding = browser.activeSplit != nil && current?.id != tab.id
                 Button(adding ? "Add to Split View" : "Open in Split View") { browser.openInSplit(tab) }
-                    .disabled(tab.bench || (adding && current.map { !browser.canJoin(tab, beside: $0) } ?? true))
+                    // Nothing in front: nothing to be beside.
+                    .disabled(tab.bench || current == nil || (adding && current.map { !browser.canJoin(tab, beside: $0) } ?? true))
             }
         }
         if tab.pin == nil, !tab.bench {
             // Another window, or a new one (see Browser.moveToWindow).
+            let moving = tabs
             let others = Browsers.all.filter { $0 !== browser && $0.isOpen && !$0.isPopup && $0.profileID == browser.profileID }
             if others.isEmpty {
-                Button("Move to New Window") { browser.moveToWindow(tab, nil) }
-                    .disabled(browser.tabs.count < 2)
+                Button("Move to New Window") { browser.move(moving, toWindow: nil) }
+                    .disabled(!browser.canMoveToWindow(moving))
             } else {
                 Menu("Move to Window") {
-                    Button("New Window") { browser.moveToWindow(tab, nil) }
-                        .disabled(browser.tabs.count < 2)
+                    Button("New Window") { browser.move(moving, toWindow: nil) }
+                        .disabled(!browser.canMoveToWindow(moving))
                     Divider()
                     ForEach(Array(others.enumerated()), id: \.offset) { _, other in
-                        Button(other.windowName) { browser.moveToWindow(tab, other) }
+                        Button(other.windowName) { browser.move(moving, toWindow: other) }
                     }
                 }
             }
         }
         Divider()
-        Button("Rename") { browser.beginTabRename(tab) }
-        Button("Duplicate") {
-            browser.select(tab)
-            browser.duplicate()
+        // A square's name is its letter, which Change Letter changes, above.
+        if tab.pin == nil || tab.listed {
+            Button("Rename…") { browser.beginTabRename(tab) }
         }
-        .disabled(!tab.isWeb)
-        // The card a click on the tab you are on shows under its address.
+        Button("Duplicate") { browser.duplicate(tabs) }
+            .disabled(!tab.isWeb)
+        // The card a click on the tab you are on shows under its address:
+        // going there is the point.
         Button("Site Information…") {
             if browser.activeID != tab.id { browser.select(tab) }
             browser.beginTabEdit(tab)
         }
         .disabled(tab.isBlank || tab.address == nil || tab.pin != nil)
-        Button("Copy Address") {
-            browser.select(tab)
-            browser.copyAddress()
-        }
-        .disabled(!tab.isWeb)
-        Button("Copy as Markdown Link") {
-            browser.select(tab)
-            browser.copyMarkdownLink()
-        }
-        .disabled(!tab.isWeb)
-        Button("Copy Clean Link") {
-            browser.select(tab)
-            browser.copyCleanLink()
-        }
-        .disabled(!tab.isWeb)
+        let several = tabs.count > 1
+        Button(several ? "Copy Addresses" : "Copy Address") { browser.copyAddresses(of: tabs) }
+            .disabled(!tabs.contains(where: \.isWeb))
+        Button(several ? "Copy as Markdown Links" : "Copy as Markdown Link") { browser.copyMarkdownLinks(of: tabs) }
+            .disabled(!tabs.contains(where: \.isWeb))
+        Button(several ? "Copy Clean Links" : "Copy Clean Link") { browser.copyCleanLinks(of: tabs) }
+            .disabled(!tabs.contains(where: \.isWeb))
+        SendToMenu(browser: browser, tabs: tabs)
         if browser.prefs.sitesInPanel {
             Button("Open in Side Panel") { browser.openInSidePanel(tab) }
                 .disabled(!tab.isWeb || tab.shy)
         }
-        Button(tab.muted ? "Unmute Tab" : "Mute Tab") { tab.toggleMute() }
+        Divider()
+        Button("Reload") { browser.reload(tabs) }
+            .disabled(!tabs.contains { $0.built != nil })
+        Button(tab.muted ? "Unmute Tab" : "Mute Tab") { browser.toggleMute(tab) }
         // Its page let go of now, as it would be after half an hour unseen:
         // the row keeps its title and picture, and it loads again when gone
         // to. Not the tab on screen, nor one that has to stay awake (#310).
-        Button("Put to Sleep") {
-            browser.sleep(tab) { outcome in
-                if outcome != "asleep" { browser.announce("Stays awake: \(outcome)") }
-            }
-        }
-        .disabled(browser.awake(because: tab) != nil)
+        Button("Put to Sleep") { browser.sleep(tabs) }
+            .disabled(tabs.allSatisfy { browser.awake(because: $0) != nil })
         Divider()
-        // Right-clicked among tabs picked in the column: all of them, as ⌘W
-        // closes them.
-        let picked = browser.selectedTabIDs.contains(tab.id) ? browser.visibleSelectedTabCount : 1
-        if picked > 1 {
-            Button("Close \(picked) Tabs") { browser.closePickedTabs() }
+        // Says what it does: a pin is put down, a tab in a group put away
+        // (Browser.closeTab), any other closed. Right-clicked among tabs
+        // picked in the column: all of them, as ⌘W closes them.
+        if several {
+            Button(TabMenu.closing(tabs, in: browser)) { browser.closePickedTabs() }
         } else {
-            Button("Close Tab", action: close)
+            // A pin put down already has nothing more to put down: Delete,
+            // above, takes it out.
+            Button(TabMenu.closing([tab], in: browser), action: close)
+                .disabled(tab.pin != nil && tab.asleep)
         }
         Button("Close Other Tabs") { browser.closeOthers(but: tab) }
-            .disabled(browser.tabs.count < 2)
+            .disabled(browser.othersToClose(but: tab).isEmpty)
         Button("Close Tabs Below") { browser.closeTabsBelow(tab) }
             .disabled(browser.tabsBelow(tab).isEmpty)
         // ⌘⇧T, and the History menu's Recently Closed, where few think to
         // look for it: here too, where tabs are closed.
         Button(browser.reopenTitle) { browser.reopen() }
             .disabled(browser.ghosts.isEmpty)
+    }
+
+    /// Close's words for `tabs`, as ⌘W and the row's mark treat each: Put
+    /// Down for pins, Put Away for tabs in a group that keeps them, Close
+    /// for the rest, and Close when they are of more than one kind.
+    static func closing(_ tabs: [Tab], in browser: Browser) -> String {
+        let pins = tabs.allSatisfy { $0.pin != nil }
+        let away = tabs.allSatisfy { $0.pin == nil && browser.putsAway($0) }
+        guard tabs.count > 1 else { return pins ? "Put Down" : away ? "Put Away" : "Close Tab" }
+        if pins { return "Put Down \(tabs.count) Pins" }
+        return away ? "Put Away \(tabs.count) Tabs" : "Close \(tabs.count) Tabs"
     }
 }
 

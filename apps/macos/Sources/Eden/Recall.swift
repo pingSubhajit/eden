@@ -124,6 +124,8 @@ struct HistoryPanel: View {
             hunting = true
             refresh()
         }
+        // ⌘F, as on Settings: into the search field.
+        .onChange(of: browser.searchFind) { _, _ in if browser.active?.page?.kind == .history { hunting = true } }
         .onChange(of: browser.recallHunt) { _, _ in refresh() }
     }
 

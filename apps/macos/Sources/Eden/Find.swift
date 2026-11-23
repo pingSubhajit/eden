@@ -47,7 +47,10 @@ struct FindBar: View {
                     .accessibilityLabel("Find on page")
                     .accessibilityHint("Type text to search this page. Press Return to find the next match.")
                     .focused($focused)
-                    .onSubmit { browser.look(forward: true) }
+                    // ⇧Return the other way, as ⇧⌘G and the up chevron go.
+                    // The field ends editing for Return with or without ⇧;
+                    // which it was, only the key's own event says.
+                    .onSubmit { browser.look(forward: !FindBar.backwards(NSApp.currentEvent)) }
             }
             .font(.system(size: 12.5))
             .frame(width: fieldWidth)
@@ -120,6 +123,12 @@ struct FindBar: View {
         .animation(Motion.quick, value: browser.missed)
         .onAppear(perform: focus)
         .onChange(of: browser.findFocus) { _, _ in focus() }
+    }
+
+    /// Return pressed with ⇧: the previous match rather than the next.
+    static func backwards(_ event: NSEvent?) -> Bool {
+        guard let event, event.type == .keyDown else { return false }
+        return event.modifierFlags.contains(.shift)
     }
 
     /// Into the field, and once more a moment later if it didn't take: as

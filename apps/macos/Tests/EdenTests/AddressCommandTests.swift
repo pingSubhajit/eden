@@ -41,9 +41,6 @@ final class AddressCommandTests: XCTestCase {
     func testPartOfANameIsOfferedButNeverTakesReturn() {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
-        let saved = browser.prefs.commandBar
-        defer { browser.prefs.commandBar = saved }
-        browser.prefs.commandBar = true
 
         XCTAssertEqual(AddressCommand.matching("downloads", in: browser), .downloads)
         XCTAssertNil(AddressCommand.near("downloads", in: browser), "a whole name is the command itself")
@@ -61,18 +58,14 @@ final class AddressCommandTests: XCTestCase {
         let part = browser.placeOffers(for: "dwn").offers
         XCTAssertEqual(part.last?.command, .downloads, "part of a name is offered, last")
         XCTAssertFalse(part.first?.kind.isCommand ?? true, "and Return still searches")
-
-        browser.prefs.commandBar = false
-        XCTAssertFalse(browser.placeOffers(for: "dwn").offers.contains { $0.kind.isCommand }, "off means off")
     }
 
     func testMenuCommandsAndSettingsPagesAreOfferedUnderTheRest() {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
-        let saved = (prefs.commandBar, prefs.splitView, prefs.ai)
-        defer { (prefs.commandBar, prefs.splitView, prefs.ai) = saved }
-        prefs.commandBar = true
+        let saved = (prefs.splitView, prefs.ai)
+        defer { (prefs.splitView, prefs.ai) = saved }
 
         // By the words of the name, in any order, from their start.
         XCTAssertEqual(AddressCommand.listed("hide el", in: browser).first, .menu("view.hide"))
@@ -117,9 +110,6 @@ final class AddressCommandTests: XCTestCase {
         AddressCommand.menu("view.fold").run(on: browser)
         XCTAssertNotEqual(browser.folded, folded, "the menu's own action")
         AddressCommand.menu("view.fold").run(on: browser)
-
-        prefs.commandBar = false
-        XCTAssertFalse(browser.placeOffers(for: "find on page").offers.contains { $0.kind.isCommand }, "off means off")
     }
 
     /// A suggestion carries a command by an identifier of its own

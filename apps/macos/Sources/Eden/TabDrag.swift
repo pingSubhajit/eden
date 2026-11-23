@@ -110,7 +110,6 @@ final class TabDrag: ObservableObject {
     /// page, the one that was there before comes back, to split with, as it
     /// was before the press when tabs opened on letting go.
     private var putAway: Tab.ID?
-    private var escapeMonitor: Any?
 
     /// Only a page's edges split it, a band of either side about a quarter
     /// of its width, and no narrower than this: carried across the middle
@@ -295,24 +294,9 @@ final class TabDrag: ObservableObject {
         sourceTab = sourceHalf(browser: browser, gesture: tab, at: origin)
         // Opened by this very press: the tab on screen before it, if it is
         // still open. A press long ago, or one that opened nothing, leaves
-        // the page as it is.
-        let now = ProcessInfo.processInfo.systemUptime
-        if let opened = TabPress.openedAt, now - opened < TabDrag.pressed,
-           let came = browser.cameFrom, came.at >= opened, let before = came.id,
-           browser.visibleTabIDs.contains(tab.id), !browser.visibleTabIDs.contains(before),
-           browser.tabs.contains(where: { $0.id == before }) {
-            putAway = before
-        }
-        // Escape is the drag's only while the button is down. A gesture
-        // taken away mid-drag never says it ended, and its monitor stayed
-        // to eat the next Escape anywhere, one meant for a video's full
-        // screen too, which then took two.
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, NSEvent.pressedMouseButtons & 1 != 0,
-                  let self, self.gestureTab != nil else { return event }
-            self.cancel()
-            return nil
-        }
+        // the page as it is. Escape is the carry's, as every carry's is
+        // (CarryGuard.escape).
+        putAway = PressBack.before(tab, in: browser)
     }
 
     /// The tab a drop would take when the drag picked up `tab`: of a pair,
@@ -321,24 +305,21 @@ final class TabDrag: ObservableObject {
         gestureTab === tab ? sourceTab : nil
     }
 
-    /// The gesture carrying `tab` was taken away mid-drag (see CarryGuard):
-    /// what it showed goes, and its Escape with it.
+    /// The gesture carrying `tab` was taken away mid-drag, or called off
+    /// with Escape (see CarryGuard): what it showed goes.
     func callOff(_ tab: Tab) {
         guard gestureTab === tab else { return }
         clear()
     }
 
+    /// The carry called off: its row hears it (Carried) and puts it back.
     func cancel() {
-        // The monitor goes first: a drag whose tab has gone has nothing to
-        // cancel, and kept, its monitor would go on asking.
-        removeMonitor()
         guard let gestureTab else { return }
         cancelledID = gestureTab.id
         preview = nil
         over = nil
         showSeparation(nil)
         target = .cancelled
-        removeMonitor()
     }
 
     /// The hand over the carried tab's own page (or its pair's): the page
@@ -370,12 +351,6 @@ final class TabDrag: ObservableObject {
         sourceTab = nil
         putAway = nil
         target = .outside
-        removeMonitor()
-    }
-
-    private func removeMonitor() {
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
     }
 
     /// The page under the hand, anywhere on it, that the carried tab could

@@ -79,7 +79,7 @@ final class TabShortcutHintTests: XCTestCase {
         // Each new tab after the last, so they stand in the order made.
         prefs.newTabPlace = .next
         for number in 1...11 {
-            if number > 1 { browser.newTab() }
+            if number > 1 || browser.tabs.isEmpty { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(number)")!, title: "Tab \(number)")
         }
         let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 900, height: 600),
