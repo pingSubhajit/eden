@@ -196,13 +196,22 @@ enum HeldPins {
         guard held.contains(where: lost) else { return held }
         let order = ColumnTree.ordered(stored().filter { $0.listed == true }, group: \.group, groups: groups).map(\.id)
         let place = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        // The nearest row present before each place, in one walk: looked
+        // for back from each group lost, many groups after many rows
+        // held walked those rows once a group.
+        var before: [UUID?] = []
+        var last: UUID?
+        for id in order {
+            before.append(last)
+            if present.contains(id) { last = id }
+        }
         return held.map { held in
             guard lost(held) else { return held }
             var held = held
             let after: UUID? = if case .after(let id)? = held.stands { id } else { nil }
             let from = after.flatMap { place[$0] } ?? held.rows.compactMap { place[$0] }.min() ?? 0
-            let before = order[..<min(from, order.count)].last { present.contains($0) }
-            held.stands = before.map(HeldGroup.Stand.after) ?? .first
+            let nearest = from < before.count ? before[from] : last
+            held.stands = nearest.map(HeldGroup.Stand.after) ?? .first
             return held
         }
     }

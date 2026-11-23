@@ -267,6 +267,29 @@ final class PinCostTests: XCTestCase {
         print("PIN-COST tabs.groups of 1500 held rows: \(Self.ms(grouping)) ms")
     }
 
+    /// 750 rows held in 15 folded folders, then one pinned row, then 750
+    /// folded folders of one row held each, standing after it: unpinned,
+    /// each of those folders has lost the row it stood after, and is put
+    /// after the nearest row before it (HeldPins.resolved).
+    func testMeasureManyFoldersLosingTheRowTheyStoodAfter() async throws {
+        let browser = makeBrowser()
+        let nodes = Self.folders(15, of: 50, site: "pin-cost-before")
+            + [Bookmark(title: "The row", url: "https://pin-cost-row.example/", children: nil)]
+            + (0..<750).map { n in
+                Bookmark(title: "After \(n)", url: nil,
+                         children: [Bookmark(title: "Page \(n)", url: "https://pin-cost-after-\(n).example/", children: nil)])
+            }
+        browser.pinShelf.take(nodes, into: nil)
+        for group in browser.keptGroups where !group.collapsed { browser.setGroupFolded(group.id, true) }
+        let row = try XCTUnwrap(browser.tabs.first { $0.pin != nil && $0.listed })
+        let began = CACurrentMediaTime()
+        browser.unpin(row)
+        _ = browser.keptItems()
+        let losing = CACurrentMediaTime() - began
+        XCTAssertEqual(browser.keptGroups.count, 765)
+        print("PIN-COST 750 folders losing the row they stood after, unpinned and drawn: \(Self.ms(losing)) ms")
+    }
+
     /// The same 1,500 brought in from a bookmarks file, as Import does it.
     func testMeasureFifteenHundredPinsFromAFile() async throws {
         let first = makeBrowser()
