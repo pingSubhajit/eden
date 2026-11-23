@@ -39,15 +39,36 @@ enum Typeface {
         return .custom(name, fixedSize: size)
     }
 
-    /// The PostScript name of the Astheric Extra Light this device has, if it
-    /// has one. Looked up once.
-    static let displayName: String? = candidates.first(where: isInstalled)
+    /// The PostScript name of the Astheric Extra Light this app can draw in.
+    /// Looked up once, after the app's own copy is registered, so it is
+    /// there on every device and not only one that has it installed.
+    static let displayName: String? = {
+        register(facesIn: Bundle.main.resourceURL?.appendingPathComponent(folder, isDirectory: true))
+        return candidates.first(where: isInstalled)
+    }()
 
-    /// The licensed face first, then the trial copy installed on the owner's
-    /// Mac, which stands in until the licensed files are bundled.
-    /// TODO(type): bundle the licensed files in both apps and drop the trial
-    /// copy's name (TODO.md, #38).
+    /// Where both apps keep their copy, in their resources: brand/Fonts in
+    /// the repository, copied in by the Mac's build.sh and by the iPhone's
+    /// project as a folder.
+    static let folder = "Fonts"
+
+    /// The licensed face's name first, so its file only has to replace the
+    /// trial copy in brand/Fonts, then the trial copy the apps carry for now.
     static let candidates = ["Astheric-ExtraLight", "FONTSPRINGDEMO-AsthericVariableExtLtRegular"]
+
+    /// Makes every font file in `folder` usable by name in this process only:
+    /// nothing is installed on the device. A file that fails to register,
+    /// one registered already or one that isn't a font, is left as it is:
+    /// the lookup after this checks which faces are really there, and falls
+    /// back when Astheric isn't one of them.
+    static func register(facesIn folder: URL?) {
+        guard let folder,
+              let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        else { return }
+        for file in files {
+            CTFontManagerRegisterFontsForURL(file as CFURL, .process, nil)
+        }
+    }
 
     /// CoreText hands back another font for a name it doesn't have, so a
     /// face is there only when the font made by its name has that name.
