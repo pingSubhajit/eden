@@ -7,9 +7,9 @@ or brought forward, everything removed afterwards. As Arc keeps a folder's
 tabs: ⌘W (the bench's `closeTab`, the user's Close Tab) on a tab in a group
 lets its page go and leaves its row in the group, asleep, at the page it was
 on; going to it opens that page again. Asked of a row already put away, it
-goes for good and ⇧⌘T brings it back into its group. A tab in no group and
-Close Other Tabs still close for real (Close Group: close_group.py). A page
-of a pair in a group is put away out of its pair.
+goes for good and ⇧⌘T brings it back into its group. A tab in no group still
+closes for real, and Close Other Tabs closes only those (Close Group:
+close_group.py). A page of a pair in a group is put away out of its pair.
 """
 import sys
 import time
@@ -83,12 +83,15 @@ def main():
         t.ok("…d put away in Work", (by(s, d) or {}).get("asleep") is True and gid(s, d) != "", by(s, d))
         t.ok("…a still open, in Work", (by(s, a) or {}).get("asleep") is False and gid(s, a) != "", by(s, a))
 
-        # Close Other Tabs keeps its meaning: the others close, grouped too.
+        # Close Other Tabs closes what Clear would: tabs in no group. The
+        # groups' tabs stay where they are, as pins do (#41).
         e = sv.page("e")
-        s = st(); others = [x["id"] for x in s["tabs"] if x["id"] != e]
+        s = st(); grouped = [x["id"] for x in s["tabs"] if x["id"] != e and gid(s, x["id"]) != ""]
         sv.sp("closeOthers", id=e); time.sleep(0.6); s = st()
-        t.ok("Close Other Tabs: the group's other tabs close for real", [x["id"] for x in s["tabs"]] == [e],
-             ([x["id"] for x in s["tabs"]], others))
+        left = [x["id"] for x in s["tabs"]]
+        t.ok("Close Other Tabs: the groups' tabs stay", all(g in left for g in grouped), (left, grouped))
+        t.ok("Close Other Tabs: no other tab in no group is left",
+             all(x == e or gid(s, x) != "" for x in left), left)
 
     finally:
         t.done(); sv.finish()

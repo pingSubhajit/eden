@@ -11,7 +11,7 @@ Then the same with Settings › General › Start with a fresh window on, which
 is where they were lost (Varun, 1.0.5): a fresh start kept each space's pins
 and nothing else, so every folder Arc had went at the next launch. Now it
 keeps what tabs that close themselves keep: pins, groups, named tabs. And a
-space gone to after a fresh start opens on an empty tab, not its first pin.
+space gone to after a fresh start opens with nothing in front, not its first pin.
 
 Nothing here makes, shows or brings forward a window.
 """
@@ -131,8 +131,8 @@ def run(t, fresh):
                 if turn == 1:
                     st = sv.sp("state")
                     f = next((x for x in st["tabs"] if x["id"] == st["activeID"]), None)
-                    t.ok(f"{tag}relaunch {turn}: {name} opens on an empty tab, not its pin",
-                         f is not None and f["blank"] and f["id"] not in st["pins"], (f, st["pins"]))
+                    t.ok(f"{tag}relaunch {turn}: {name} opens with nothing in front, not its pin, and no empty tab",
+                         f is None and not any(x["blank"] for x in st["tabs"]), (f, st["pins"]))
             else:
                 t.ok(f"{tag}relaunch {turn}: {name}'s loose page is still there", loose, [x["title"] for x in tabs])
     sv.finish()

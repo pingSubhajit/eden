@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""A link's small window comes alone, and is the default for a new install
-only (Little.swift, Preferences.settleLittleLinks), in a hidden probe.
+"""A link's small window comes alone, and is always on (Little.swift), in a
+hidden probe.
 
 Build first (`./build.sh`), then `python3 Tests/little_alone.py`. It uses the
 split suite's harness in a world of its own (little-alone): started hidden,
@@ -14,8 +14,8 @@ pasteboard.
 - A link while the app is hidden, as ⌘H leaves it (a probe always starts
   hidden): its small window, and the browser's window kept away rather than
   shown again with it.
-- A new install (no line from an earlier launch) has small windows on; one
-  from before (sv.setup writes "welcomed") keeps them off, written down.
+- Small windows are on for every install, one from before (sv.setup writes
+  "welcomed") with the old switch off included, and the switch's line goes.
 """
 import os
 import subprocess
@@ -80,20 +80,14 @@ try:
          and any(f"{sv.BASE}/hidden" in w["tabs"] for w in st["windows"]), st)
     sv.quit()
 
-    # The default: off for an install from before, on for a new one.
-    sv.setup(); sv.launch(); sv.quit()
-    t.ok("an install from before: written down off", setting("links.little") == "0", setting("links.little"))
-    sv.setup()
-    subprocess.run(["defaults", "delete", sv.SUITE, "welcomed"], capture_output=True)
-    sv.launch()
-    windows(action="link", url=f"{sv.BASE}/new"); time.sleep(1)
+    # Always on (#41): an install from before, its old switch off, gets a
+    # small window too, and the switch's line is gone.
+    sv.setup(**{"links.little": False}); sv.launch()
+    windows(action="link", url=f"{sv.BASE}/old"); time.sleep(1)
     st = windows()
-    t.ok("a new install: the link gets a small window", st["littles"] == [f"{sv.BASE}/new"], st["littles"])
+    t.ok("an install from before: the link gets a small window", st["littles"] == [f"{sv.BASE}/old"], st["littles"])
     sv.quit()
-    t.ok("written down on", setting("links.little") == "1", setting("links.little"))
-    subprocess.run(["defaults", "write", sv.SUITE, "welcomed", "-bool", "true"])
-    sv.launch(); sv.quit()
-    t.ok("and still on at the next launch", setting("links.little") == "1", setting("links.little"))
+    t.ok("and the old switch's line is gone", setting("links.little") is None, setting("links.little"))
 finally:
     t.done(); sv.finish()
 sys.exit(1 if t.failed else 0)

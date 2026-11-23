@@ -64,21 +64,22 @@ def main():
         t.ok("the page you were on is in front again", front == "m6", front)
 
         # Clear, then Close Group, then ⇧⌘T twice: the group's undo first,
-        # then the Clear's, which still takes away the empty tab it left.
+        # then the Clear's. Clear makes no tab in place of what it closed.
         # From d, outside any group: a page opened from a grouped tab joins
         # its group, and Clear would leave it.
         sv.sp("select", id=d); z = sv.page("z")
         st = sv.sp("state")
         t.ok("z is in no group", st["groupIDs"][[x["id"] for x in st["tabs"]].index(z)] == "", st["groupIDs"])
         sv.sp("clear")
-        blanks = [x["id"] for x in sv.sp("state")["tabs"] if x["blank"]]
-        t.ok("Clear leaves an empty tab in front", len(blanks) == 1 and sv.sp("state")["activeID"] == blanks[0], blanks)
+        st = sv.sp("state")
+        blanks = [x["id"] for x in st["tabs"] if x["blank"]]
+        t.ok("Clear makes no empty tab", blanks == [] and z not in sv.order(st) and d not in sv.order(st), (blanks, sv.order(st)))
         sv.cmd({"do": "group", "close": True, "name": "Work"})
         sv.sp("reopen"); sv.sp("reopen")
         st = sv.sp("state")
         names = [x["url"].rsplit("/", 1)[-1] for x in st["tabs"] if not x["blank"]]
         t.ok("both undone: Work and the cleared tabs are back", any(g["name"] == "Work" for g in groups()) and "z" in names and "d" in names, (groups(), names))
-        t.ok("…and the empty tab the Clear left is gone", not any(x["blank"] for x in st["tabs"]), [x["id"] for x in st["tabs"] if x["blank"]])
+        t.ok("…and still no empty tab", not any(x["blank"] for x in st["tabs"]), [x["id"] for x in st["tabs"] if x["blank"]])
     finally:
         t.done(); sv.finish()
     sys.exit(1 if t.failed else 0)

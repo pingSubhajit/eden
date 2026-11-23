@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Menu commands and Settings pages in the address field, in a hidden probe.
 
-Build first (`./build.sh`), then `python3 Tests/command_bar.py`. Off unless
-Address bar commands is on; then words typed find the menu's commands and
-Settings' pages, under everything else, with their keys.
+Build first (`./build.sh`), then `python3 Tests/command_bar.py`. Always on
+(#41): words typed find the menu's commands and Settings' pages, under
+everything else, with their keys, whatever an older install had written.
 """
 import sys
 import time
@@ -30,12 +30,9 @@ def text(o): return " ".join(str(x) for x in o)
 
 
 try:
+    # Off as an older install wrote it: the switch is gone, so it counts
+    # for nothing.
     sv.setup(commandbar=False); sv.launch()
-    sv.page("a")
-    t.ok("off: no command for 'hide el'", not any("Hide Elements" in text(o) for o in typed("hide el")))
-    sv.quit()
-
-    sv.setup(commandbar=True); sv.launch()
     sv.page("a")
     offers = typed("hide el")
     found = [o for o in commands(offers) if "Hide Elements" in text(o)]
