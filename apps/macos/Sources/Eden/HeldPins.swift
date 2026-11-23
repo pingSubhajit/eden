@@ -280,6 +280,58 @@ enum HeldPins {
     }
 }
 
+/// A window's pinned tabs, found for each pin in one walk of the row, as
+/// Browser.reconcilePins looks for them: by the pin's id; else a tab whose
+/// pin was merged into this one on another device, by its page; else one
+/// from before pins had ids, by letter and page, then by place. Each way is
+/// indexed once, so a row with pins held as data among its tabs, every one
+/// of them looked for and not found, costs one walk rather than one a pin.
+@MainActor
+struct PinnedTabs {
+    private var byID: [UUID: Tab] = [:]
+    /// Each list in reverse, so its first in the row is its last.
+    private var merged: [String: [Tab]] = [:]
+    private var lettered: [String: [Tab]] = [:]
+    private var unnamed: [Tab] = []
+    private var taken = Set<ObjectIdentifier>()
+    private let row: [Tab]
+
+    /// `live`: the pins the row is made from; a tab whose pin isn't among
+    /// them was merged into another.
+    init(_ row: [Tab], live: Set<UUID>) {
+        self.row = row
+        for tab in row.reversed() {
+            if let id = tab.pinID {
+                byID[id] = tab
+                if !live.contains(id), let home = tab.home { merged[PinDef.page(home), default: []].append(tab) }
+            } else {
+                lettered[Self.key(tab.pin, tab.home?.absoluteString ?? ""), default: []].append(tab)
+                unnamed.append(tab)
+            }
+        }
+    }
+
+    /// The tab for `def`, taken so no other pin has it.
+    mutating func take(for def: PinDef, home: URL?) -> Tab? {
+        var found = byID[def.id].flatMap { taken.contains(ObjectIdentifier($0)) ? nil : $0 }
+        if found == nil, let home { found = Self.first(&merged[PinDef.page(home), default: []], skipping: taken) }
+        if found == nil { found = Self.first(&lettered[Self.key(def.letter, def.home), default: []], skipping: taken) }
+        if found == nil { found = Self.first(&unnamed, skipping: taken) }
+        if let found { taken.insert(ObjectIdentifier(found)) }
+        return found
+    }
+
+    /// The tabs no pin took.
+    var left: [Tab] { row.filter { !taken.contains(ObjectIdentifier($0)) } }
+
+    private static func key(_ letter: String?, _ home: String) -> String { (letter ?? "") + "\u{0}" + home }
+
+    private static func first(_ list: inout [Tab], skipping taken: Set<ObjectIdentifier>) -> Tab? {
+        while let last = list.last, taken.contains(ObjectIdentifier(last)) { list.removeLast() }
+        return list.popLast()
+    }
+}
+
 extension Browser {
     /// The pins of a space's own rows held as data when their tab holds
     /// nothing: every row in a folded kept group. Not those every space

@@ -3441,27 +3441,17 @@ final class Browser: NSObject, ObservableObject {
         let folded = Set(groups.filter(\.collapsed).map(\.id))
         let pinned = row.filter { $0.pin != nil && !$0.shy }
         let loose = row.filter { $0.pin == nil || $0.shy }
-        // Looked up by id rather than walked for each pin: walking the row
-        // for each of fifteen hundred took a third of a second in a test
-        // build, in every window, on every change to a pin.
-        var byID: [UUID: Tab] = [:]
-        for tab in pinned.reversed() { if let id = tab.pinID { byID[id] = tab } }
-        var taken = Set<ObjectIdentifier>()
+        // Found in one walk of the row (PinnedTabs): walking it again for
+        // each pin, every pin held as data among them, took a third of a
+        // second for fifteen hundred in a test build, in every window, on
+        // every change to a pin.
+        var tabsFor = PinnedTabs(pinned, live: Set(defs.map(\.id)))
         var out: [Tab] = []
         var shown = Set<UUID>()
-        let live = Set(defs.map(\.id))
         let ordered = defs.filter { $0.listed != true } + defs.filter { $0.listed == true && sharedIDs.contains($0.id) } + own
         for def in ordered {
             let home = URL(string: def.home)
-            let rest = pinned.lazy.filter { !taken.contains(ObjectIdentifier($0)) }
-            let found = byID[def.id].flatMap { taken.contains(ObjectIdentifier($0)) ? nil : $0 }
-                // Its pin merged into this one, of the same page, on another
-                // device (SyncItems.applyPins): this one's tab now, page,
-                // history and all, rather than closed for a new one.
-                ?? rest.first { tab in tab.pinID.map { !live.contains($0) } == true && PinDef.samePage(tab.home, home) }
-                ?? rest.first { $0.pinID == nil && $0.pin == def.letter && ($0.home?.absoluteString ?? "") == def.home }
-                ?? rest.first { $0.pinID == nil }
-            if let found { taken.insert(ObjectIdentifier(found)) }
+            let found = tabsFor.take(for: def, home: home)
             let holds = def.listed == true && !sharedIDs.contains(def.id) && def.group.map(folded.contains) == true
                 && !opening.contains(def.id)
             if holds, found.map({ $0.holdsNothing && !keeping.contains($0.id) }) ?? true {
@@ -3490,7 +3480,7 @@ final class Browser: NSObject, ObservableObject {
             if tab.home != home { tab.home = home }
             out.append(tab)
         }
-        for gone in pinned where !taken.contains(ObjectIdentifier(gone)) { gone.close() }
+        for gone in tabsFor.left { gone.close() }
         let held = HeldPins.hold(own, groups: groups) { shown.contains($0.id) }
         heldPins[space] = held.isEmpty ? nil : held
         if space == spaceID, !standIns.isEmpty {

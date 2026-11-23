@@ -4,9 +4,10 @@
 Build first (`./build.sh`), then `python3 Tests/pin_cost.py`. Brings in a
 bookmarks file of 1,500 pages in 30 folders, as Import does, into the one
 folder named after the file, folded (it comes in folded); then opens a
-second window, and renames the folder with both open. Prints how long each
-took, as PIN-COST lines, and checks that the folded folder's rows are kept
-as pins, not tabs, in either window. Nothing is shown: a hidden app draws
+second window, and renames the folder with both open, then again with 750
+more rows unfolded beside them, which are tabs. Prints how long each took,
+as PIN-COST lines, and checks that the folded folder's rows are kept as
+pins, not tabs, in either window. Nothing is shown: a hidden app draws
 nothing, so what is timed is the windows' own work, not drawing it
 (PinCostTests times that).
 """
@@ -35,18 +36,26 @@ def windows(**f):
 
 
 folder = Path(tempfile.mkdtemp(prefix="eden-pin-cost-"))
-try:
-    sv.setup(); sv.launch()
+
+
+def bookmarks(name, site, pages):
+    """A bookmarks file of `pages` pages in FOLDERS folders, as one exports."""
     html = ["<DL><p>"]
     for f in range(FOLDERS):
         html.append(f"<DT><H3>Folder {f}</H3><DL><p>")
-        for p in range(PAGES // FOLDERS):
-            n = f * (PAGES // FOLDERS) + p
-            html.append(f'<DT><A HREF="https://pin-cost-{n}.example/">Page {n}</A>')
+        for p in range(pages // FOLDERS):
+            n = f * (pages // FOLDERS) + p
+            html.append(f'<DT><A HREF="https://{site}-{n}.example/">Page {n}</A>')
         html.append("</DL><p>")
     html.append("</DL>")
-    file = folder / "Pin Cost.html"
+    file = folder / f"{name}.html"
     file.write_text("\n".join(html))
+    return file
+
+
+try:
+    sv.setup(); sv.launch()
+    file = bookmarks("Pin Cost", "pin-cost", PAGES)
 
     began = time.time()
     took = sv.cmd({"do": "import-file", "path": str(file)})
@@ -70,9 +79,21 @@ try:
     pf(action="rename", name="Pin Cost Bookmarks", to="Kept")
     renamed = time.time() - began
 
+    # Half as many again on show beside them, in a folder unfolded: the
+    # pins held are looked for among 750 tabs each time the pins change.
+    sv.cmd({"do": "import-file", "path": str(bookmarks("Pin Cost Open", "pin-cost-open", PAGES // 2))})
+    pf(action="open", name="Pin Cost Open Bookmarks")
+    listed = sv.cmd({"do": "windows"})
+    shown = [len(w["tabs"]) for w in listed["windows"]]
+    t.ok("an unfolded folder's rows are tabs in both windows", min(shown) >= PAGES // 2, shown)
+    began = time.time()
+    pf(action="rename", name="Kept", to="Kept Again")
+    mixed = time.time() - began
+
     print(f"PIN-COST import of {PAGES}: {imported * 1000:.0f} ms")
     print(f"PIN-COST another window: {opening * 1000:.0f} ms; tabs in each window: {tabs}")
     print(f"PIN-COST the folder renamed, both windows following: {renamed * 1000:.0f} ms")
+    print(f"PIN-COST with {PAGES // 2} more unfolded, the folder renamed, both following: {mixed * 1000:.0f} ms; tabs: {shown}")
 finally:
     t.done(); sv.finish()
     shutil.rmtree(folder, ignore_errors=True)

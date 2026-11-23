@@ -312,6 +312,37 @@ final class HeldPinsTests: XCTestCase {
 
     // MARK: - working it out
 
+    /// A row's tabs found for its pins as reconcilePins always looked for
+    /// them, each way indexed once: by id, a tab whose pin merged into this
+    /// one by its page, one from before ids by letter and page, then by
+    /// place; none taken twice, and those left over left.
+    func testPinnedTabsAreFoundEachWayOnce() throws {
+        func tab(_ pin: UUID?, letter: String, home: String) throws -> Eden.Tab {
+            let tab = Eden.Tab()
+            tab.pinID = pin
+            tab.pin = letter
+            tab.home = try XCTUnwrap(URL(string: home))
+            return tab
+        }
+        let p1 = UUID(), p2 = UUID(), p3 = UUID(), p4 = UUID(), gone = UUID()
+        let byID = try tab(p1, letter: "A", home: "https://a.example/")
+        let merged = try tab(gone, letter: "B", home: "https://b.example/")
+        let lettered = try tab(nil, letter: "C", home: "https://c.example/")
+        let placed = try tab(nil, letter: "D", home: "https://d.example/")
+        let spare = try tab(UUID(), letter: "E", home: "https://e.example/")
+        func def(_ id: UUID, _ letter: String, _ home: String) -> PinDef {
+            PinDef(id: id, letter: letter, home: home, title: letter, name: nil)
+        }
+        var found = PinnedTabs([placed, lettered, merged, byID, spare], live: [p1, p2, p3, p4, spare.pinID ?? UUID()])
+        XCTAssertTrue(found.take(for: def(p1, "A", "https://a.example/"), home: URL(string: "https://a.example/")) === byID)
+        XCTAssertTrue(found.take(for: def(p2, "B", "https://b.example"), home: URL(string: "https://b.example")) === merged,
+                      "the same page, its trailing slash aside")
+        XCTAssertTrue(found.take(for: def(p3, "C", "https://c.example/"), home: URL(string: "https://c.example/")) === lettered)
+        XCTAssertTrue(found.take(for: def(p4, "Z", "https://z.example/"), home: URL(string: "https://z.example/")) === placed)
+        XCTAssertNil(found.take(for: def(UUID(), "Y", "https://y.example/"), home: URL(string: "https://y.example/")))
+        XCTAssertEqual(found.left.map(\.id), [spare.id])
+    }
+
     func testHeldGroupsStandAfterTheRowBeforeThem() {
         let work = TabGroup(id: UUID(), name: "Work", collapsed: true)
         let docs = TabGroup(id: UUID(), name: "Docs", collapsed: true)

@@ -85,6 +85,40 @@ final class PinCostTests: XCTestCase {
         XCTAssertEqual(Pins.defs(first.spaceID).count, 1_500)
     }
 
+    /// Half of them on show: 750 rows in 15 open folders are tabs, 750 in
+    /// 15 folded ones are held. Every pin held is looked for among the tabs
+    /// and not found, which is what a window does each time the pins change.
+    func testMeasureHalfOfThemUnfolded() async throws {
+        let first = makeBrowser()
+        host(first)
+        try await settle()
+        first.pinShelf.take(Self.folders(30, of: 50), into: nil)
+        for (n, group) in first.keptGroups.enumerated() { first.setGroupFolded(group.id, n.isMultiple(of: 2)) }
+        first.writeSession(now: true)
+        try await settle()
+        XCTAssertEqual(first.tabs.filter { $0.pin != nil }.count, 750)
+
+        var began = CACurrentMediaTime()
+        let second = makeBrowser()
+        let making = CACurrentMediaTime() - began
+        host(second)
+        drain()
+        try await settle()
+
+        began = CACurrentMediaTime()
+        for _ in 0..<10 { first.pinsChanged(in: first.spaceID) }
+        let reading = (CACurrentMediaTime() - began) / 10
+
+        let renamed = try XCTUnwrap(Pins.defs(first.spaceID).first)
+        began = CACurrentMediaTime()
+        first.pinShelf.update(renamed.id, title: "Renamed", url: nil)
+        let following = CACurrentMediaTime() - began
+
+        print("PIN-COST half unfolded, new window: \(Self.ms(making)) ms made; tabs: \(second.tabs.count)")
+        print("PIN-COST half unfolded, the pins read again: \(Self.ms(reading)) ms a time")
+        print("PIN-COST half unfolded, a pin renamed, both windows following: \(Self.ms(following)) ms")
+    }
+
     /// 750 folded folders of two rows each, every row held, so the window
     /// has no tab in any of them: what putting its pins in order again
     /// costs (Browser.reconcilePins, as every window does on any change
