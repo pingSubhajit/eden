@@ -440,7 +440,7 @@ enum TabHoverCard {
     /// (Browser.standIns), four in all.
     fileprivate static func collage(_ id: UUID, in browser: Browser) -> [Tab] {
         let shown = recent(browser.members(ofGroup: id), in: browser)
-        return shown + browser.standIns(ofGroup: id, count: 4 - shown.count)
+        return shown + browser.standIns(for: Array(browser.heldRows(ofGroup: id).prefix(4 - shown.count)))
     }
 
     /// The cards the frame has left, once they have faded.

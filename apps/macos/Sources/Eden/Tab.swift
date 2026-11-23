@@ -287,7 +287,9 @@ struct ReadingFill: View {
 
 @MainActor
 final class Tab: ObservableObject, Identifiable {
-    let id = UUID()
+    /// Its own, or, for a pinned row's tab made again after it was held as
+    /// data, the one it had before (Browser.pinTabID).
+    let id: UUID
 
     /// The page. Built the first time anyone asks for it, not when the tab
     /// is — a session of twenty tabs coming back is twenty objects, not
@@ -1000,7 +1002,8 @@ final class Tab: ObservableObject, Identifiable {
     /// session or a copied tab passes on as its own.
     var titleIsOwn: Bool { titleVouched && !wasTranslated }
 
-    init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil) {
+    init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil, id: UUID? = nil) {
+        self.id = id ?? UUID()
         self.shy = shy
         self.bench = bench
         self.configuration = configuration ?? Web.configuration(shy: shy)

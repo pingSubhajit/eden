@@ -4312,7 +4312,7 @@ enum ExtensionShims {
     /// extensions see it, and `w`, that window's frame from windows.getAll()
     /// (see Extensions.tab(windowFrame:index:)). A bare number, or no frame,
     /// is only understood while there is one window.
-    private static func located(_ place: Any?, context: WKWebExtensionContext, owner: Extensions) -> Tab? {
+    private static func located(_ place: Any?, context: WKWebExtensionContext, owner: Extensions) -> ExtensionTab? {
         let spec = place as? [String: Any]
         guard let index = (place as? NSNumber)?.intValue ?? (spec?["i"] as? NSNumber)?.intValue else { return nil }
         let number = { (value: Any?) in (value as? NSNumber)?.doubleValue }
@@ -4322,7 +4322,7 @@ enum ExtensionShims {
                              address: spec?["u"] as? String, for: context)
         }
         guard Browsers.all.count <= 1 else { return nil }
-        let visible = owner.visibleTabs(for: context)
+        let visible = owner.visibleRows(for: context)
         return visible.indices.contains(index) ? visible[index] : nil
     }
 
@@ -4330,8 +4330,8 @@ enum ExtensionShims {
     private static var favIcons: [ObjectIdentifier: (icon: NSImage, url: String)] = [:]
     static func forgetIcons() { favIcons.removeAll() }
 
-    private static func favIconURL(_ tab: Tab) -> String? {
-        guard let icon = tab.icon ?? Favicons.shared.cached(for: tab.address, shy: tab.shy) else { return nil }
+    private static func favIconURL(icon: NSImage?, address: URL?, shy: Bool) -> String? {
+        guard let icon = icon ?? Favicons.shared.cached(for: address, shy: shy) else { return nil }
         if let known = favIcons[ObjectIdentifier(icon)] { return known.url }
         let side = 32
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
@@ -4602,8 +4602,8 @@ enum ExtensionShims {
         case "sidePanel.getPanelBehavior":
             return ["openPanelOnActionClick": panelOnClick.contains(id)]
         case "sidePanel.placed":
-            if let number = first as? Int, let tab = located(args.dropFirst().first, context: context, owner: owner) {
-                panelTabIDs[id, default: [:]][number] = tab.id
+            if let number = first as? Int, let row = located(args.dropFirst().first, context: context, owner: owner) {
+                panelTabIDs[id, default: [:]][number] = row.id
             }
             return nil
         case "sidePanel.open":
@@ -4838,7 +4838,7 @@ enum ExtensionShims {
         case "action.popup":
             let path = first as? String ?? ""
             let index = args.dropFirst().first as? Int ?? -1
-            let visible = owner.visibleTabs(for: context)
+            let visible = owner.visibleRows(for: context)
             if index >= 0, visible.indices.contains(index) {
                 popups[id, default: [:]][visible[index].id.uuidString] = path
             } else {
@@ -4974,15 +4974,17 @@ enum ExtensionShims {
         case "tabs.describe":
             let places: [Any] = first as? [Any] ?? []
             return places.map { place -> Any in
-                guard let tab = located(place, context: context, owner: owner) else { return NSNull() }
+                guard let row = located(place, context: context, owner: owner) else { return NSNull() }
                 // Another extension's page stays blank, as WebKit keeps it
                 // (see the refusal in Extensions.load); its own are its own.
-                if let url = tab.address, let scheme = url.scheme?.lowercased(),
+                if let url = row.address, let scheme = url.scheme?.lowercased(),
                    [Extensions.scheme, Extensions.formerScheme].contains(scheme), url.host() != id {
                     return ["url": "", "title": ""]
                 }
-                var described: [String: Any] = ["url": tab.address?.absoluteString ?? "", "title": tab.title]
-                if let icon = favIconURL(tab) { described["favIconUrl"] = icon }
+                // A pinned row held as data, by its pin (HeldPins.swift).
+                var described: [String: Any] = ["url": row.address?.absoluteString ?? "",
+                                                "title": row.title(for: context) ?? ""]
+                if let icon = favIconURL(icon: row.tab?.icon, address: row.address, shy: row.shy) { described["favIconUrl"] = icon }
                 return described
             }
         // Which of these places hold a private tab, for the shim's incognito
@@ -4995,8 +4997,11 @@ enum ExtensionShims {
             }
             return places.map { located($0, context: context, owner: owner)?.shy == true }
         case "tabs.move", "tabs.discard", "tabs.activate":
-            guard let tab = located(first, context: context, owner: owner), let browser = owner.browser(of: tab) else { throw Unsupported(what: "No tab there") }
-            let visible = owner.visibleTabs(of: browser, for: context)
+            guard let row = located(first, context: context, owner: owner) else { throw Unsupported(what: "No tab there") }
+            // A pinned row held as data is at rest already (HeldPins.swift).
+            if api == "tabs.discard", row.tab == nil { return nil }
+            guard let tab = row.actingTab(), let browser = owner.browser(of: tab) else { throw Unsupported(what: "No tab there") }
+            let visible = owner.visibleRows(of: browser, for: context)
             switch api {
             case "tabs.move":
                 let wanted = args.dropFirst().first as? Int ?? -1
@@ -5132,7 +5137,7 @@ enum ExtensionShims {
         case "tabs.groups":
             let places: [Any] = first as? [Any] ?? []
             return places.map { place -> Int in
-                guard let tab = located(place, context: context, owner: owner),
+                guard let tab = located(place, context: context, owner: owner)?.tab,
                       let home = owner.browser(of: tab), let group = home.group(of: tab) else { return -1 }
                 return TabGroup.number(group)
             }
@@ -5162,7 +5167,12 @@ enum ExtensionShims {
             throw Unsupported(what: "Eden can't move a tab group for an extension")
         case "tabs.group":
             let places: [Any] = first as? [Any] ?? []
-            let tabs = places.compactMap { located($0, context: context, owner: owner) }
+            let rows = places.compactMap { located($0, context: context, owner: owner) }
+            // A pinned row held as data is a pin, refused as its tab is,
+            // and the whole call with it: left out, the rest were grouped
+            // and the call said done.
+            guard !rows.contains(where: \.isHeld) else { throw Unsupported(what: "Pinned and private tabs can't be grouped") }
+            let tabs = rows.compactMap(\.tab)
             guard !tabs.isEmpty else { throw Unsupported(what: "No tabs to group") }
             // A group is one window's, as in Chrome.
             guard let browser = owner.browser(of: tabs[0]), tabs.allSatisfy({ owner.browser(of: $0) === browser }) else {
@@ -5186,7 +5196,7 @@ enum ExtensionShims {
             return TabGroup.number(target)
         case "tabs.ungroup":
             let places: [Any] = first as? [Any] ?? []
-            for tab in places.compactMap({ located($0, context: context, owner: owner) }) {
+            for tab in places.compactMap({ located($0, context: context, owner: owner)?.tab }) {
                 owner.browser(of: tab)?.move(tab, toGroup: nil)
             }
             return nil

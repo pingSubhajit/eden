@@ -105,7 +105,7 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertTrue(group.collapsed)
         XCTAssertEqual(browser.heldRows(ofGroup: group.id).count, 120)
         XCTAssertEqual(rows(browser), [])
-        XCTAssertEqual(Tab.live.allObjects.filter { $0.pinID.map(browser.holds(pin:)) == true }.count, 0,
+        XCTAssertEqual(Tab.live.allObjects.filter { tab in tab.pinID.map { browser.holds(pin: $0) } == true }.count, 0,
                        "no tab made for them ahead, nor kept")
 
         browser.pinShelf.take([Bookmark(title: "Later", url: nil, children: [
@@ -229,14 +229,15 @@ final class HeldPinsTests: XCTestCase {
         let kept = try keep(browser)
         let offers = browser.openPages(matching: "w2")
         let offer = try XCTUnwrap(offers.first { $0.title.contains("w2.example") })
-        let pin = try XCTUnwrap(offer.tab)
-        XCTAssertTrue(browser.holds(pin: pin))
-        XCTAssertTrue(browser.openPages(matching: "").allSatisfy { !browser.holds(pin: $0.tab ?? UUID()) },
+        let id = try XCTUnwrap(offer.tab)
+        let pin = try XCTUnwrap(browser.heldPin(tab: id), "offered by the id its tab will have")
+        XCTAssertTrue(browser.openPages(matching: "").allSatisfy { browser.heldPin(tab: $0.tab ?? UUID()) == nil },
                       "nothing typed, only what is open")
 
         browser.take(offer)
         let tab = try XCTUnwrap(browser.active)
         XCTAssertEqual(tab.pinID, pin)
+        XCTAssertEqual(tab.id, id, "made under the id it was offered by")
         XCTAssertEqual(browser.keptGroups.first { $0.id == kept.work }?.collapsed, true, "its folder stays folded")
         XCTAssertEqual(described(browser), ["pin 0 A", "folder 0 Work", "pin 1 w2", "pin 0 B", "folder 0 Docs",
                                             "pin 1 d1", "pin 1 d2"])
@@ -293,6 +294,109 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertTrue(browser.move(try tab(browser, "w3"), to: ColumnPlace(area: .kept, index: 0)))
         XCTAssertEqual(saved(browser), ["w3", "A", "w2 Work", "B", "w1", "d1 Docs", "d2 Docs"], "Work where it stood")
         XCTAssertEqual(browser.heldRows(ofGroup: work).map(\.title), ["w2"])
+    }
+
+    // MARK: - as they were while tabs
+
+    /// A page handed over by another device, or a link with Settings'
+    /// "go to the tab that has it", goes to a held row of that page, made a
+    /// tab, as it went to the row's tab, rather than opening a second.
+    func testAPageFromElsewhereGoesToItsHeldRow() throws {
+        let browser = makeBrowser()
+        _ = try keep(browser)
+        let w2 = try XCTUnwrap(heldPin(browser, "w2"))
+        let url = try XCTUnwrap(URL(string: "https://w2.example/"))
+        XCTAssertTrue(browser.openHere.contains(History.identity(for: url)), "open here, as its tab was")
+        let count = browser.tabs.count
+        // As Handoff hands it over (Links.continuing).
+        let offer = Continuity.offer(url, title: "w2", info: nil)
+        XCTAssertTrue(browser.open(offer) === browser)
+        XCTAssertEqual(browser.active?.pinID, w2)
+        XCTAssertEqual(browser.tabs.count, count + 1, "its tab made, and no other")
+    }
+
+    /// A tab held on to as its folder folded is its row's tab again when
+    /// gone to, made under the same id; one not in the row at all is passed
+    /// by.
+    func testSelectingATabNoLongerInTheRow() throws {
+        let browser = makeBrowser()
+        let kept = try keep(browser)
+        browser.setGroupFolded(kept.work, false)
+        let stale = try XCTUnwrap(browser.tabs.first { $0.title == "w2" })
+        browser.setGroupFolded(kept.work, true)
+        XCTAssertFalse(browser.tabs.contains { $0 === stale })
+        browser.select(stale)
+        let made = try XCTUnwrap(browser.active)
+        XCTAssertFalse(made === stale)
+        XCTAssertEqual(made.id, stale.id, "the same tab, by its id")
+        XCTAssertEqual(made.pinID, stale.pinID)
+
+        let a = try XCTUnwrap(browser.tabs.first { $0.title == "A" })
+        browser.select(a)
+        let stranger = Eden.Tab()
+        stranger.restore(url: try XCTUnwrap(URL(string: "https://stranger.example/")), title: "Stranger")
+        browser.select(stranger)
+        XCTAssertEqual(browser.activeID, a.id, "a tab of no row isn't put in front")
+    }
+
+    /// A row in hand isn't let go to data while it is carried, though
+    /// another window folds its folder meanwhile: the carry can still put
+    /// it back where it was.
+    func testACarriedRowIsKeptThroughAFold() throws {
+        let first = makeBrowser()
+        let kept = try keep(first)
+        first.setGroupFolded(kept.work, false)
+        let second = makeBrowser()
+        let carried = try XCTUnwrap(first.tabs.first { $0.title == "w2" })
+        let ticket = UUID()
+        var ended = false
+        CarryGuard.open(ticket, tab: carried.id, end: { ended = true })
+        defer { CarryGuard.close(ticket) }
+        second.setGroupFolded(kept.work, true)
+        XCTAssertEqual(rows(first), ["A", "w2", "B", "d1", "d2"], "the others go to data, the one in hand stays")
+        XCTAssertTrue(first.tabs.contains { $0 === carried })
+        XCTAssertFalse(ended)
+        CarryGuard.close(ticket)
+        first.pinsChanged(in: first.spaceID)
+        XCTAssertEqual(rows(first), ["A", "B", "d1", "d2"], "put down, it goes too")
+    }
+
+    /// Two windows on one space each offer a held row by the id its tab will
+    /// have in that window, so the one it is taken from is the one it opens
+    /// in.
+    func testEachWindowOffersAHeldRowAsItsOwn() throws {
+        let older = makeBrowser()
+        _ = try keep(older)
+        let front = makeBrowser()
+        let mine = try XCTUnwrap(front.openPages(matching: "w2").first?.tab)
+        let theirs = try XCTUnwrap(older.openPages(matching: "w2").first?.tab)
+        XCTAssertNotEqual(mine, theirs)
+        XCTAssertTrue(front.hasTab(mine))
+        XCTAssertFalse(older.hasTab(mine))
+        XCTAssertNotNil(front.openTab(mine))
+        XCTAssertEqual(rows(front), ["A", "w2", "B", "d1", "d2"])
+        XCTAssertEqual(rows(older), ["A", "B", "d1", "d2"], "the other window holds it still")
+    }
+
+    /// Extensions see a held row as a tab at rest at its page, in its place,
+    /// under the id its tab has before and after the fold.
+    func testAHeldRowKeepsItsPlaceAndIdInTheRow() throws {
+        let browser = makeBrowser()
+        let kept = try keep(browser)
+        func described() -> [String] {
+            browser.placesInRow.map { place in
+                switch place {
+                case .tab(let tab): tab.title
+                case .held(let pin, _): "held " + (Pins.def(pin)?.title ?? "")
+                }
+            }
+        }
+        XCTAssertEqual(described().filter { !$0.isEmpty }, ["A", "held w1", "held w2", "held w3", "B", "d1", "d2"])
+        let held = browser.placesInRow.map(\.id)
+        browser.setGroupFolded(kept.work, false)
+        XCTAssertEqual(browser.placesInRow.map(\.id), held, "made tabs under the ids they were held by")
+        browser.setGroupFolded(kept.work, true)
+        XCTAssertEqual(browser.placesInRow.map(\.id), held, "and held again by them")
     }
 
     func testFolderTakenAwayOrCarriedBelowTheLineMakesItsRowsTabs() throws {
@@ -386,6 +490,19 @@ final class HeldPinsTests: XCTestCase {
     }
 
     // MARK: - the pieces
+
+    /// The pin of a held row by its title.
+    private func heldPin(_ browser: Browser, _ title: String) -> UUID? {
+        browser.heldRows.first { $0.title == title }?.id
+    }
+
+    /// A held row gone to, then put down out of sight from `back`.
+    private func go(to pin: UUID, in browser: Browser, then back: Eden.Tab) throws {
+        let tab = try XCTUnwrap(browser.showHeld(pin))
+        browser.select(tab)
+        browser.select(back)
+        browser.closeTab(tab)
+    }
 
     private func def(_ title: String, _ group: UUID? = nil) -> PinDef {
         PinDef(id: UUID(), letter: String(title.prefix(1)).uppercased(), home: "https://\(title.lowercased()).example/",

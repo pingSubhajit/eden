@@ -58,7 +58,9 @@ final class SidePanelPrivacyTests: XCTestCase {
     func testBackOnAnOrdinaryTabThePanelComesThrough() {
         let browser = Browser(record: WindowRecord())
         panelUp(in: browser)
-        let plain = Tab()
+        // With somewhere to be, so the row keeps it as the private tab comes:
+        // a tab no longer in the row isn't put in front (Browser.select).
+        let plain = page("plain")
         browser.receive(plain)
         browser.receive(Tab(shy: true))
         XCTAssertTrue(browser.sidePanelHeld)

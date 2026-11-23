@@ -1,6 +1,7 @@
 import AppKit
 import EdenCore
 import SwiftUI
+import WebKit
 import XCTest
 @testable import Eden
 
@@ -140,6 +141,37 @@ final class PinCostTests: XCTestCase {
         XCTAssertEqual(browser.keptGroups.count, 750)
         print("PIN-COST 750 folded folders of two, the pins put in order: \(Self.ms(ordering)) ms a time")
         print("PIN-COST 750 folded folders of two, the kept area drawn: \(Self.ms(drawing)) ms a time")
+    }
+
+    /// 1,500 rows held in folded folders, every one of them an extension's
+    /// adapter after a full chrome.tabs.query: the pins read again, as every
+    /// window does on any change to a pin, each time putting the adapters
+    /// right (Extensions.rowsSettled), and that alone.
+    func testMeasureAdaptersKeptRightThroughEveryRead() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let browser = makeBrowser()
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        browser.pinShelf.take(Self.folders(30, of: 50), into: nil)
+        for group in browser.keptGroups where !group.collapsed { browser.setGroupFolded(group.id, true) }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pin-cost-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let manifest: [String: Any] = ["manifest_version": 3, "name": "Pin cost", "version": "1", "permissions": ["tabs"]]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appendingPathComponent("manifest.json"))
+        let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: folder))
+        context.uniqueIdentifier = "pin-cost-\(UUID().uuidString)"
+        context.setPermissionStatus(.grantedExplicitly, for: .tabs)
+        XCTAssertEqual(Extensions.shared.visibleRows(of: browser, for: context).count, 1_500, "an adapter for every held row")
+
+        var began = CACurrentMediaTime()
+        for _ in 0..<10 { browser.pinsChanged(in: browser.spaceID) }
+        let reading = (CACurrentMediaTime() - began) / 10
+        began = CACurrentMediaTime()
+        for _ in 0..<10 { Extensions.shared.rowsSettled(in: browser) }
+        let settling = (CACurrentMediaTime() - began) / 10
+        print("PIN-COST 1500 held adapters, the pins read again: \(Self.ms(reading)) ms a time")
+        print("PIN-COST 1500 held adapters, kept right (rowsSettled): \(Self.ms(settling)) ms a time")
     }
 
     /// The same 1,500 brought in from a bookmarks file, as Import does it.

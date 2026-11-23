@@ -312,10 +312,97 @@ final class Extensions: NSObject, ObservableObject {
     // MARK: - the row, as WebKit sees it
 
     func adapter(for tab: Tab) -> ExtensionTab {
-        if let known = adapters[tab.id] { return known }
+        if let known = adapters[tab.id] {
+            // A pinned row's tab made again under the id it had (see
+            // HeldPins.swift): the same tab to an extension, now live, and
+            // watched anew (follow).
+            if known.tab !== tab {
+                known.live(tab)
+                watching[tab.id] = nil
+            }
+            return known
+        }
         let made = ExtensionTab(tab: tab, owner: self)
         adapters[tab.id] = made
         return made
+    }
+
+    /// The adapters of `browser`'s rows put right as soon as its pins have
+    /// been read again (Browser.pinsChanged), whatever made a row a tab or
+    /// let it go to data: an adapter left as it was until the row was next
+    /// followed answered a call made meanwhile as the row had been, a row
+    /// opened and unpinned by one call not found by the next.
+    ///
+    /// A row made a tab is watched at once, so what the call that made it
+    /// does next, unpinning it say, is told; a held row whose page its pin
+    /// now names otherwise (chrome.bookmarks.update, another device) is
+    /// told of its new address, as a tab's is.
+    func rowsSettled(in browser: Browser) {
+        guard !adapters.isEmpty else { return }
+        for tab in browser.tabs where tab.pinID != nil {
+            if let known = adapters[tab.id], known.tab !== tab {
+                known.live(tab)
+                heldShown[tab.id] = nil
+                watch(tab)
+            }
+        }
+        for pin in browser.heldPinIDs(in: browser.spaceID) {
+            guard let id = browser.pinTabIDs[pin], let known = adapters[id] else { continue }
+            if known.tab != nil || known.heldPin != pin {
+                known.held(pin, in: browser)
+                watching[id] = nil
+                heldShown[id] = known.shown
+            }
+            let now = known.shown
+            if let was = heldShown[id] {
+                var changed: WKWebExtension.TabChangedProperties = []
+                if was.address != now.address { changed.insert(.URL) }
+                if was.title != now.title { changed.insert(.title) }
+                if !changed.isEmpty { for context in contexts.values { context.didChangeTabProperties(changed, for: known) } }
+            }
+            heldShown[id] = now
+        }
+    }
+
+    /// What each held row's adapter last showed of what can change while
+    /// it is held, its page and its title, from the moment it is made or
+    /// let go to data (rowsSettled): the first change after that is told
+    /// too. Pinned, its group and its place can't change while it is held.
+    private(set) var heldShown: [Tab.ID: ExtensionTab.Shown] = [:]
+
+    /// A pinned row of `browser` held as data in a folded folder (see
+    /// HeldPins.swift), as an extension sees it: a tab at rest at its page,
+    /// by the id its tab has when it is made, so folding and unfolding the
+    /// folder is nothing to an extension, and what it does to the row makes
+    /// its tab under the id it knew.
+    private func adapter(held pin: UUID, id: Tab.ID, in browser: Browser) -> ExtensionTab {
+        if let known = adapters[id] {
+            if known.heldPin != pin || known.tab != nil {
+                known.held(pin, in: browser)
+                watching[id] = nil
+                heldShown[id] = known.shown
+            }
+            return known
+        }
+        let made = ExtensionTab(held: pin, id: id, in: browser, owner: self)
+        adapters[id] = made
+        heldShown[id] = made.shown
+        return made
+    }
+
+    /// A window's row as extensions see it: its tabs, and its pinned rows
+    /// held as data in their places among them (Browser.placesInRow), as
+    /// adapters. WebKit's indices and the shim's places count in this list.
+    func visibleRows(of browser: Browser, for context: WKWebExtensionContext? = nil) -> [ExtensionTab] {
+        browser.placesInRow.compactMap { place -> ExtensionTab? in
+            switch place {
+            case .tab(let tab):
+                guard context.map({ seen(tab, for: $0) }) ?? seen(tab) else { return nil }
+                return adapter(for: tab)
+            case .held(let pin, let id):
+                return adapter(held: pin, id: id, in: browser)
+            }
+        }
     }
 
     /// Private tabs keep nothing and show nothing to an extension you haven't
@@ -327,15 +414,15 @@ final class Extensions: NSObject, ObservableObject {
         seen(tab) && (!tab.shy || context.hasAccessToPrivateData)
     }
 
-    /// A window's tabs as this extension sees them. WebKit's indices and the
-    /// shim's places both count in this list.
+    /// A window's tabs as this extension sees it, those it can act on:
+    /// not its pinned rows held as data (visibleRows), which have none.
     func visibleTabs(of browser: Browser, for context: WKWebExtensionContext) -> [Tab] {
         browser.tabs.filter { seen($0, for: context) }
     }
 
-    /// The first window's: what a bare tab index means.
-    func visibleTabs(for context: WKWebExtensionContext) -> [Tab] {
-        Browsers.primary.map { visibleTabs(of: $0, for: context) } ?? []
+    /// The first window's row: what a bare tab index means.
+    func visibleRows(for context: WKWebExtensionContext) -> [ExtensionTab] {
+        Browsers.primary.map { visibleRows(of: $0, for: context) } ?? []
     }
 
     /// Each extension's view of a row, from what WebKit has told it: a move's
@@ -357,7 +444,7 @@ final class Extensions: NSObject, ObservableObject {
     /// Two windows with one frame (one made over another, or profiles in
     /// one window) are told apart by the tab's address at that place, when
     /// the extension gave it (#872); still two, it is neither.
-    func tab(windowFrame frame: CGRect, index: Int, address: String? = nil, for context: WKWebExtensionContext) -> Tab? {
+    func tab(windowFrame frame: CGRect, index: Int, address: String? = nil, for context: WKWebExtensionContext) -> ExtensionTab? {
         let match = Browsers.all.filter { browser in
             guard let nsWindow = browser.window else { return false }
             let window = nsWindow.frame
@@ -365,14 +452,14 @@ final class Extensions: NSObject, ObservableObject {
             return abs(window.minX - frame.minX) <= 2 && abs((height - window.maxY) - frame.minY) <= 2
                 && abs(window.width - frame.width) <= 2 && abs(window.height - frame.height) <= 2
         }
-        let found = match.compactMap { browser -> Tab? in
-            let tabs = visibleTabs(of: browser, for: context)
-            return tabs.indices.contains(index) ? tabs[index] : nil
+        let found = match.compactMap { browser -> ExtensionTab? in
+            let rows = visibleRows(of: browser, for: context)
+            return rows.indices.contains(index) ? rows[index] : nil
         }
         if found.count == 1 { return found[0] }
         guard found.count > 1, let address else { return nil }
         let blank = address.isEmpty || address == "about:blank"
-        let same = found.filter { blank ? $0.isBlank : $0.address?.absoluteString == address }
+        let same = found.filter { blank ? $0.tab?.isBlank == true : $0.address?.absoluteString == address }
         return same.count == 1 ? same[0] : nil
     }
 
@@ -406,9 +493,19 @@ final class Extensions: NSObject, ObservableObject {
         following[key] = [
             browser.$tabs
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak browser] tabs in
+                .sink { [weak self, weak browser] _ in
                     guard let self, let browser else { return }
-                    follow(tabs, in: browser)
+                    follow(browser)
+                },
+            // A pinned row held as data put in a folded folder, or taken
+            // out of one, is a tab come or gone to an extension, as it was
+            // while every row was a tab (see HeldPins.swift).
+            browser.$heldPins
+                .dropFirst()
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self, weak browser] _ in
+                    guard let self, let browser else { return }
+                    follow(browser)
                 },
             browser.$activeID
                 .removeDuplicates()
@@ -439,6 +536,7 @@ final class Extensions: NSObject, ObservableObject {
             }
             adapters[id] = nil
             watching[id] = nil
+            heldShown[id] = nil
         }
         if let window = windows.removeValue(forKey: key) { controller.didCloseWindow(window) }
         ExtensionWatch.groups.changed()
@@ -450,13 +548,15 @@ final class Extensions: NSObject, ObservableObject {
         controller.didFocusWindow(window(of: browser))
     }
 
-    private func follow(_ tabs: [Tab], in browser: Browser) {
+    private func follow(_ browser: Browser) {
         let key = ObjectIdentifier(browser)
         let order = orders[key] ?? []
         let oldOrders = visibleOrders(order)
-        let now = tabs.filter(seen)
-        let ids = now.map(\.id)
-        let gone = order.filter { !ids.contains($0) }
+        let rows = visibleRows(of: browser)
+        let ids = rows.map(\.id)
+        let present = Set(ids)
+        let known = Set(order)
+        let gone = order.filter { !present.contains($0) }
         for id in gone {
             // Moved to another window rather than closed: that window says
             // so when it takes it (see below).
@@ -471,8 +571,19 @@ final class Extensions: NSObject, ObservableObject {
             }
             adapters[id] = nil
             watching[id] = nil
+            heldShown[id] = nil
         }
-        for tab in now where !order.contains(tab.id) {
+        for row in rows {
+            // Still there, its tab made again or let go to data under the
+            // same id: watched as it is now, and nothing said.
+            if known.contains(row.id) {
+                if watching[row.id] == nil, let tab = row.tab { watch(tab) }
+                continue
+            }
+            guard let tab = row.tab else {
+                for context in contexts.values { context.didOpenTab(row) }
+                continue
+            }
             // Kept from a peek or a small window: extensions hear of it as a
             // new tab in this window, as of any link opened into the row. The
             // windowless one they had goes without a word, as an offscreen
@@ -503,11 +614,10 @@ final class Extensions: NSObject, ObservableObject {
         }
         // Moves: anything whose position changed among the ones that stayed,
         // in each extension's own count.
-        let present = Set(ids)
         for context in contexts.values {
             let oldOrder = oldOrders[context.uniqueIdentifier] ?? []
             let stayed = oldOrder.filter(present.contains)
-            let current = visibleTabs(of: browser, for: context).map(\.id)
+            let current = visibleRows(of: browser, for: context).map(\.id)
             let kept = Set(stayed)
             for (id, now) in zip(stayed, current.filter(kept.contains)) where id != now {
                 if let adapter = adapters[id], let oldIndex = oldOrder.firstIndex(of: id), current.firstIndex(of: id) != oldIndex {
@@ -1807,6 +1917,10 @@ extension Extensions: WKWebExtensionControllerDelegate {
         // leaving the extension a window without the tab it asked for.
         var moving: [(tab: Tab, from: Browser)] = []
         for asked in configuration.tabs {
+            // A pinned row held as data is a pin, refused as its tab is.
+            if (asked as? ExtensionTab)?.isHeld == true {
+                throw NSError(domain: "Eden", code: 4, userInfo: [NSLocalizedDescriptionKey: "That tab can't be moved to another window."])
+            }
             guard let tab = (asked as? ExtensionTab)?.tab, seen(tab, for: extensionContext), let from = browser(of: tab) else {
                 throw NSError(domain: "Eden", code: 1, userInfo: [NSLocalizedDescriptionKey: "No tab with that id."])
             }
@@ -2010,19 +2124,81 @@ final class WeakView {
 @available(macOS 15.4, *)
 @MainActor
 final class ExtensionTab: NSObject, WKWebExtensionTab {
-    weak var tab: Tab?
+    /// The tab, live; nil for a pinned row held as data (`heldPin`).
+    private(set) weak var tab: Tab?
     unowned let owner: Extensions
     private weak var lastWindow: ExtensionWindow?
     /// Made for a page outside the row (Extensions.openedAside).
     var aside = false
+    /// The id the extension knows it by: its tab's, or, while it is held,
+    /// the one its tab is made again under (Browser.pinTabID).
+    let id: Tab.ID
+    /// A pinned row held as data in a folded folder (HeldPins.swift), by its
+    /// pin, and the window holding it: a tab at rest at its page to an
+    /// extension, made one when an extension acts on it (live()).
+    private(set) var heldPin: UUID?
+    private weak var holder: Browser?
 
     init(tab: Tab, owner: Extensions) {
         self.tab = tab
+        id = tab.id
         self.owner = owner
     }
 
+    init(held pin: UUID, id: Tab.ID, in browser: Browser, owner: Extensions) {
+        heldPin = pin
+        holder = browser
+        self.id = id
+        self.owner = owner
+    }
+
+    /// Its row's tab made again under its id (Extensions.adapter(for:)).
+    func live(_ tab: Tab) {
+        self.tab = tab
+        heldPin = nil
+        holder = nil
+    }
+
+    /// Its row let go to data again, held by `browser`.
+    func held(_ pin: UUID, in browser: Browser) {
+        tab = nil
+        heldPin = pin
+        holder = browser
+    }
+
     /// The window this tab is in.
-    private var browser: Browser? { tab.flatMap(owner.browser(of:)) }
+    private var browser: Browser? { tab.flatMap(owner.browser(of:)) ?? holder }
+
+    /// A held row's pin, as the pins store has it now.
+    private var heldDef: PinDef? { heldPin.flatMap(Pins.def(_:)) }
+
+    /// The tab to act on: its own, or a held row's, made now in its folder,
+    /// which stays folded, under the id the extension knows.
+    private func liveTab() -> Tab? {
+        if let tab { return tab }
+        guard let heldPin, let holder, let made = holder.showHeld(heldPin) else { return nil }
+        live(made)
+        return made
+    }
+
+    /// Whether it is a pinned row held as data, with no tab.
+    var isHeld: Bool { tab == nil && heldPin != nil }
+
+    /// What a held row shows that can change while it is held.
+    struct Shown: Equatable {
+        let address: String?
+        let title: String?
+    }
+
+    var shown: Shown {
+        Shown(address: address?.absoluteString, title: heldDef.map { $0.title.isEmpty ? (URL(string: $0.home)?.host ?? "") : $0.title })
+    }
+
+    /// Its page: the tab's, or a held row's home.
+    var address: URL? { tab?.address ?? heldDef.flatMap { URL(string: $0.home) } }
+
+    /// Whether it is private: a held row never is.
+    var shy: Bool { tab?.shy == true }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
         // A peek's or a small window's: in no window, even once kept into
@@ -2035,15 +2211,15 @@ final class ExtensionTab: NSObject, WKWebExtensionTab {
     }
 
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
-        guard !aside, let tab, let browser else { return NSNotFound }
-        return owner.visibleTabs(of: browser, for: context).firstIndex { $0.id == tab.id } ?? NSNotFound
+        guard !aside, let browser else { return NSNotFound }
+        return owner.visibleRows(of: browser, for: context).firstIndex { $0 === self } ?? NSNotFound
     }
 
     /// A tab showing another extension's page gives an extension nothing of
     /// it: no view to run a script in, no address, no picture — whatever it
     /// was granted (see Extensions.reachesExtensions).
     private func sealed(_ context: WKWebExtensionContext) -> Bool {
-        hidden(context) || Extensions.othersPage(tab?.built?.url, for: context) || Extensions.othersPage(tab?.address, for: context)
+        hidden(context) || Extensions.othersPage(tab?.built?.url, for: context) || Extensions.othersPage(address, for: context)
     }
 
     /// A private tab, to an extension not let into private tabs: blank, title
@@ -2060,11 +2236,13 @@ final class ExtensionTab: NSObject, WKWebExtensionTab {
     }
 
     func webView(for context: WKWebExtensionContext) -> WKWebView? { sealed(context) ? nil : tab?.built }
-    func title(for context: WKWebExtensionContext) -> String? { hidden(context) ? nil : tab?.title }
-    func url(for context: WKWebExtensionContext) -> URL? { sealed(context) ? nil : tab?.address }
+    func title(for context: WKWebExtensionContext) -> String? {
+        hidden(context) ? nil : tab?.title ?? heldDef.map { $0.title.isEmpty ? (URL(string: $0.home)?.host ?? "") : $0.title }
+    }
+    func url(for context: WKWebExtensionContext) -> URL? { sealed(context) ? nil : address }
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !(tab?.loading ?? false) }
-    func isSelected(for context: WKWebExtensionContext) -> Bool { tab?.id == browser?.activeID }
-    func isPinned(for context: WKWebExtensionContext) -> Bool { tab?.pin != nil }
+    func isSelected(for context: WKWebExtensionContext) -> Bool { tab != nil && tab?.id == browser?.activeID }
+    func isPinned(for context: WKWebExtensionContext) -> Bool { tab.map { $0.pin != nil } ?? (heldPin != nil) }
     func isPlayingAudio(for context: WKWebExtensionContext) -> Bool { tab?.noisy ?? false }
     func zoomFactor(for context: WKWebExtensionContext) -> Double { Double(tab?.built?.pageZoom ?? 1) }
     func size(for context: WKWebExtensionContext) -> CGSize { tab?.built?.bounds.size ?? .zero }
@@ -2072,43 +2250,64 @@ final class ExtensionTab: NSObject, WKWebExtensionTab {
 
     func setPinned(_ pinned: Bool, for context: WKWebExtensionContext) async throws {
         try checkAccess(context)
-        guard let tab, let browser else { return }
-        if pinned, tab.pin == nil { browser.pin(tab) }
-        if !pinned, tab.pin != nil { browser.unpin(tab) }
+        // A held row is pinned already: only unpinning makes its tab.
+        if pinned, tab == nil { return }
+        try acting { tab, browser in
+            if pinned, tab.pin == nil { browser.pin(tab) }
+            if !pinned, tab.pin != nil { browser.unpin(tab) }
+        }
     }
 
     func setZoomFactor(_ zoomFactor: Double, for context: WKWebExtensionContext) async throws {
         try checkAccess(context)
-        tab?.magnify(to: CGFloat(zoomFactor))
+        try acting { tab, _ in tab.magnify(to: CGFloat(zoomFactor)) }
     }
 
     func loadURL(_ url: URL, for context: WKWebExtensionContext) async throws {
         try checkAccess(context)
-        guard let tab else { return }
         try Extensions.mayOpen(url)
-        // A website's tab sent to one of an extension's own pages — 1Password
-        // does, once a sign-in in its tab has added the account. The page
-        // can only be served to a view built from that extension's
-        // configuration, so the tab is swapped for one that is, as an
-        // extension's page sent to a website is (see Browser.replace).
-        let url = Extensions.current(url)
-        let here = tab.built?.url ?? tab.address
-        if url.scheme == Extensions.scheme, here?.scheme != Extensions.scheme || here?.host != url.host, let browser {
-            browser.replace(tab, going: url)
-            return
+        try acting { tab, browser in
+            // A website's tab sent to one of an extension's own pages — a
+            // password manager's does, once a sign-in in its tab has added
+            // the account. The page can only be served to a view built from
+            // that extension's configuration, so the tab is swapped for one
+            // that is, as an extension's page sent to a website is (see
+            // Browser.replace).
+            let url = Extensions.current(url)
+            let here = tab.built?.url ?? tab.address
+            if url.scheme == Extensions.scheme, here?.scheme != Extensions.scheme || here?.host != url.host {
+                browser.replace(tab, going: url)
+                return
+            }
+            tab.go(to: url)
         }
-        tab.go(to: url)
     }
-    func reload(fromOrigin: Bool, for context: WKWebExtensionContext) async throws { try checkAccess(context); tab?.reload(fromOrigin: fromOrigin) }
+    func reload(fromOrigin: Bool, for context: WKWebExtensionContext) async throws {
+        try checkAccess(context)
+        try acting { tab, _ in tab.reload(fromOrigin: fromOrigin) }
+    }
     func goBack(for context: WKWebExtensionContext) async throws { try checkAccess(context); tab?.back() }
     func goForward(for context: WKWebExtensionContext) async throws { try checkAccess(context); tab?.forward() }
 
     func activate(for context: WKWebExtensionContext) async throws {
         try checkAccess(context)
-        guard let tab, let browser else { return }
-        browser.activateForExtension(tab)
+        try acting { tab, browser in browser.activateForExtension(tab) }
     }
 
+    /// `body` run on its tab, a held row's made now and kept one while it
+    /// runs (Browser.keepingOpen), so nothing that reads the pins meanwhile
+    /// lets it go to data under it. A tab gone, or a row no longer there,
+    /// is an error, as for any tab an extension names that isn't, rather
+    /// than nothing done and said to be.
+    private func acting(_ body: (Tab, Browser) throws -> Void) throws {
+        guard let tab = liveTab(), let browser else {
+            throw NSError(domain: "Eden", code: 1, userInfo: [NSLocalizedDescriptionKey: "No tab with that id."])
+        }
+        try browser.keepingOpen([tab.pinID].compactMap { $0 }) { try body(tab, browser) }
+    }
+
+    /// Closed as ⌘W closes a pin: put down at its page. A held row is at
+    /// rest there already, so nothing changes.
     func close(for context: WKWebExtensionContext) async throws {
         try checkAccess(context)
         guard let tab else { return }
@@ -2119,6 +2318,10 @@ final class ExtensionTab: NSObject, WKWebExtensionTab {
         guard let web = tab?.built, !sealed(context) else { return nil }
         return try await web.takeSnapshot(configuration: configuration)
     }
+
+    /// The tab to act on for the shim's own calls (ExtensionShims), a held
+    /// row's made now.
+    func actingTab() -> Tab? { liveTab() }
 }
 
 @available(macOS 15.4, *)
@@ -2136,7 +2339,7 @@ final class ExtensionWindow: NSObject, WKWebExtensionWindow {
 
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
         guard let browser else { return [] }
-        return owner.visibleTabs(of: browser, for: context).map(owner.adapter(for:))
+        return owner.visibleRows(of: browser, for: context)
     }
 
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {

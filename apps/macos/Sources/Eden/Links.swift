@@ -469,11 +469,14 @@ final class Links: NSObject, NSApplicationDelegate {
         }
         let windows = [Browsers.front].compactMap { $0 } + Browsers.all.reversed()
         for browser in windows where browser.isOpen && !browser.isPopup {
-            guard let tab = browser.tabs.first(where: { Browser.samePage(url, $0.address) }) else { continue }
+            // A pinned row held as data counts as its tab did (HeldPins.swift),
+            // and is made one as it is gone to.
+            guard let id = browser.tabs.first(where: { Browser.samePage(url, $0.address) })?.id
+                    ?? browser.heldPin(at: url).map({ browser.pinTabID($0.id) }) else { continue }
             // Windows a small window's launch kept off screen come back
             // first, all of them, as Open in Eden brings them.
             Browsers.bringBack()
-            browser.bringForward(tab.id)
+            browser.bringForward(id)
             comeForward()
             return true
         }

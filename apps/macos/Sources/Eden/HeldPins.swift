@@ -332,6 +332,21 @@ struct PinnedTabs {
     }
 }
 
+/// A place in a window's row as extensions see it (Extensions.swift): a
+/// tab, or a pinned row held as data, by the id its tab has in that window
+/// (Browser.pinTabID), the same before and after it is held.
+enum RowPlace {
+    case tab(Tab)
+    case held(pin: UUID, id: Tab.ID)
+
+    var id: Tab.ID {
+        switch self {
+        case .tab(let tab): tab.id
+        case .held(_, let id): id
+        }
+    }
+}
+
 extension Browser {
     /// The pins of a space's own rows held as data when their tab holds
     /// nothing: every row in a folded kept group. Not those every space
@@ -345,21 +360,49 @@ extension Browser {
         }.map(\.id))
     }
 
-    /// Whether `pin` is a row of the space on screen held as data.
-    func holds(pin id: UUID) -> Bool {
-        heldPins[spaceID]?.contains { $0.held.contains(id) } == true
+    // MARK: - which rows are held
+
+    /// Whether `pin` is a row of `space` (the one on screen unless named)
+    /// held as data.
+    func holds(pin id: UUID, in space: UUID? = nil) -> Bool {
+        heldPins[space ?? spaceID]?.contains { $0.held.contains(id) } == true
+    }
+
+    /// The pin of the row held as data in the space on screen whose tab,
+    /// made again, would be `id` (pinTabID).
+    func heldPin(tab id: Tab.ID) -> UUID? {
+        guard let pin = pinOfTabID[id], holds(pin: pin) else { return nil }
+        return pin
+    }
+
+    /// The pins held as data in `space`, folder by folder.
+    func heldPinIDs(in space: UUID) -> [UUID] {
+        (heldPins[space] ?? []).flatMap { group in group.rows.filter(group.held.contains) }
     }
 
     /// Every row held as data in the space on screen, folder by folder.
-    var heldRows: [PinDef] {
-        (heldPins[spaceID] ?? []).flatMap { group in group.rows.filter(group.held.contains).compactMap(Pins.def(_:)) }
-    }
+    var heldRows: [PinDef] { heldPinIDs(in: spaceID).compactMap(Pins.def(_:)) }
 
     /// A kept group's rows held as data in the space on screen, in order.
     func heldRows(ofGroup id: UUID) -> [PinDef] {
         guard let group = heldPins[spaceID]?.first(where: { $0.id == id }) else { return [] }
         return group.rows.filter(group.held.contains).compactMap(Pins.def(_:))
     }
+
+    // MARK: - the tab a held row has when it is made one
+
+    /// The id the tab of one of a space's own pinned rows has in this
+    /// window: the same each time it is made again after being held, so
+    /// what knew the tab by it — an extension, the address field, a card —
+    /// finds it again.
+    func pinTabID(_ pin: UUID) -> Tab.ID {
+        if let id = pinTabIDs[pin] { return id }
+        let id = UUID()
+        keepTabID(id, forPin: pin)
+        return id
+    }
+
+    // MARK: - made tabs
 
     /// A row held as data made a tab, where it stands in its folder, which
     /// stays folded, to be gone to: from the address field, a number key, or
@@ -373,6 +416,23 @@ extension Browser {
         return tabs.first { $0.pin != nil && $0.pinID == pin }
     }
 
+    /// `body` run with the rows of `pins` kept tabs throughout, whatever
+    /// reads the pins again meanwhile (keptOpen); after, those that hold
+    /// nothing their pins don't, in a folded folder, go back to data.
+    func keepingOpen<T>(_ pins: [UUID], _ body: () throws -> T) rethrows -> T {
+        for pin in pins { keptOpen[pin, default: 0] += 1 }
+        defer {
+            var released = false
+            for pin in pins {
+                guard let count = keptOpen[pin] else { continue }
+                keptOpen[pin] = count > 1 ? count - 1 : nil
+                released = released || count == 1
+            }
+            if released, !holdable(in: spaceID).isDisjoint(with: pins) { pinsChanged(in: spaceID) }
+        }
+        return try body()
+    }
+
     /// Every row of a folder held as data made a tab, for what takes the
     /// folder's rows out of it or acts on them all.
     func showHeld(group id: UUID) {
@@ -381,14 +441,47 @@ extension Browser {
         pinsChanged(in: spaceID, opening: Set(rows.map(\.id)))
     }
 
-    /// The tab of `id`, or, for a row held as data, which the address field
-    /// offers by its pin (heldOffers), the tab made for it.
-    func openTab(_ id: UUID) -> Tab? {
-        tabs.first { $0.id == id } ?? showHeld(id)
+    /// The tab of `id`, or the tab made for the row held as data whose tab
+    /// it would be (heldPin(tab:)), as the address field, the launcher and
+    /// an extension offer such a row.
+    func openTab(_ id: Tab.ID) -> Tab? {
+        tabs.first { $0.id == id } ?? heldPin(tab: id).flatMap(showHeld)
     }
 
+    /// Whether `id` is a tab of this window, or a row held as data in its
+    /// space on screen that would be made one by that id.
+    func hasTab(_ id: Tab.ID) -> Bool {
+        tabs.contains { $0.id == id } || heldPin(tab: id) != nil
+    }
+
+    // MARK: - by their pages
+
+    /// The rows held as data in `space`, by their pages (History.identity):
+    /// worked out once each time the rows held change.
+    func heldPages(in space: UUID) -> [String: UUID] {
+        if let known = heldPageCache[space] { return known }
+        var pages: [String: UUID] = [:]
+        for pin in heldPinIDs(in: space) {
+            guard let home = Pins.def(pin).flatMap({ URL(string: $0.home) }) else { continue }
+            let identity = History.identity(for: home)
+            if pages[identity] == nil { pages[identity] = pin }
+        }
+        heldPageCache[space] = pages
+        return pages
+    }
+
+    /// The row held as data in the space on screen at the same page as
+    /// `url`, as a tab at its home matches it (Browser.samePage).
+    func heldPin(at url: URL) -> PinDef? {
+        let page = PinDef.page(url)
+        return heldRows.first { URL(string: $0.home).map(PinDef.page) == page }
+    }
+
+    // MARK: - the address field
+
     /// The rows held as data whose name or page holds `needle` (lowercased),
-    /// offered in the address field as open pages are, by their pin.
+    /// offered in the address field as open pages are, by the id their tab
+    /// will have (pinTabID).
     func heldOffers(matching needle: String, limit: Int) -> [Suggestion] {
         guard limit > 0, let held = heldPins[spaceID] else { return [] }
         var out: [Suggestion] = []
@@ -398,10 +491,79 @@ extension Browser {
                 let address = Address.pretty(url)
                 let label = def.name.flatMap { $0.isEmpty ? nil : $0 } ?? (def.title.isEmpty ? address : def.title)
                 guard label.lowercased().contains(needle) || address.contains(needle) else { continue }
-                out.append(Suggestion(key: label, title: address, url: url, kind: .open, tab: id))
+                out.append(Suggestion(key: label, title: address, url: url, kind: .open, tab: pinTabID(id)))
                 if out.count == limit { return out }
             }
         }
+        return out
+    }
+
+    // MARK: - the row, as extensions see it
+
+    /// The row of the space on screen with its rows held as data in their
+    /// places among its tabs, as written (HeldPins.merged): what extensions
+    /// are shown, a held row as a tab at rest by the id its tab will have.
+    /// The row itself while nothing is held.
+    var placesInRow: [RowPlace] {
+        guard let held = heldPins[spaceID], !held.isEmpty else { return tabs.map(RowPlace.tab) }
+        let own = tabs.filter(fitsKeptGroup)
+        let ownIDs = Set(own.map(\.id))
+        let resolved = HeldPins.resolved(held, present: Set(own.compactMap(\.pinID)),
+                                         folders: HeldPins.folders(own, pin: \.pinID, group: \.keptGroupID), groups: keptGroups) {
+            Pins.defs(spaceID)
+        }
+        // As merged writes the folder: its tabs in the row's order, each
+        // run of its held rows after the row it followed.
+        func rows(of held: HeldGroup, among members: [Tab]) -> [RowPlace] {
+            let present = Set(members.compactMap(\.pinID))
+            var after: [UUID?: [UUID]] = [:]
+            var last: UUID?
+            for pin in held.rows {
+                if present.contains(pin) {
+                    last = pin
+                } else if held.held.contains(pin) {
+                    after[last, default: []].append(pin)
+                }
+            }
+            var out: [RowPlace] = []
+            func run(_ pin: UUID?) { out += (after.removeValue(forKey: pin) ?? []).map { .held(pin: $0, id: pinTabID($0)) } }
+            run(nil)
+            for tab in members {
+                out.append(.tab(tab))
+                run(tab.pinID)
+            }
+            return out
+        }
+        var ownPlaces: [RowPlace] = []
+        for item in HeldPins.slots(own, pin: \.pinID, group: \.keptGroupID, groups: keptGroups, held: resolved) {
+            switch item {
+            case .tab(.row(let tab)): ownPlaces.append(.tab(tab))
+            case .tab(.held(let held)): ownPlaces += rows(of: held, among: [])
+            case .group(_, let slots):
+                let members = slots.compactMap { slot -> Tab? in
+                    if case .row(let tab) = slot { return tab }
+                    return nil
+                }
+                let found = slots.lazy.compactMap { slot -> HeldGroup? in
+                    if case .held(let held) = slot { return held }
+                    return nil
+                }.first
+                ownPlaces += found.map { rows(of: $0, among: members) } ?? members.map(RowPlace.tab)
+            }
+        }
+        // The own rows go where the first of them stands in the row: after
+        // the squares and the rows every space shows.
+        var out: [RowPlace] = []
+        var placed = false
+        for tab in tabs {
+            if ownIDs.contains(tab.id) {
+                if !placed { out += ownPlaces; placed = true }
+            } else {
+                if !placed, tab.pin == nil || tab.shy { out += ownPlaces; placed = true }
+                out.append(.tab(tab))
+            }
+        }
+        if !placed { out += ownPlaces }
         return out
     }
 }
