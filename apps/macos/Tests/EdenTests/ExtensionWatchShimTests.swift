@@ -7,6 +7,7 @@ import XCTest
 /// over a native port, and from no timer: nothing listening, nothing open and
 /// nothing scheduled, and not a call asking after groups or idleness.
 @available(macOS 15.4, *)
+@MainActor
 final class ExtensionWatchShimTests: XCTestCase {
     /// The whole shim, as a page of the extension runs it, with a browser
     /// that answers the group calls from `groupList` and records every
@@ -40,6 +41,10 @@ final class ExtensionWatchShimTests: XCTestCase {
         globalThis.portsNamed = (name) => ports.filter((p) => p.name === name);
         globalThis.callsTo = (prefix) => fixture.calls.filter((c) => c.startsWith(prefix)).length;
         """#)
+        // The names the browser takes the ports by (Extensions'
+        // connectUsing): the shim's under any other were turned away, and
+        // this test, naming them as the shim did, never knew.
+        js.evaluateScript("globalThis.GROUPS = \"\(ExtensionWatch.groupsPort)\"; globalThis.IDLE = \"\(ExtensionWatch.idlePort)\";")
         js.evaluateScript(ExtensionShims.script.replacingOccurrences(of: "__EDEN_WORKER_GENERATION__", with: "0"))
         XCTAssertNil(js.exception?.toString())
         return js
@@ -48,6 +53,24 @@ final class ExtensionWatchShimTests: XCTestCase {
     private func drain(_ js: JSContext) {
         for _ in 0..<40 { js.evaluateScript("void 0") }
         XCTAssertNil(js.exception?.toString())
+    }
+
+    /// The shim names each of the browser's lines as the browser takes it
+    /// (Extensions' connectUsing), and lets them post at once. Its fetch,
+    /// groups and idle ports kept an older name of the app's: the browser
+    /// turned them away as ports to an app the extension never asked for.
+    /// And once named right, the groups and idle ports, whose lines don't
+    /// answer the question meant for an app on the Mac, waited ten seconds
+    /// behind it.
+    func testTheShimNamesTheBrowsersLinesAsTheBrowserTakesThem() {
+        let script = ExtensionShims.script
+        for opened in ["connectNative(\"\(ExtensionSocket.name)\")", "connect(\"\(ExtensionFetch.name)\")",
+                       "watching(\"\(ExtensionWatch.groupsPort)\"", "watching(\"\(ExtensionWatch.idlePort)\"",
+                       "connectNative(\"\(ExtensionShims.application)\")"] {
+            XCTAssertTrue(script.contains(opened), opened)
+        }
+        XCTAssertTrue(script.contains("!/^\(ExtensionShims.application)(\\.|$)/.test(this.name)"),
+                      "the browser's own lines are not held for an app's answer")
     }
 
     func testNothingRunsForGroupsWhileNobodyListens() throws {
@@ -68,17 +91,17 @@ final class ExtensionWatchShimTests: XCTestCase {
         """#)
         drain(js)
         XCTAssertEqual(js.evaluateScript("intervals.length")?.toInt32(), 0, "no 3 s timer asking after groups")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.groups').length")?.toInt32(), 1, "one port, however many events")
-        XCTAssertEqual(js.evaluateScript("JSON.stringify(portsNamed('search.groups')[0].posts[0])")?.toString(),
+        XCTAssertEqual(js.evaluateScript("portsNamed(GROUPS).length")?.toInt32(), 1, "one port, however many events")
+        XCTAssertEqual(js.evaluateScript("JSON.stringify(portsNamed(GROUPS)[0].posts[0])")?.toString(),
                        #"{"listen":true,"worker":false}"#)
         XCTAssertEqual(js.evaluateScript("callsTo('tabGroups.query')")?.toInt32(), 1, "the groups as they were, once")
 
         // The browser says the port has arrived, then answers the hello: the
         // groups are looked at again in case something changed before then.
-        js.evaluateScript("portsNamed('search.groups')[0].onMessage.fire({ ready: true });")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.groups')[0].posts.length")?.toInt32(), 2, "the hello, again")
-        js.evaluateScript("portsNamed('search.groups')[0].onMessage.fire({ listening: true });")
-        js.evaluateScript("portsNamed('search.groups')[0].onMessage.fire({ listening: true });")
+        js.evaluateScript("portsNamed(GROUPS)[0].onMessage.fire({ ready: true });")
+        XCTAssertEqual(js.evaluateScript("portsNamed(GROUPS)[0].posts.length")?.toInt32(), 2, "the hello, again")
+        js.evaluateScript("portsNamed(GROUPS)[0].onMessage.fire({ listening: true });")
+        js.evaluateScript("portsNamed(GROUPS)[0].onMessage.fire({ listening: true });")
         drain(js)
         XCTAssertEqual(js.evaluateScript("callsTo('tabGroups.query')")?.toInt32(), 2, "an answer repeated is looked at once")
         XCTAssertEqual(js.evaluateScript("JSON.stringify(seen)")?.toString(), "[]", "nothing changed yet")
@@ -86,7 +109,7 @@ final class ExtensionWatchShimTests: XCTestCase {
         // Eden renames one group and makes another.
         js.evaluateScript(#"""
         groupList = [{ id: 1, title: "Later", collapsed: true, color: "grey" }, { id: 2, title: "Work", collapsed: false, color: "grey" }];
-        portsNamed('search.groups')[0].onMessage.fire({ changed: true });
+        portsNamed(GROUPS)[0].onMessage.fire({ changed: true });
         """#)
         drain(js)
         XCTAssertEqual(js.evaluateScript("JSON.stringify(seen)")?.toString(), #"["updated:Later","created:Work"]"#)
@@ -95,7 +118,7 @@ final class ExtensionWatchShimTests: XCTestCase {
         js.evaluateScript("""
         seen.length = 0;
         groupList = [{ id: 2, title: "Work", collapsed: false, color: "grey" }];
-        portsNamed('search.groups')[0].onMessage.fire({ changed: true });
+        portsNamed(GROUPS)[0].onMessage.fire({ changed: true });
         """)
         drain(js)
         XCTAssertEqual(js.evaluateScript("JSON.stringify(seen)")?.toString(), #"["removed:Later"]"#)
@@ -112,8 +135,8 @@ final class ExtensionWatchShimTests: XCTestCase {
         chrome.tabGroups.onUpdated.addListener(() => {});
         chrome.idle.onStateChanged.addListener(() => {});
         globalThis.sayAgain = () => fixture.timers.slice(-1)[0].callback();
-        globalThis.groupsPort = portsNamed('search.groups')[0];
-        globalThis.idlePort = portsNamed('search.idle')[0];
+        globalThis.groupsPort = portsNamed(GROUPS)[0];
+        globalThis.idlePort = portsNamed(IDLE)[0];
         groupsPort.onMessage.fire({ listen: true, worker: false });
         idlePort.onMessage.fire({ listen: true, worker: false, every: 60 });
         """#)
@@ -148,24 +171,24 @@ final class ExtensionWatchShimTests: XCTestCase {
         """#)
         drain(js)
         js.evaluateScript("chrome.tabGroups.onUpdated.removeListener(first);")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.groups')[0].disconnects")?.toInt32(), 0, "one still listens")
+        XCTAssertEqual(js.evaluateScript("portsNamed(GROUPS)[0].disconnects")?.toInt32(), 0, "one still listens")
         js.evaluateScript("chrome.tabGroups.onCreated.removeListener(second);")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.groups')[0].disconnects")?.toInt32(), 1)
+        XCTAssertEqual(js.evaluateScript("portsNamed(GROUPS)[0].disconnects")?.toInt32(), 1)
         // What the browser says after that is not looked at.
         let asked = js.evaluateScript("callsTo('tabGroups.query')")?.toInt32()
-        js.evaluateScript("portsNamed('search.groups')[0].onMessage.fire({ changed: true });")
+        js.evaluateScript("portsNamed(GROUPS)[0].onMessage.fire({ changed: true });")
         drain(js)
         XCTAssertEqual(js.evaluateScript("callsTo('tabGroups.query')")?.toInt32(), asked)
         // A listener again opens a port again.
         js.evaluateScript("chrome.tabGroups.onRemoved.addListener(() => {});")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.groups').length")?.toInt32(), 2)
+        XCTAssertEqual(js.evaluateScript("portsNamed(GROUPS).length")?.toInt32(), 2)
         XCTAssertEqual(js.evaluateScript("intervals.length")?.toInt32(), 0)
     }
 
     func testNothingRunsForIdlenessWhileNobodyListens() throws {
         let js = try page()
         drain(js)
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.idle').length")?.toInt32(), 0)
+        XCTAssertEqual(js.evaluateScript("portsNamed(IDLE).length")?.toInt32(), 0)
         XCTAssertEqual(js.evaluateScript("intervals.length")?.toInt32(), 0)
         XCTAssertEqual(js.evaluateScript("callsTo('idle.')")?.toInt32(), 0)
     }
@@ -181,20 +204,20 @@ final class ExtensionWatchShimTests: XCTestCase {
         drain(js)
         XCTAssertEqual(js.evaluateScript("intervals.length")?.toInt32(), 0, "no 15 s timer")
         XCTAssertEqual(js.evaluateScript("callsTo('idle.')")?.toInt32(), 0, "nobody asks the browser")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.idle').length")?.toInt32(), 1)
-        XCTAssertEqual(js.evaluateScript("JSON.stringify(portsNamed('search.idle')[0].posts[0])")?.toString(),
+        XCTAssertEqual(js.evaluateScript("portsNamed(IDLE).length")?.toInt32(), 1)
+        XCTAssertEqual(js.evaluateScript("JSON.stringify(portsNamed(IDLE)[0].posts[0])")?.toString(),
                        #"{"listen":true,"worker":false,"every":60}"#)
 
         // A new detection interval goes to the browser on the port already open.
-        XCTAssertEqual(js.evaluateScript("JSON.stringify(portsNamed('search.idle')[0].posts.slice(-1)[0])")?.toString(),
+        XCTAssertEqual(js.evaluateScript("JSON.stringify(portsNamed(IDLE)[0].posts.slice(-1)[0])")?.toString(),
                        #"{"listen":true,"worker":false,"every":30}"#)
         js.evaluateScript("chrome.idle.setDetectionInterval(5);")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.idle')[0].posts.slice(-1)[0].every")?.toInt32(), 15, "never under 15 s, as in Chrome")
+        XCTAssertEqual(js.evaluateScript("portsNamed(IDLE)[0].posts.slice(-1)[0].every")?.toInt32(), 15, "never under 15 s, as in Chrome")
 
         // The Mac goes quiet, locks, and is used again; one word repeated
         // is not told twice, and "active" as it began is not news.
         js.evaluateScript(#"""
-        const port = portsNamed('search.idle')[0];
+        const port = portsNamed(IDLE)[0];
         port.onMessage.fire({ state: "active" });
         port.onMessage.fire({ state: "idle" });
         port.onMessage.fire({ state: "idle" });
@@ -212,10 +235,10 @@ final class ExtensionWatchShimTests: XCTestCase {
         chrome.idle.onStateChanged.addListener(b);
         chrome.idle.onStateChanged.removeListener(a);
         """#)
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.idle')[0].disconnects")?.toInt32(), 0)
+        XCTAssertEqual(js.evaluateScript("portsNamed(IDLE)[0].disconnects")?.toInt32(), 0)
         js.evaluateScript("chrome.idle.onStateChanged.removeListener(b);")
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.idle')[0].disconnects")?.toInt32(), 1)
-        XCTAssertEqual(js.evaluateScript("portsNamed('search.idle').length")?.toInt32(), 1, "one port for two listeners")
+        XCTAssertEqual(js.evaluateScript("portsNamed(IDLE)[0].disconnects")?.toInt32(), 1)
+        XCTAssertEqual(js.evaluateScript("portsNamed(IDLE).length")?.toInt32(), 1, "one port for two listeners")
         XCTAssertEqual(js.evaluateScript("intervals.length")?.toInt32(), 0)
     }
 }

@@ -64,10 +64,15 @@ MARKS = "[document.title, document.documentElement.getAttribute('data-marked'), 
 
 # From an extension page, call WebKit's original prototype methods as well
 # as the public methods patched by Eden. A shim must not hide a native leak.
+# WebKit's own method, past the shim, on WebKit's own object. In an extension
+# page chrome.windows is the shim's stand-in for WebKit's (so windows.create
+# can be the shim's), and WebKit's method called on the stand-in answers
+# nothing; `browser` is left as WebKit's.
 BOOT = """window.nativeAPI = (space, method, args) => {
-  for (let p = Object.getPrototypeOf(chrome[space]); p; p = Object.getPrototypeOf(p)) {
+  const ns = (typeof browser === 'object' && browser && browser[space]) || chrome[space];
+  for (let p = Object.getPrototypeOf(ns); p; p = Object.getPrototypeOf(p)) {
     const d = Object.getOwnPropertyDescriptor(p, method);
-    if (d && typeof d.value === 'function') return d.value.apply(chrome[space], args);
+    if (d && typeof d.value === 'function') return d.value.apply(ns, args);
   }
   throw new Error('Missing native API: ' + space + '.' + method);
 };

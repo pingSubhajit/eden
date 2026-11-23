@@ -950,7 +950,7 @@ enum ExtensionShims {
                             redirect: request.redirect, userAgent: navigator.userAgent };
             return await new Promise((resolve, reject) => {
               let port;
-              try { port = connect("search.fetch"); } catch (e) { resolve(original.apply(self, args)); return; }
+              try { port = connect("eden.fetch"); } catch (e) { resolve(original.apply(self, args)); return; }
               let accepted = false, tries = 0, controller = null, done = false;
               const close = () => { try { port.disconnect(); } catch (e) {} };
               // The browser never took it: WebKit's fetch, as without it. Not
@@ -1070,7 +1070,12 @@ enum ExtensionShims {
           put(portProto, "postMessage", function (message) {
             let state = ports.get(this);
             if (!state) {
-              const native = !toPages.has(this) && this.sender == null && typeof this.name === "string" && !/^search(\.|$)/.test(this.name);
+              // Not the browser's own lines (eden, eden.socket, eden.groups
+              // and the rest, ExtensionShims.application), which say they
+              // have arrived in their own way. The groups and idle lines
+              // don't answer the question, and held behind it their hellos
+              // waited out the twenty asks, ten seconds.
+              const native = !toPages.has(this) && this.sender == null && typeof this.name === "string" && !/^eden(\.|$)/.test(this.name);
               state = native ? start(this) : { held: null };
               ports.set(this, state);
             }
@@ -1988,7 +1993,10 @@ enum ExtensionShims {
       // hello is said again until the browser answers it, and once more
       // when the browser says the port has arrived ("ready"). `heard` is
       // given what comes after: the answer to the hello, once — news may
-      // have come before it did — and then the news.
+      // have come before it did — and then the news. `name` is the one the
+      // browser takes the port by (ExtensionWatch.groupsPort, idlePort):
+      // under any other, it is turned away as a port to an app on the Mac
+      // the extension never asked for, and nothing is ever heard.
       const watching = (name, hello, heard) => {
         let port = null;
         const start = () => {
@@ -2054,7 +2062,7 @@ enum ExtensionShims {
         };
         // Whatever the browser says, its answer to the hello included, is
         // a reason to look: the groups are asked for and compared as before.
-        const line = watching("search.groups", () => ({ listen: true, worker }), () => groupsChanged());
+        const line = watching("eden.groups", () => ({ listen: true, worker }), () => groupsChanged());
         for (const name of told) {
           const { addListener: add, removeListener: remove } = groups[name];
           groups[name].addListener = (f) => {
@@ -2123,7 +2131,7 @@ enum ExtensionShims {
         // interval, locks, or is used again (ExtensionWatch.swift).
         const changed = event(), { addListener: add, removeListener: remove } = changed;
         let every = 60, state = "active";
-        const line = watching("search.idle", () => ({ listen: true, worker, every }), (m) => {
+        const line = watching("eden.idle", () => ({ listen: true, worker, every }), (m) => {
           if (typeof m.state !== "string" || m.state === state) return;
           state = m.state;
           for (const g of changed.listeners) try { g(m.state); } catch (e) { setTimeout(() => { throw e; }); }

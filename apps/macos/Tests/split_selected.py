@@ -7,8 +7,12 @@ the split suite's harness: started hidden, no window made or shown,
 everything removed afterwards. `split pick` makes the ⌘-clicks the column
 makes (Browser.extendTabSelection), `split pairPicked` is the menu item's
 action and `split start` is ⌥⌘N's. That the menu shows the item, reads
-"Open 2 Tabs in Split View" and is off with three picked is looked at by
+"Open 2 Tabs in Split View" and is off with five picked is looked at by
 hand on a release candidate.
+
+Each case asks for new tabs after the one in front, so the column's order is
+the order the pages were opened in: new tabs go to the top by default since
+969dc3e, which this probe predates.
 """
 import sys
 import time
@@ -32,7 +36,7 @@ def blanks(st): return [x["id"] for x in st["tabs"] if x["blank"]]
 
 def case_two(t):
     """two picked: paired, in the column's order, pages kept"""
-    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}, **sv.IN_ORDER); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d")
     sv.sp("select", id=d)
     st = state()
@@ -83,8 +87,8 @@ def case_two(t):
 
 
 def case_one_and_three(t):
-    """one picked: as before; three picked: off, ⌥⌘N as before"""
-    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
+    """one picked: as before; three picked: split together; five: off, ⌥⌘N as before"""
+    sv.setup(splitView=True, **{"tabs.groups": False}, **sv.IN_ORDER); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c")
     sv.sp("select", id=a)
     st = pick(b)
@@ -99,23 +103,42 @@ def case_one_and_three(t):
     new = [x for x in blanks(st) if x not in empty]
     t.ok("one picked: ⌥⌘N splits the page in front with an empty one", len(new) == 1 and [c, new[0]] in pairs(st), (pairs(st), new))
 
-    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
+    # Three picked: a split holds up to four (TabSplit.most), so they go
+    # side by side together, in the column's order, as ⌥⌘N puts them.
+    sv.setup(splitView=True, **{"tabs.groups": False}, **sv.IN_ORDER); sv.launch()
     a = sv.page("a"); b = sv.page("b"); c = sv.page("c"); d = sv.page("d")
     sv.sp("select", id=d)
     empty = blanks(state())
-    st = pick(a, b, c)
+    st = pick(c, a, b)
     t.ok("three picked: all three", sorted(st["selected"]) == sorted([a, b, c]), st["selected"])
-    t.ok("three picked: no pair on offer (the item is off)", st["pickedPair"] == [], st["pickedPair"])
+    t.ok("three picked: the three on offer, in the column's order, and no pair",
+         st["pickedSplit"] == [a, b, c] and st["pickedPair"] == [], (st["pickedSplit"], st["pickedPair"]))
+    st = sv.sp("start")
+    t.ok("three picked: ⌥⌘N puts the three side by side", pairs(st) == [[a, b, c]], pairs(st))
+    t.ok("three picked: no empty page made", blanks(st) == empty, blanks(st))
+    t.ok("three picked: the selection is cleared", st["selected"] == [], st["selected"])
+
+    # Five picked: more than a split holds, so the menu's item is off and
+    # ⌥⌘N does what it does without a selection.
+    sv.setup(splitView=True, **{"tabs.groups": False}, **sv.IN_ORDER); sv.launch()
+    a, b, c, d, e, f = (sv.page(n) for n in ("a", "b", "c", "d", "e", "f"))
+    sv.sp("select", id=f)
+    empty = blanks(state())
+    st = pick(a, b, c, d, e)
+    t.ok("five picked: all five", sorted(st["selected"]) == sorted([a, b, c, d, e]), st["selected"])
+    t.ok("five picked: nothing on offer (the item is off)", st["pickedSplit"] == [] and st["pickedPair"] == [],
+         (st["pickedSplit"], st["pickedPair"]))
     st = sv.sp("pairPicked", id=a)
-    t.ok("three picked: the menu's action does nothing", pairs(st) == [] and sorted(st["selected"]) == sorted([a, b, c]), (pairs(st), st["selected"]))
+    t.ok("five picked: the menu's action does nothing",
+         pairs(st) == [] and sorted(st["selected"]) == sorted([a, b, c, d, e]), (pairs(st), st["selected"]))
     st = sv.sp("start")
     new = [x for x in blanks(st) if x not in empty]
-    t.ok("three picked: ⌥⌘N splits the page in front, as before", len(new) == 1 and pairs(st) == [[d, new[0]]], (pairs(st), new))
+    t.ok("five picked: ⌥⌘N splits the page in front, as before", len(new) == 1 and pairs(st) == [[f, new[0]]], (pairs(st), new))
 
 
 def case_pins_private_off(t):
     """a pin, a private tab, the switch off"""
-    sv.setup(splitView=True, **{"tabs.groups": False}); sv.launch()
+    sv.setup(splitView=True, **{"tabs.groups": False}, **sv.IN_ORDER); sv.launch()
     p = sv.page("p"); a = sv.page("a"); b = sv.page("b")
     sv.cmd({"do": "pin", "id": p})
     sv.sp("select", id=b)

@@ -25,7 +25,7 @@ def names(st, ids): m = {x["id"]: x["url"].rsplit("/", 1)[-1] for x in st["tabs"
 def pins(st): return names(st, st["pins"])
 def shared(st): return names(st, st["everywhere"])
 def tab_of(st, name): return next(x["id"] for x in st["tabs"] if x["url"].endswith("/" + name))
-def front(st): return next(x for x in st["tabs"] if x["id"] == st["activeID"])
+def front(st): return next((x["url"].rsplit("/", 1)[-1] for x in st["tabs"] if x["id"] == st["activeID"]), None)
 def go(n): sv.cmd({"do": "space", "action": "go", "index": n}); time.sleep(0.8)
 def pin(id, **f): return sv.cmd({"do": "pin", "id": id, **f})
 def ui(**f): sv.cmd({"do": "ui", **f}); time.sleep(0.8)
@@ -66,7 +66,9 @@ try:
     t.ok("only here: kept by this space", pins(st) == ["mail"] and shared(st) == [], (pins(st), shared(st)))
     go(1); st = state()
     t.ok("only here: gone from the other space", pins(st) == ["notes"], pins(st))
-    t.ok("only here: the other space lands on a tab", st["activeID"] in [x["id"] for x in st["tabs"]] and front(st)["url"].rsplit("/", 1)[-1] != "mail", front(st))
+    # Not on screen when its pin in front went, it goes back to the pin it
+    # was on before, as the space on screen does, not to nothing in front.
+    t.ok("only here: the other space lands on the tab it was on before", front(st) == "notes", front(st))
 
     # Unpin takes a shared pin out of every space.
     go(2); pin(tab_of(state(), "mail"), everywhere=True); time.sleep(0.5)

@@ -4,9 +4,11 @@ Build first (`./build.sh`), then `python3 Tests/space_delete.py`. The same
 made-up Arc profile as spaces_quit_keep.py (two spaces, each a loose page
 and a folder) is imported into a hidden probe; each imported space is then
 deleted the way its menu's Delete does (Browser.deleteSpace, through the
-bench), and the probe quits and starts again. The spaces, their files and
-their tabs must be gone, before and after the relaunch; the first space,
-which holds the session there was before spaces, is the one that stays.
+bench), and the probe quits and starts again. The spaces, their files, their
+pins and folders, and their tabs must be gone, before and after the
+relaunch; the first space, which holds the session there was before spaces,
+is the one that stays. What a space brings in from Arc is its pins (see
+spaces_quit_keep.py), so a space has no session file until it is gone to.
 
 Nothing here makes, shows or brings forward a window. The menu itself (the
 space's icon, Delete “…”) is checked by hand.
@@ -42,7 +44,9 @@ def main():
         t.ok("Arc's two spaces came in", out.get("spaces") == 2, out)
         time.sleep(1.5)
         ids = keep.ids()
-        t.ok("each has its file", len(files()) == 2, files())
+        t.ok("each keeps its pins and its folder",
+             all(keep.kept(ids[name])[0] == {keep.FOLDERS[name]: keep.PAGES[name]} for name in ("Work", "Study")),
+             {name: keep.kept(ids[name]) for name in ("Work", "Study")})
 
         # The space on screen, deleted: back to the first, the space gone.
         keep.go("Work")
@@ -52,6 +56,7 @@ def main():
         t.ok("Work deleted from its own screen: back on the first space", st["current"] == "Personal", st["current"])
         t.ok("Work is out of the list", names() == ["Personal", "Study"], names())
         t.ok("and its file is gone", f"session-{ids['Work']}.json" not in files(), files())
+        t.ok("and its pins and folder", keep.kept(ids["Work"]) == ({}, []), keep.kept(ids["Work"]))
         t.ok("and its row isn't kept in memory", all(ids["Work"] not in p for p in st["parked"]), st["parked"])
 
         keep.go("Study")
@@ -59,6 +64,7 @@ def main():
         time.sleep(1)
         t.ok("Study deleted too: only the first space is left", names() == ["Personal"], names())
         t.ok("no space file left", files() == [], files())
+        t.ok("nor its pins and folder", keep.kept(ids["Study"]) == ({}, []), keep.kept(ids["Study"]))
 
         # The first space can't be: it is where the session was before spaces.
         sv.cmd({"do": "space", "action": "delete"})
