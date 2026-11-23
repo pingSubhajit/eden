@@ -3381,6 +3381,12 @@ final class Bench {
                 let index = pinned("anchor").flatMap { anchor in others.firstIndex(of: anchor.id) }
                     .map { $0 + (request["after"] as? Bool == true ? 1 : 0) }
                 browser.move(tab, to: ColumnPlace(area: .kept, group: into, index: index))
+            case "place":
+                // The folder carried to "index" among the kept area's items,
+                // as a drag of it lets go (Browser.move(group:to:)).
+                guard let folder = named("name"), let index = request["index"] as? Int
+                else { answer(["error": "place needs NAME and an index"]); return }
+                browser.move(group: folder.id, to: ColumnPlace(area: .kept, index: index))
             case "fold", "open":
                 guard let folder = named("name") else { answer(["error": "no folder “\(request["name"] as? String ?? "")”"]); return }
                 browser.setGroupFolded(folder.id, request["action"] as? String == "fold")

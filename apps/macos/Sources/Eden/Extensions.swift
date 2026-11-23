@@ -494,10 +494,23 @@ final class Extensions: NSObject, ObservableObject {
     }
 
     /// The ones of `before` that moved to make `after`, the same ids in
-    /// another order: all but the most that kept their order among
-    /// themselves (a longest run in order), in `after`'s order. One tab
-    /// moved past five is one move, not six.
-    nonisolated static func moved(from before: [Tab.ID], to after: [Tab.ID]) -> [Tab.ID] {
+    /// another order: those of `movers` (the tabs a move was asked of) that
+    /// changed place, and of the rest all but the most that kept their
+    /// order among themselves (a longest run in order), in `after`'s order.
+    /// One tab moved past five is one move, not six; one moved past one is
+    /// itself, not the one it passed.
+    nonisolated static func moved(from before: [Tab.ID], to after: [Tab.ID], movers: Set<Tab.ID> = []) -> [Tab.ID] {
+        let was = Dictionary(before.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let now = Dictionary(after.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let asked = after.filter { movers.contains($0) && was[$0] != now[$0] }
+        let rest = after.filter { !movers.contains($0) }
+        let others = inferred(from: before.filter { !movers.contains($0) }, to: rest)
+        let moved = Set(asked).union(others)
+        return after.filter(moved.contains)
+    }
+
+    /// moved(from:to:) with no tab said to have moved: the fewest.
+    private nonisolated static func inferred(from before: [Tab.ID], to after: [Tab.ID]) -> [Tab.ID] {
         let rank = Dictionary(before.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         let ranks = after.map { rank[$0] ?? 0 }
         // Patience sorting: the smallest end of a run of each length, and
@@ -584,6 +597,7 @@ final class Extensions: NSObject, ObservableObject {
     func attach(_ browser: Browser) {
         let key = ObjectIdentifier(browser)
         guard following[key] == nil else { return }
+        browser.rowFollowed = true
         controller.didOpenWindow(window(of: browser))
         following[key] = [
             browser.$tabs
@@ -622,6 +636,8 @@ final class Extensions: NSObject, ObservableObject {
     func detach(_ browser: Browser) {
         let key = ObjectIdentifier(browser)
         anchors.removeValue(forKey: key)
+        browser.rowFollowed = false
+        browser.movers = []
         guard following.removeValue(forKey: key) != nil else { return }
         for id in orders.removeValue(forKey: key) ?? [] {
             if let adapter = adapters[id] {
@@ -651,16 +667,32 @@ final class Extensions: NSObject, ObservableObject {
         let ids = rows.map(\.id)
         let present = Set(ids)
         let known = Set(order)
+        // Read once for the whole row, not once a tab: what each extension
+        // was told is open, the tabs of every other window, and which
+        // window's row WebKit last had each tab in.
+        let open = contexts.mapValues { $0.openTabs }
+        let elsewhere = Set(Browsers.all.filter { $0 !== browser }.flatMap { $0.tabs.map(\.id) })
+        var lastIn: [Tab.ID: ObjectIdentifier] = [:]
+        for (other, list) in orders where other != key { for id in list { lastIn[id] = other } }
+        var otherOrders: [ObjectIdentifier: [String: [Tab.ID: Int]]] = [:]
+        func places(in other: ObjectIdentifier) -> [String: [Tab.ID: Int]] {
+            if let known = otherOrders[other] { return known }
+            let made = visibleOrders(orders[other] ?? []).mapValues { list in
+                Dictionary(list.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            }
+            otherOrders[other] = made
+            return made
+        }
         let gone = order.filter { !present.contains($0) }
         for id in gone {
             // Moved to another window rather than closed: that window says
             // so when it takes it (see below).
-            if Browsers.all.contains(where: { $0 !== browser && $0.tabs.contains { $0.id == id } }) {
+            if elsewhere.contains(id) {
                 inTransit[id] = (key, oldOrders)
                 continue
             }
             if let adapter = adapters[id] {
-                for context in contexts.values where context.openTabs.contains(adapter) {
+                for context in contexts.values where open[context.uniqueIdentifier]?.contains(adapter) == true {
                     context.didCloseTab(adapter, windowIsClosing: false)
                 }
             }
@@ -668,6 +700,7 @@ final class Extensions: NSObject, ObservableObject {
             watching[id] = nil
             heldShown[id] = nil
         }
+        var arrived = Set<Tab.ID>()
         for row in rows {
             // Still there, its tab made again or let go to data under the
             // same id: watched as it is now, and nothing said.
@@ -684,22 +717,28 @@ final class Extensions: NSObject, ObservableObject {
             // windowless one they had goes without a word, as an offscreen
             // document does (the shim drops a window -1 onRemoved).
             if aside.remove(tab.id) != nil, let was = adapters.removeValue(forKey: tab.id) {
-                for context in contexts.values where context.openTabs.contains(was) {
+                for context in contexts.values where open[context.uniqueIdentifier]?.contains(was) == true {
                     context.didCloseTab(was, windowIsClosing: false)
                 }
                 watching[tab.id] = nil
             }
-            let from = inTransit.removeValue(forKey: tab.id)
-                ?? orders.first(where: { $0.key != key && $0.value.contains(tab.id) })
-                    .map { ($0.key, visibleOrders($0.value)) }
+            let from: (ObjectIdentifier, [String: [Tab.ID: Int]])?
+            if let transit = inTransit.removeValue(forKey: tab.id) {
+                from = (transit.0, transit.1.mapValues { list in
+                    Dictionary(list.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+                })
+            } else {
+                from = lastIn[tab.id].map { ($0, places(in: $0)) }
+            }
             if let from, let other = windows[from.0] {
                 // From another window: a move between windows, as WebKit has it.
                 for context in contexts.values where seen(tab, for: context) {
-                    if let index = from.1[context.uniqueIdentifier]?.firstIndex(of: tab.id) {
+                    if let index = from.1[context.uniqueIdentifier]?[tab.id] {
                         context.didMoveTab(adapter(for: tab), from: index, in: other)
                     }
                 }
                 orders[from.0]?.removeAll { $0 == tab.id }
+                arrived.insert(tab.id)
                 continue
             }
             for context in contexts.values where seen(tab, for: context) {
@@ -708,16 +747,19 @@ final class Extensions: NSObject, ObservableObject {
             watch(tab)
         }
         // Moves: of the ones that stayed, in each extension's own count,
-        // those that moved, as Chrome tells them: the fewest whose moving
-        // makes the new order (Extensions.moved), not every tab one moved
-        // past, each told once.
+        // those that moved, as the API tells them, each once: those the
+        // window says it moved (Browser.movers) — a drag's, an extension's —
+        // and of the rest, the fewest whose moving makes the new order
+        // (Extensions.moved), never every tab one moved past.
+        let movers = browser.movers
+        browser.movers = []
         for context in contexts.values {
             let oldOrder = oldOrders[context.uniqueIdentifier] ?? []
             let stayed = oldOrder.filter(present.contains)
             let current = visibleRows(of: browser, for: context).map(\.id)
             let kept = Set(stayed)
             let was = Dictionary(oldOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-            for id in Extensions.moved(from: stayed, to: current.filter(kept.contains)) {
+            for id in Extensions.moved(from: stayed, to: current.filter(kept.contains), movers: movers) {
                 if let adapter = adapters[id], let oldIndex = was[id] {
                     context.didMoveTab(adapter, from: oldIndex, in: window(of: browser))
                 }

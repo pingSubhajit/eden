@@ -2063,6 +2063,7 @@ final class Browser: NSObject, ObservableObject {
     /// A pin put in its place: the squares, then the rows, then everything
     /// else. `first`: at the head of its kind rather than the end.
     private func settlePin(_ tab: Tab, first: Bool = false) {
+        noteMoved([tab.id])
         guard let here = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         var row = tabs
         row.remove(at: here)
@@ -2215,6 +2216,7 @@ final class Browser: NSObject, ObservableObject {
         release(tab)
         defer { writeSession(now: true) }
         // Back out of the pinned block, to the head of the loose tabs.
+        noteMoved([tab.id])
         if let here = tabs.firstIndex(where: { $0.id == tab.id }) {
             let home = pinnedCount
             if here != home {
@@ -2289,6 +2291,7 @@ final class Browser: NSObject, ObservableObject {
     /// by the column's own move (move(_:to:)).
     @discardableResult
     func square(_ tab: Tab, at slot: Int) -> Bool {
+        noteMoved([tab.id])
         if tab.pin == nil {
             guard pinsByDrag(tab) else { return false }
             pin(tab, listed: false)
@@ -3556,6 +3559,23 @@ final class Browser: NSObject, ObservableObject {
         }
     }
 
+    /// The tabs moved by hand or by an extension since extensions were last
+    /// told of the row (Extensions.follow): the ones told as moved, rather
+    /// than the tabs they passed, which their order alone can't tell apart
+    /// from them (a tab moved past one). Noted only while extensions follow
+    /// the row (rowFollowed), which empties it each time it reads it, so it
+    /// never outgrows the moves of one change.
+    var movers: Set<Tab.ID> = []
+
+    /// Whether extensions follow this window's row (Extensions.attach).
+    var rowFollowed = false
+
+    /// Tabs a move is made of, noted for extensions to be told of them.
+    func noteMoved(_ ids: some Sequence<Tab.ID>) {
+        guard rowFollowed else { return }
+        movers.formUnion(ids)
+    }
+
     /// Counts each change to the row or its rows held as data, for what is
     /// worked out from them both and kept meanwhile (Extensions.visibleRows).
     private(set) var rowStamp = 0
@@ -4553,6 +4573,7 @@ final class Browser: NSObject, ObservableObject {
     /// A tab carried to `index` among the tabs shown, with what a drag of
     /// it carries (carried(with:)); not `picked`, without the tabs picked.
     func moveDisplayedTab(_ tab: Tab, to index: Int, picked: Bool = true) {
+        noteMoved(carried(with: tab, picked: picked).map(\.id))
         let shown = displayedTabs
         guard shown.indices.contains(index),
               let representative = split(for: tab)?.left ?? (tabs.contains(where: { $0.id == tab.id }) ? tab.id : nil),
@@ -5507,6 +5528,7 @@ final class Browser: NSObject, ObservableObject {
         let moving = carried(with: tab, picked: false)
         let ids = Set(moving.map(\.id))
         guard !ids.contains(target), let anchor = tabs.first(where: { $0.id == target }) else { return }
+        noteMoved(moving.map(\.id))
         var row = tabs.filter { !ids.contains($0.id) }
         // A split stands as one: beside the whole of it.
         let block = split(for: anchor)?.tabs ?? [target]
@@ -6149,6 +6171,11 @@ final class Browser: NSObject, ObservableObject {
     func moveItem(_ id: SideItemID, to index: Int) {
         var items = sideItems
         guard let from = items.firstIndex(where: { $0.id == id }), items.indices.contains(index), from != index else { return }
+        if case .tab(let tabID) = id, let tab = tabs.first(where: { $0.id == tabID }) {
+            noteMoved(carried(with: tab).map(\.id))
+        } else {
+            noteMoved(items[from].tabs.map(\.id))
+        }
         let pins = displayedTabs.filter { $0.pin != nil }
         if case .tab(let tabID) = id, let tab = tabs.first(where: { $0.id == tabID }) {
             // The tabs picked with it go with it, in their order, as one

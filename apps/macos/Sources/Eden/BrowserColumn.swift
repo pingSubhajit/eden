@@ -292,6 +292,7 @@ extension Browser {
     @discardableResult
     func move(_ tab: Tab, to place: ColumnPlace, detaching: Bool = false) -> Bool {
         guard takes(tab, at: place, detaching: detaching) else { return false }
+        noteMoved([tab.id])
         switch place.area {
         case .kept:
             objectWillChange.send()
@@ -389,6 +390,7 @@ extension Browser {
     private func move(together moving: [Tab], carrying carried: Tab, to place: ColumnPlace) -> Bool {
         let going = moving.filter { takes($0, at: place) }
         guard !going.isEmpty else { return false }
+        noteMoved(going.map(\.id))
         let ids = Set(going.map(\.id))
         func stays(_ item: SideItem) -> Bool { item.tabs.contains { !ids.contains($0.id) } }
         objectWillChange.send()
@@ -540,6 +542,7 @@ extension Browser {
     /// area, so with one of them in hand it moves alone (move(_:to:)).
     func moveKept(carrying tab: Tab, in group: UUID?, to index: Int) {
         let moving = carried(with: tab)
+        noteMoved(moving.map(\.id))
         guard isPickedAmongOthers(tab), moving.count > 1, tab.listed, !moving.contains(where: \.everywhere) else {
             move(tab, to: ColumnPlace(area: .kept, group: group, index: index))
             return
@@ -630,6 +633,16 @@ extension Browser {
         }
     }
 
+    /// A group's rows as extensions have them, for telling which moved:
+    /// its tabs, and its rows held as data by the ids they have to
+    /// extensions (pinTabID). Its tabs alone left those out, and of a
+    /// folded folder moved past a row the row was told as moved instead.
+    private func rowIDs(ofGroup id: UUID) -> [Tab.ID] {
+        guard rowFollowed else { return [] }
+        let held = heldPins[spaceID]?.first { $0.id == id }
+        return members(ofGroup: id).map(\.id) + (held.map { group in group.rows.filter(group.held.contains) } ?? []).map(pinTabID)
+    }
+
     /// A group put at `place`, at the top level of either area, its tabs in
     /// their order: carried above the line it becomes a kept group, every
     /// tab of it pinned as a row in it; below, an open group again, its
@@ -641,6 +654,7 @@ extension Browser {
     @discardableResult
     func move(group id: UUID, to place: ColumnPlace) -> Bool {
         guard takes(group: id, at: place), let from = area(ofGroup: id) else { return false }
+        noteMoved(rowIDs(ofGroup: id))
         switch (from, place.area) {
         case (.open, .kept):
             return keep(group: id, at: place.index)

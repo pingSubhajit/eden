@@ -14,13 +14,16 @@ their pages; unfolding the folder and folding it again keeps their ids and
 tells the extension nothing of them, while a tab opened meanwhile is told;
 and on rows held, chrome.tabs.update brings one in front, or sends it to
 another page, and chrome.tabs.reload loads one, each under the id it has,
-and chrome.tabs.move puts another row at one's place, in the folder. And
-chrome.tabs.move as the API has it, for ordinary tabs too: one id or
-several, each to the place after where the one before it landed
-(forward, back and both), taking the group of where it lands, -1 for the
-end, a windowId to go to another window, tabs staying after the pins, an
-error for a bad id, and onMoved, onDetached and onAttached told once for
-each tab moved.
+and chrome.tabs.move puts another row at one's place, in the folder; a
+folder carried past a row, its rows held, tabs or both, is told as moved
+by its rows and not the row it passed; in a folder half held, a row
+moved among its rows, into it or out of it lands exactly, the held row
+staying in it, held. And chrome.tabs.move as the API has it, for ordinary
+tabs too: one id or several, each to the place after where the one
+before it landed (forward, back and both), taking the group of where it
+lands, -1 for the end, a windowId to go to another window, tabs staying
+after the pins, an error for a bad id, and onMoved, onDetached and
+onAttached told once for each tab moved and never for one it passed.
 """
 import json
 import shutil
@@ -212,6 +215,89 @@ def main():
         t.ok("none of it told as removed or created", told(ids | {now.get("e", {}).get("id")}) == [],
              told(ids | {now.get("e", {}).get("id")}))
 
+        # A folder carried past a row is told as moved by its rows, held
+        # as data, tabs or some of each, and the row it passed isn't.
+        marks = work / "Held Move.html"
+        marks.write_text("<DL><p>\n" + "".join(f'<DT><A HREF="{sv.BASE}/{n}">{n}</A>\n' for n in ("hm1", "hm2")) + "</DL>\n")
+        sv.cmd({"do": "import-file", "path": str(marks)})
+        g = sv.page("g")
+        pf(action="pin", id=g)
+        time.sleep(1)
+        def top():
+            st = pf(action="state")
+            title = next((o[1] for o in st.get("order", []) if o[0] == g), None)
+            return ["g" if l[0] == "pin" and l[2] == title else l[2] for l in st.get("lines", []) if l[1] == 0]
+        def past_g(name, members):
+            items = top()
+            if "g" not in items or name not in items: return False, items
+            now = rows()
+            mine = {now[k]["id"] for k in members if k in now}
+            seen = len(events())
+            # Taken out, then put at g's place: after g from before it,
+            # before g from after it.
+            pf(action="place", name=name, index=items.index("g"))
+            time.sleep(1.5)
+            told = {int(e.split(":")[1]) for e in events()[seen:] if e.startswith("moved:")}
+            return told == mine and now["g"]["id"] not in told, (items, top(), told, mine, now.get("g", {}).get("id"))
+        held_names = ("hm1", "hm2")
+        ok, seen = past_g("Held Move Bookmarks", held_names)
+        t.ok("a folder of rows held as data moved past a row: its rows told as moved, not the row", ok, seen)
+        ok, seen = past_g("Work", ("a", "e", "b", "d", "elsewhere"))
+        t.ok("a folder of tabs and held rows moved past it: the same", ok, seen)
+        pf(action="open", name="Held Move Bookmarks")
+        time.sleep(1)
+        ok, seen = past_g("Held Move Bookmarks", held_names)
+        t.ok("a folder of tabs moved past it: the same", ok, seen)
+
+        # A folder half held, hh1 and hh3 tabs, hh2 held: a move among its
+        # rows, into it or out of it, lands exactly, as the extension sees
+        # the row, and the held row stays in it, held.
+        half = work / "Half Held.html"
+        half.write_text("<DL><p>\n" + "".join(f'<DT><A HREF="{sv.BASE}/{n}">{n}</A>\n' for n in ("hh1", "hh2", "hh3")) + "</DL>\n")
+        sv.cmd({"do": "import-file", "path": str(half)})
+        hh = "Half Held Bookmarks"
+        o = sv.page("o")
+        pf(action="pin", id=o)
+        for n in ("hh1", "hh3"):
+            ask({"type": "activate", "id": rows()[n]["id"]})
+            time.sleep(1)
+        sv.sp("select", id=listed)
+        time.sleep(1)
+        def in_folder():
+            return [r[0] for r in pf(action="state").get("saved", []) if r[1] == hh and r[0].startswith("hh")]
+        def held_rows():
+            return [r[0] for r in pf(action="state").get("held", []) if r[1] == hh and r[0].startswith("hh")]
+        t.ok("a folder half held: hh1 and hh3 tabs, hh2 held", held_rows() == ["hh2"] and in_folder() == ["hh1", "hh2", "hh3"],
+             (held_rows(), in_folder()))
+        def moved_as_asked(name, to, among):
+            now = rows()
+            everything = sorted(now, key=lambda n: now[n]["index"])
+            at = now[to]["index"]
+            everything.remove(name)
+            everything.insert(at, name)
+            ask({"type": "move", "ids": now[name]["id"], "props": {"index": at}})
+            time.sleep(1)
+            after = rows()
+            got = sorted(among, key=lambda n: after[n]["index"])
+            want = [n for n in everything if n in among]
+            return got == want, (want, got, in_folder(), held_rows())
+        ok, seen = moved_as_asked("hh1", "hh3", ("hh1", "hh2", "hh3"))
+        t.ok("a tab of it moved past the held row to another's place goes exactly there",
+             ok and in_folder() == ["hh2", "hh3", "hh1"] and held_rows() == ["hh2"], seen)
+        ok, seen = moved_as_asked("g", "hh3", ("g", "hh1", "hh2", "hh3"))
+        t.ok("a row from outside moved to a tab's place in it goes exactly there", ok and "hh2" in held_rows(), seen)
+        ok, seen = moved_as_asked("hh3", "o", ("hh1", "hh2", "hh3", "o"))
+        t.ok("a tab of it moved out goes exactly there, the held row left in it, held",
+             ok and "hh3" not in in_folder() and held_rows() == ["hh2"], seen)
+        # Carried in the column, as the bench lets a row go beside another:
+        # hh1 put before g, the folder's other tab.
+        ids = {x.get("url", "").rstrip("/").rsplit("/", 1)[-1]: x.get("id") for x in sv.cmd({"do": "tabs"})["tabs"]}
+        pf(action="move", id=ids.get("hh1"), folder=hh, anchor=ids.get("g"))
+        now = rows()
+        t.ok("a tab of it carried before another stays there, the held row still in it, held",
+             now["hh1"]["index"] + 1 == now["g"]["index"] and held_rows() == ["hh2"] and "hh2" in in_folder(),
+             ({n: now.get(n, {}).get("index") for n in ("hh1", "hh2", "g")}, in_folder(), held_rows()))
+
         # Ordinary tabs, as the API moves them.
         x, y, z = (sv.page(n) for n in ("x", "y", "z"))
         time.sleep(1)
@@ -227,6 +313,14 @@ def main():
         time.sleep(1)
         t.ok("told as moved once, and no other tab", len(told({x_id}, ("moved",))) == 1 and told({y_id, z_id}, ("moved",)) == [],
              [e for e in events() if e.startswith("moved:")])
+        # Moved one place, past one tab: that tab isn't the one told.
+        place = rows()["z"]["index"]
+        answer = ask({"type": "move", "ids": z_id, "props": {"index": place + 1}})
+        nxt = next((t for t in (ask({"type": "query"}) or []) if t.get("windowId") == mine and t.get("index") == place), {})
+        time.sleep(1)
+        t.ok("a tab moved past the next is told as moved, once, and the next isn't",
+             len(told({z_id}, ("moved",))) == 1 and told({nxt.get("id")}, ("moved",)) == [] and nxt.get("id") != z_id,
+             ([e for e in events() if e.startswith("moved:")], nxt, answer))
         answer = ask({"type": "move", "ids": [y_id, z_id], "props": {"index": 0}})
         both = (answer or {}).get("tabs") or []
         first_loose = min(t["index"] for t in loose)
@@ -263,6 +357,43 @@ def main():
         base = arranged()
         several(["p", "q"], -1)
         t.ok("several to -1 go to the end in their order: [r, s, p, q]", four() == ["r", "s", "p", "q"], four())
+        # A row held as data, never opened, sent anywhere by chrome.tabs.move
+        # lands exactly there: at a held row of another folded folder, of its
+        # own, at a tab of a folder half held, at the top, and among the
+        # tabs, where a pin stops at the last row; held again in a folder.
+        for name, rows_ in (("SrcF", ("sa1", "sa2", "sa3")), ("DstF", ("da1", "da2"))):
+            marks = work / (name + ".html")
+            marks.write_text("<DL><p>\n" + "".join(f'<DT><A HREF="{sv.BASE}/{n}">{n}</A>\n' for n in rows_) + "</DL>\n")
+            sv.cmd({"do": "import-file", "path": str(marks)})
+        time.sleep(1)
+        src, dst = "SrcF Bookmarks", "DstF Bookmarks"
+        def held_in(folder):
+            return [r[0] for r in pf(action="state").get("held", []) if r[1] == folder]
+        def saved_in(folder):
+            return [r[0] for r in pf(action="state").get("saved", []) if r[1] == folder]
+        t.ok("two folded folders of rows held as data", held_in(src) == ["sa1", "sa2", "sa3"] and held_in(dst) == ["da1", "da2"],
+             (held_in(src), held_in(dst)))
+        ok, seen = moved_as_asked("sa1", "da2", ("sa1", "sa2", "sa3", "da1", "da2"))
+        t.ok("a held row sent to a held row of another folder goes there, held there",
+             ok and saved_in(dst) == ["da1", "da2", "sa1"] and "sa1" in held_in(dst), (seen, saved_in(dst), held_in(dst)))
+        ok, seen = moved_as_asked("sa2", "sa3", ("sa2", "sa3"))
+        t.ok("a held row sent to a held row of its own folder goes there", ok and saved_in(src) == ["sa3", "sa2"], (seen, saved_in(src)))
+        ok, seen = moved_as_asked("da1", "g", ("da1", "g", "hh1", "hh2"))
+        t.ok("a held row sent to a tab of a folder half held goes there, in that folder", ok and "da1" in saved_in(hh), (seen, saved_in(hh)))
+        ok, seen = moved_as_asked("sa3", "o", ("sa3", "o"))
+        top = [r for r in pf(action="state").get("saved", []) if r[0] == "sa3"]
+        t.ok("a held row sent to a row at the top goes there, out of its folder", ok and top and top[0][1] is None, (seen, top))
+        gx = sv.page("gx")
+        sv.cmd({"do": "group", "id": gx, "new": True, "name": "GX"})
+        time.sleep(1)
+        now = rows()
+        answer = ask({"type": "move", "ids": now["sa2"]["id"], "props": {"index": now["gx"]["index"]}})
+        now = rows()
+        pinned = [r for r in now.values() if r.get("windowId") == now["sa2"]["windowId"] and r.get("pinned")]
+        t.ok("a held row sent among the tabs stops at the last row, a pin still",
+             "error" not in (answer or {}) and now["sa2"].get("pinned") and now["sa2"]["index"] == max(r["index"] for r in pinned),
+             (answer, now.get("sa2"), max((r["index"] for r in pinned), default=None)))
+
         # With groups on, a tab moved lands where it was sent and takes the
         # group of where it lands: out of its group's span it leaves it,
         # between two of a group's tabs it joins it, at a group's edge it is

@@ -47,6 +47,43 @@ final class ExtensionTabsMoveTests: XCTestCase {
         var swapped = ids
         swapped.swapAt(1, 4)
         XCTAssertEqual(Set(Extensions.moved(from: ids, to: swapped)), [ids[1], ids[4]])
+        // One moved past the next: its order alone can't tell which moved;
+        // the tab the move was asked of is the one told, not the one passed.
+        let (a, b, c) = (ids[0], ids[1], ids[2])
+        XCTAssertEqual(Extensions.moved(from: [a, b, c], to: [b, a, c], movers: [a]), [a])
+        XCTAssertEqual(Extensions.moved(from: [a, b, c], to: [b, a, c], movers: [b]), [b])
+        // A mover that came back to its place moved nowhere.
+        XCTAssertEqual(Extensions.moved(from: [a, b, c], to: [a, b, c], movers: [a]), [])
+    }
+
+    /// A tab dragged one place along the column, or moved so by an
+    /// extension, is the one the window says moved (Browser.movers).
+    func testTheTabMovedIsTheOneSaidToHaveMoved() async throws {
+        let browser = makeBrowser()
+        for word in ["a", "b", "c"] {
+            browser.newTab()
+            browser.tabs.last?.restore(url: try XCTUnwrap(URL(string: "https://\(word).example/")), title: word)
+        }
+        let shown = browser.displayedTabs.filter { !$0.isBlank }
+        let a = try XCTUnwrap(shown.first { $0.title == "a" })
+        let before = browser.tabs.map(\.id)
+        browser.movers = []
+        let at = try XCTUnwrap(browser.displayedTabs.firstIndex { $0.id == a.id })
+        browser.moveDisplayedTab(a, to: at + 1)
+        XCTAssertEqual(browser.movers, [a.id], "dragged: the tab carried")
+        XCTAssertEqual(Extensions.moved(from: before, to: browser.tabs.map(\.id), movers: browser.movers), [a.id])
+
+        let context = try await extensionContext()
+        let b = try XCTUnwrap(browser.tabs.first { $0.title == "b" })
+        let rows = Extensions.shared.visibleRows(of: browser, for: context)
+        let place = try XCTUnwrap(rows.firstIndex { $0.tab === b })
+        browser.movers = []
+        let middle = browser.tabs.map(\.id)
+        let reply = try await ExtensionShims.answer(["api": "tabs.move", "args": [place, place + 1]],
+                                                    from: context, owner: Extensions.shared) as? [String: Any]
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertTrue(browser.movers.contains(b.id), "moved by an extension: the tab it named")
+        XCTAssertEqual(Extensions.moved(from: middle, to: browser.tabs.map(\.id), movers: browser.movers), [b.id])
     }
 
     func testATabMovesToItsPlaceAndStaysAfterThePins() async throws {
@@ -261,6 +298,88 @@ final class ExtensionTabsMoveTests: XCTestCase {
         XCTAssertNil(reply?["error"], "\(String(describing: reply))")
         XCTAssertTrue(there.tabs.contains { $0.title == "a2" }, "in the second window")
         XCTAssertFalse(here.tabs.contains { $0.title == "a2" })
+    }
+
+    /// A folder moved past a row is the one said to have moved, by its rows
+    /// as extensions have them: held as data, tabs, or some of each.
+    func testAFolderMovedPastARowIsTheOneSaidToHaveMoved() async throws {
+        let browser = makeBrowser()
+        func site(_ title: String) -> Bookmark {
+            Bookmark(title: title, url: "https://\(title.lowercased()).example/", children: nil)
+        }
+        browser.pinShelf.take([Bookmark(title: "Work", url: nil, children: [site("w1"), site("w2")]), site("B")], into: nil)
+        defer { Pins.setGroups(browser.spaceID, [], from: nil) }
+        let work = try XCTUnwrap(browser.keptGroups.first { $0.name == "Work" }?.id)
+        let context = try await extensionContext()
+        func ids() -> [Eden.Tab.ID] { Extensions.shared.visibleRows(of: browser, for: context).map(\.id) }
+        func titles() -> [String] {
+            Extensions.shared.visibleRows(of: browser, for: context).compactMap { row in
+                row.tab?.title ?? browser.heldRows.first { browser.pinTabID($0.id) == row.id }?.title
+            }
+        }
+        func moveWork(below: Bool) throws -> [Eden.Tab.ID] {
+            let before = ids()
+            browser.movers = []
+            XCTAssertTrue(browser.move(group: work, to: ColumnPlace(area: .kept, index: below ? 1 : 0)))
+            return Extensions.moved(from: before, to: ids(), movers: browser.movers)
+        }
+        func rows(_ titles: [String]) -> [Eden.Tab.ID] {
+            let all = Extensions.shared.visibleRows(of: browser, for: context)
+            return titles.compactMap { title in
+                all.first { row in (row.tab?.title ?? browser.heldRows.first { browser.pinTabID($0.id) == row.id }?.title) == title }?.id
+            }
+        }
+
+        browser.setGroupFolded(work, true)
+        XCTAssertEqual(browser.heldRows(ofGroup: work).count, 2, "both held")
+        XCTAssertEqual(titles().prefix(3), ["w1", "w2", "B"])
+        XCTAssertEqual(try moveWork(below: true), rows(["w1", "w2"]), "held: the folder's rows, not B")
+        XCTAssertEqual(titles().prefix(3), ["B", "w1", "w2"])
+        XCTAssertEqual(try moveWork(below: false), rows(["w1", "w2"]))
+
+        browser.setGroupFolded(work, false)
+        XCTAssertEqual(browser.heldRows(ofGroup: work).count, 0, "both tabs")
+        XCTAssertEqual(try moveWork(below: true), rows(["w1", "w2"]), "tabs")
+        XCTAssertEqual(try moveWork(below: false), rows(["w1", "w2"]))
+
+        let w1 = try XCTUnwrap(browser.tabs.first { $0.title == "w1" })
+        browser.select(w1)
+        browser.setGroupFolded(work, true)
+        XCTAssertEqual(browser.heldRows(ofGroup: work).map(\.title), ["w2"], "one of each")
+        XCTAssertEqual(try moveWork(below: true), rows(["w1", "w2"]), "one of each")
+        XCTAssertEqual(titles().prefix(3), ["B", "w1", "w2"])
+    }
+
+    /// The tabs moved are noted only while extensions follow the row, and
+    /// each time it is followed they are let go: never more than one
+    /// change's.
+    func testMoversAreNotedOnlyWhileFollowedAndLetGo() throws {
+        let followed = makeBrowser()
+        let browser = Browser(record: WindowRecord())
+        defer { browser.closeAll() }
+        for word in ["a", "b"] {
+            browser.newTab()
+            browser.tabs.last?.restore(url: try XCTUnwrap(URL(string: "https://\(word).example/")), title: word)
+        }
+        let a = try XCTUnwrap(browser.tabs.first { $0.title == "a" })
+        let at = try XCTUnwrap(browser.displayedTabs.firstIndex { $0.id == a.id })
+        XCTAssertFalse(browser.rowFollowed)
+        browser.moveDisplayedTab(a, to: at == 0 ? 1 : 0)
+        XCTAssertTrue(browser.movers.isEmpty, "not followed: nothing noted")
+
+        XCTAssertTrue(followed.rowFollowed, "registered, extensions follow it")
+        for word in ["c", "d"] {
+            followed.newTab()
+            followed.tabs.last?.restore(url: try XCTUnwrap(URL(string: "https://\(word).example/")), title: word)
+        }
+        let c = try XCTUnwrap(followed.tabs.first { $0.title == "c" })
+        let from = try XCTUnwrap(followed.displayedTabs.firstIndex { $0.id == c.id })
+        followed.moveDisplayedTab(c, to: from + 1)
+        XCTAssertEqual(followed.movers, [c.id])
+        let emptied = expectation(description: "followed")
+        DispatchQueue.main.async { DispatchQueue.main.async { emptied.fulfill() } }
+        wait(for: [emptied], timeout: 2)
+        XCTAssertTrue(followed.movers.isEmpty, "the row followed, its movers let go")
     }
 
     // MARK: - the pieces
