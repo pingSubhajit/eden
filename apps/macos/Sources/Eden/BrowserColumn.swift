@@ -229,9 +229,14 @@ extension Browser {
         // The groups held as data stay where `items` has them, for the row
         // to be written with them there (HeldPins.swift).
         if let held = heldPins[spaceID] { heldPins[spaceID] = HeldPins.standing(items, pin: \.pinID, held: held) }
+        // Each group found by its id: looked for along the others, and each
+        // not drawn looked for along the order, a folder moved among 750
+        // folded ones took 40 ms in a test build.
         let kept = keptGroups
         let order = flat.groups.map(\.id)
-        let standing = order.compactMap { id in kept.first { $0.id == id } } + kept.filter { !order.contains($0.id) }
+        let byID = Dictionary(kept.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let drawn = Set(order)
+        let standing = order.compactMap { byID[$0] } + kept.filter { !drawn.contains($0.id) }
         if standing.map(\.id) != kept.map(\.id) { saveKeptGroups(standing) }
     }
 

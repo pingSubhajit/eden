@@ -196,6 +196,23 @@ final class PinCostTests: XCTestCase {
         print("PIN-COST ⌘1–9 among 750 folded folders, the hints: \(Self.ms(hints)) ms a time")
     }
 
+    /// 750 folded folders of two rows each, every row held: a folder
+    /// carried from the foot of the kept area to its head and back, as its
+    /// drag does (Browser.move(group:to:)), the kept groups put in their
+    /// new order each time.
+    func testMeasureAFolderMovedAmongManyFolded() async throws {
+        let browser = makeBrowser()
+        browser.pinShelf.take(Self.folders(750, of: 2), into: nil)
+        for group in browser.keptGroups where !group.collapsed { browser.setGroupFolded(group.id, true) }
+        let last = try XCTUnwrap(browser.keptGroups.last?.id)
+        let began = CACurrentMediaTime()
+        for n in 0..<10 { XCTAssertTrue(browser.move(group: last, to: ColumnPlace(area: .kept, index: n.isMultiple(of: 2) ? 0 : 749))) }
+        let moving = (CACurrentMediaTime() - began) / 10
+        XCTAssertEqual(browser.keptGroups.last?.id, last, "back at the foot")
+        XCTAssertEqual(browser.heldRows.count, 1_500)
+        print("PIN-COST a folder moved among 750 folded folders: \(Self.ms(moving)) ms a time")
+    }
+
     /// One folded folder of 1,500 rows, half of them kept as tabs (their
     /// sound turned off, which a row held as data can't keep) and half
     /// held: what writing the pins, reading the row as extensions see it
