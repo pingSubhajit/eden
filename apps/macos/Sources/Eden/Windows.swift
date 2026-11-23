@@ -146,6 +146,9 @@ enum Browsers {
     /// app running — comes back first, as a window always did; otherwise a
     /// new one, in the space of the window in front, with its pins and
     /// nothing in front: no tab is made for it (see Browser.restoreSession).
+    /// ⌘T's field comes up over its empty ground, so typing goes straight
+    /// in, and Return opens the window's first tab; put away, it leaves
+    /// nothing in front.
     static func newWindow() {
         if bringBack() { return }
         if let kept = all.first(where: { !$0.isOpen && !$0.tucked }) {
@@ -154,6 +157,7 @@ enum Browsers {
         }
         let browser = Browser(record: WindowRecord(space: front?.spaceID ?? Space.firstID))
         open(browser, frame: nil)
+        if browser.activeID == nil { browser.raiseLaunchField() }
     }
 
     /// Brings a browser's window on screen, the scene's included.

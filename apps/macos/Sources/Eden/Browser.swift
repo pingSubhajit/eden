@@ -4470,6 +4470,13 @@ final class Browser: NSObject, ObservableObject {
             newTab()
             return
         }
+        raiseLaunchField()
+    }
+
+    /// ⌘T's field, up over whatever is in front, or over nothing: no tab is
+    /// made until Return opens one. ⌘N's new window comes up with it, so
+    /// typing goes straight into it (Browsers.newWindow).
+    func raiseLaunchField() {
         // A peek is over the page, and the field would come up under it:
         // put away first, as a click outside it would.
         if peekInFront { closePeek() }
