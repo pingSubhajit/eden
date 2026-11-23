@@ -4420,8 +4420,8 @@ enum ExtensionShims {
     /// alone takes them: never the tabs picked with it in the column, which
     /// stay picked where they are. A tab under the line takes the group
     /// of where it lands (Browser.moveForExtension).
-    private static func moveInRow(_ tab: Tab, of browser: Browser, to wanted: Int, context: WKWebExtensionContext,
-                                  owner: Extensions, strict: Bool = true) throws {
+    static func moveInRow(_ tab: Tab, of browser: Browser, to wanted: Int, context: WKWebExtensionContext,
+                          owner: Extensions, strict: Bool = true) throws {
         let visible = owner.visibleRows(of: browser, for: context)
         guard let from = visible.firstIndex(where: { $0.tab === tab }) else { throw Unsupported(what: "No tab there") }
         // 0 a square, 1 a pinned row, a held one too, 2 any other tab.

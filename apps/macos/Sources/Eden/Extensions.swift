@@ -2035,6 +2035,13 @@ extension Extensions: WKWebExtensionControllerDelegate {
         try Extensions.mayOpen(url)
         let tab = browser.open(url, foreground: configuration.shouldBeActive, atEnd: true)
         if configuration.shouldBePinned { browser.pin(tab) }
+        // At the place asked, as chrome.tabs.move puts a tab there, group
+        // and all (ExtensionShims.moveInRow); the end, where it opened,
+        // when none was asked or the place is past it. Always made at the
+        // end, it stood away from the tabs an extension meant it beside.
+        if configuration.index < visibleRows(of: browser, for: extensionContext).count - 1 {
+            try? ExtensionShims.moveInRow(tab, of: browser, to: configuration.index, context: extensionContext, owner: self)
+        }
         return adapter(for: tab)
     }
 

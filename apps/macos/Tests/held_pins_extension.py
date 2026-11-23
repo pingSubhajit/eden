@@ -26,7 +26,8 @@ windowId to go to another window, tabs staying after the pins, an error
 for a bad id, onMoved, onDetached and onAttached told once for each tab
 moved and never for one it passed, and a tab sent to another window
 neither woken nor put in front, a page of a split taking the split with
-it."""
+it. A tab chrome.tabs.create makes goes to the place it asks, in the
+group of where it lands, or to the end when it asks none."""
 import json
 import shutil
 import subprocess
@@ -75,6 +76,10 @@ chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
   } else if (message.type === "move") {
     chrome.tabs.move(message.ids, message.props)
       .then((t) => reply({ tabs: (Array.isArray(t) ? t : [t]).map((x) => ({ id: x.id, index: x.index, windowId: x.windowId, pinned: x.pinned })) }), failed);
+  } else if (message.type === "create") {
+    const props = { url: message.url, active: false };
+    if (typeof message.index === "number") props.index = message.index;
+    chrome.tabs.create(props).then((t) => reply({ id: t.id, index: t.index, groupId: t.groupId }), failed);
   } else if (message.type === "windows") {
     chrome.windows.getAll({}).then((w) => reply(w.map((x) => x.id)), failed);
   } else {
@@ -450,6 +455,20 @@ def main():
         grouped = [e for e in events()[heard:] if e.startswith("grouped:%d:" % k3_id)]
         t.ok("told of each change of group by onUpdated, once each, -1 for none",
              grouped == ["grouped:%d:-1" % k3_id, "grouped:%d:%d" % (k3_id, g)], grouped)
+        # A tab made by chrome.tabs.create goes to the place asked, taking
+        # the group of where it lands, or to the end when none is asked.
+        at = tabs_now()["k5"]["index"]
+        made = ask({"type": "create", "url": sv.BASE + "/k6", "index": at}) or {}
+        time.sleep(1)
+        now = tabs_now()
+        t.ok("a tab made at a place between two of a group's tabs is there, in the group",
+             now.get("k6", {}).get("index") == at and now.get("k6", {}).get("groupId") == g, (made, now.get("k6")))
+        made = ask({"type": "create", "url": sv.BASE + "/k7"}) or {}
+        time.sleep(1)
+        now = tabs_now()
+        mine_now = [x for x in now.values() if x.get("windowId") == now["k7"]["windowId"]]
+        t.ok("one made with no place asked is at the end, in none",
+             now["k7"]["index"] == max(x["index"] for x in mine_now) and now["k7"].get("groupId") == -1, (made, now.get("k7")))
         # Only the tab named moves, not the tabs picked with it in the
         # column, which a drag of it would carry; they stay picked.
         picked = sv.sp("pick", ids=[pages["p"], pages["q"]]).get("selected")
