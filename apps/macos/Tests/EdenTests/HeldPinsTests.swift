@@ -87,6 +87,35 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertEqual(saved(browser), ["A", "w1 Work", "w2 Work", "w3 Work", "B", "d1 Docs", "d2 Docs"])
     }
 
+    /// Bookmarks come in folded, in a folder named after the file they come
+    /// from or the folder they were in, and make no tab, ahead or after.
+    func testBookmarksComeInFoldedAsData() async throws {
+        let browser = makeBrowser()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("eden-held-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var html = "<DL><p>\n<DT><H3>Reading</H3><DL><p>\n"
+        for n in 0..<120 { html += #"<DT><A HREF="https://held-\#(n).example/">Held \#(n)</A>"# + "\n" }
+        html += "</DL><p>\n</DL>\n"
+        let file = folder.appendingPathComponent("Kept Pages.html")
+        try html.write(to: file, atomically: true, encoding: .utf8)
+        let took = await browser.takeFile(file)
+        XCTAssertEqual(took.bookmarks, 120)
+        let group = try XCTUnwrap(browser.keptGroups.first { $0.name == "Kept Pages Bookmarks" })
+        XCTAssertTrue(group.collapsed)
+        XCTAssertEqual(browser.heldRows(ofGroup: group.id).count, 120)
+        XCTAssertEqual(rows(browser), [])
+        XCTAssertEqual(Tab.live.allObjects.filter { $0.pinID.map(browser.holds(pin:)) == true }.count, 0,
+                       "no tab made for them ahead, nor kept")
+
+        browser.pinShelf.take([Bookmark(title: "Later", url: nil, children: [
+            Bookmark(title: "Later 1", url: "https://later-1.example/", children: nil),
+        ])], into: nil)
+        let later = try XCTUnwrap(browser.keptGroups.first { $0.name == "Later" })
+        XCTAssertTrue(later.collapsed, "your own bookmarks' folders too")
+        XCTAssertEqual(rows(browser), [])
+    }
+
     func testFoldAllGroupsHoldsEveryFoldersRows() throws {
         let browser = makeBrowser()
         _ = try keep(browser)

@@ -1676,7 +1676,9 @@ final class Browser: NSObject, ObservableObject {
     /// batch at a time, in every window showing the space, with the window
     /// free between batches, the count shown and Cancel heard before each
     /// (makeAhead); then it all comes in at once (PinShelf.take), written
-    /// once, and each window's row takes up the tabs made for it.
+    /// once, and each window's row takes up the tabs made for it. Into the
+    /// folder the import makes, which comes in folded, or one folded
+    /// already, no tab is made: the rows come in as data (HeldPins.swift).
     ///
     /// Cancelled before it comes in, nothing of it has: the tabs made are
     /// dropped, never having been in a row, and no pin, kept group or file
@@ -3569,13 +3571,13 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// Tabs made for `defs`, pins of `space` that are about to come in. None
-    /// for a row coming into a folded group: it comes in as data
-    /// (reconcilePins).
+    /// for a row coming into a folded group, or a group the import makes,
+    /// which comes in folded: it comes in as data (reconcilePins).
     func makeAhead(_ defs: some Sequence<PinDef>, space: UUID) {
         guard !isPopup, !retired, space == spaceID || parked[space] != nil else { return }
-        let folded = Set(Pins.groups(space).filter(\.collapsed).map(\.id))
+        let open = Set(Pins.groups(space).filter { !$0.collapsed }.map(\.id))
         for def in defs where madeAhead[def.id] == nil {
-            if def.listed == true, let group = def.group, folded.contains(group) { continue }
+            if def.listed == true, let group = def.group, !open.contains(group) { continue }
             madeAhead[def.id] = pinTab(def, space: space, prepared: false)
         }
     }

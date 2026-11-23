@@ -571,14 +571,17 @@ struct PinShelf {
             set(items)
         }
 
-        /// The group of that name, made (with `id`) if there is none.
+        /// The group of that name, made (with `id`) if there is none. One
+        /// made for bookmarks coming in comes in folded, as a bookmarks
+        /// folder sits closed: an import of hundreds draws one line, and
+        /// costs a window nothing until it is unfolded (HeldPins.swift).
         mutating func folder(named title: String, id: UUID, noted: inout Noted) -> UUID {
             let name = PinShelf.folderName(title)
             if let same = groups.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }) {
                 return same.id
             }
             let id = uses(id) ? UUID() : id
-            groups.append(TabGroup(id: id, name: name, collapsed: false))
+            groups.append(TabGroup(id: id, name: name, collapsed: true))
             noted.folders.append(id)
             noted.ids?.insert(id)
             return id
