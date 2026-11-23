@@ -10,23 +10,23 @@ and the world are removed afterwards.
 What is checked, with an extension that has the "tabs" permission and
 keeps what chrome.tabs tells it: pinned rows in a folder, folded and
 relaunched so they are held as data, are listed by chrome.tabs.query at
-their pages; unfolding the folder and folding it again keeps their ids and
-tells the extension nothing of them, while a tab opened meanwhile is told;
-and on rows held, chrome.tabs.update brings one in front, or sends it to
-another page, and chrome.tabs.reload loads one, each under the id it has,
-and chrome.tabs.move puts another row at one's place, in the folder; a
-folder carried past a row, its rows held, tabs or both, is told as moved
-by its rows and not the row it passed; in a folder half held, a row
-moved among its rows, into it or out of it lands exactly, the held row
-staying in it, held. And chrome.tabs.move as the API has it, for ordinary
-tabs too: one id or several, each to the place after where the one
-before it landed (forward, back and both), taking the group of where it
-lands, -1 for the end, a windowId to go to another window, tabs staying
-after the pins, an error for a bad id, onMoved, onDetached and
-onAttached told once for each tab moved and never for one it passed,
-and a tab sent to another window neither woken nor put in front, a page
-of a split taking the split with it.
-"""
+their pages; unfolding the folder and folding it again keeps their ids
+and tells the extension nothing of them, while a tab opened meanwhile is
+told; and on rows held, chrome.tabs.update brings one in front, or sends
+it to another page, and chrome.tabs.reload loads one, each under the id
+it has, and chrome.tabs.move puts another row at one's place, in the
+folder; a folder carried past a row, its rows held, tabs or both, is
+told as moved by its rows and not the row it passed; in a folder half
+held, a row moved among its rows, into it or out of it lands exactly,
+the held row staying in it, held. And chrome.tabs.move as the API has
+it, for ordinary tabs too: one id or several, each to the place after
+where the one before it landed (forward, back and both), taking the
+group of where it lands and told of it in onUpdated, -1 for the end, a
+windowId to go to another window, tabs staying after the pins, an error
+for a bad id, onMoved, onDetached and onAttached told once for each tab
+moved and never for one it passed, and a tab sent to another window
+neither woken nor put in front, a page of a split taking the split with
+it."""
 import json
 import shutil
 import subprocess
@@ -61,6 +61,7 @@ chrome.tabs.onRemoved.addListener((id) => note("removed:" + id));
 chrome.tabs.onMoved.addListener((id, info) => note("moved:" + id + ":" + info.fromIndex + ":" + info.toIndex));
 chrome.tabs.onDetached.addListener((id) => note("detached:" + id));
 chrome.tabs.onAttached.addListener((id, info) => note("attached:" + id + ":" + info.newWindowId));
+chrome.tabs.onUpdated.addListener((id, info) => { if ("groupId" in info) note("grouped:" + id + ":" + info.groupId); });
 chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
   const failed = (e) => reply({ error: String(e && e.message) });
   if (message.type === "query") {
@@ -420,6 +421,7 @@ def main():
         t.ok("a group of k1, k2 and k3, then k4 and k5", g not in (None, -1) and [group_of(n) for n in ("k2", "k3")] == [g, g]
              and k_order() == ["k1", "k2", "k3", "k4", "k5"] and [group_of(n) for n in ("k4", "k5")] == [-1, -1],
              (k_order(), [group_of(n) for n in ks]))
+        heard = len(events())
         send(["k3"], -1)
         now = tabs_now()
         t.ok("a tab of a group moved forward out of it goes there and leaves the group",
@@ -443,6 +445,11 @@ def main():
         t.ok("several moved back between two tabs of a group join it, in their order",
              k_order() == ["k1", "k3", "k4", "k5", "k2"] and [group_of(n) for n in ("k3", "k4", "k5", "k2")] == [g, g, g, g],
              (k_order(), [group_of(n) for n in ks]))
+        k3_id = tabs_now()["k3"]["id"]
+        time.sleep(1)
+        grouped = [e for e in events()[heard:] if e.startswith("grouped:%d:" % k3_id)]
+        t.ok("told of each change of group by onUpdated, once each, -1 for none",
+             grouped == ["grouped:%d:-1" % k3_id, "grouped:%d:%d" % (k3_id, g)], grouped)
         # Only the tab named moves, not the tabs picked with it in the
         # column, which a drag of it would carry; they stay picked.
         picked = sv.sp("pick", ids=[pages["p"], pages["q"]]).get("selected")

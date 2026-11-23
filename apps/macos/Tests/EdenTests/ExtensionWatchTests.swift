@@ -73,6 +73,30 @@ final class ExtensionWatchTests: XCTestCase {
         XCTAssertEqual(context.told.count, 1)
     }
 
+    /// A tab put in a group or taken out of one is said too, the shim
+    /// then telling tabs.onUpdated of its groupId, though the groups stay
+    /// what they were; a tab staying in its group says nothing.
+    func testATabIntoAGroupOrOutOfItIsSaid() {
+        var members: Set<GroupWatch.Member> = []
+        var deferred: [() -> Void] = []
+        let watch = GroupWatch(read: { [] }, members: { members }, soon: { deferred.append($0) })
+        func run() { let work = deferred; deferred = []; work.forEach { $0() } }
+        let context = Context()
+        let tab = UUID(), group = UUID()
+        watch.add(context.ear)
+        members = [GroupWatch.Member(tab: tab, group: group)]
+        watch.changed()
+        run()
+        XCTAssertEqual(context.told.count, 1, "into a group")
+        watch.changed()
+        run()
+        XCTAssertEqual(context.told.count, 1, "still in it: nothing more")
+        members = []
+        watch.changed()
+        run()
+        XCTAssertEqual(context.told.count, 2, "out of it")
+    }
+
     func testAContextThatHasGoneIsDroppedAndTheLastOneGoingStopsTheWatch() {
         let groups = Groups(), gone = Context(), staying = Context()
         groups.watch.add(gone.ear)
