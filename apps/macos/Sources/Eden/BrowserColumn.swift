@@ -85,17 +85,29 @@ extension Browser {
 
     /// The kept area's items: the rows every space shows, which keep its
     /// head, then this space's own, each group where its first row stands
-    /// and the empty ones after the group before them.
+    /// and the empty ones after the group before them. A folded group whose
+    /// rows are held as data stands where it stood (HeldPins.swift).
     func keptItems() -> [SideItem] {
-        Browser.keptItems(listedPins, groups: keptGroups)
+        keptItems(listedPins, space: spaceID)
     }
 
     /// The same for any space's rows and kept groups: another space's,
     /// passing in a swipe, too.
-    static func keptItems(_ rows: [Tab], groups: [TabGroup]) -> [SideItem] {
+    func keptItems(_ rows: [Tab], space: UUID) -> [SideItem] {
         let everywhere = rows.filter(\.everywhere).map(SideItem.tab)
         let own = rows.filter { !$0.everywhere && !$0.shy }
-        return everywhere + ColumnTree.items(own, group: \.keptGroupID, groups: groups, keepingEmpty: true)
+        return everywhere + ownItems(own, space: space)
+    }
+
+    /// A space's own rows as the kept area draws them, with the groups
+    /// held as data where they stand.
+    private func ownItems(_ own: [Tab], space: UUID) -> [SideItem] {
+        let groups = Pins.groups(space)
+        let held = HeldPins.resolved(heldPins[space] ?? [], present: Set(own.compactMap(\.pinID)),
+                                     folders: HeldPins.folders(own, pin: \.pinID, group: \.keptGroupID), groups: groups) {
+            Pins.defs(space)
+        }
+        return HeldPins.items(own, pin: \.pinID, group: \.keptGroupID, groups: groups, held: held)
     }
 
     /// The kept area's lines as drawn, a folded group showing only the tab
@@ -165,6 +177,9 @@ extension Browser {
         guard keptGroups.contains(where: { $0.id == id }) else { return }
         if editingGroupID == id { editingGroupID = nil }
         if iconGroupID == id { iconGroupID = nil }
+        // Out of the folder, its rows are on show: made tabs first, where
+        // they stand (HeldPins.swift).
+        showHeld(group: id)
         let items = ownKeptItems().flatMap { item -> [SideItem] in
             guard case .group(let group, let members) = item, group.id == id else { return [item] }
             return members.map(SideItem.tab)
@@ -176,8 +191,7 @@ extension Browser {
 
     /// This space's own kept items, without the tabs `leaving`.
     private func ownKeptItems(without leaving: Set<Tab.ID> = []) -> [SideItem] {
-        let own = tabs.filter { fitsKeptGroup($0) && !leaving.contains($0.id) }
-        return ColumnTree.items(own, group: \.keptGroupID, groups: keptGroups, keepingEmpty: true)
+        ownItems(tabs.filter { fitsKeptGroup($0) && !leaving.contains($0.id) }, space: spaceID)
     }
 
     /// The rows every space shows, which stand at the head of the kept area.
@@ -212,6 +226,9 @@ extension Browser {
         let pinned = tabs.filter { $0.pin != nil && !$0.shy && !ids.contains($0.id) }
         let loose = tabs.filter { ($0.pin == nil || $0.shy) && !ids.contains($0.id) }
         rearrangeTabs(pinned.filter { !$0.listed } + pinned.filter(\.listed) + own + loose)
+        // The groups held as data stay where `items` has them, for the row
+        // to be written with them there (HeldPins.swift).
+        if let held = heldPins[spaceID] { heldPins[spaceID] = HeldPins.standing(items, pin: \.pinID, held: held) }
         let kept = keptGroups
         let order = flat.groups.map(\.id)
         let standing = order.compactMap { id in kept.first { $0.id == id } } + kept.filter { !order.contains($0.id) }
@@ -257,7 +274,8 @@ extension Browser {
             let members = tabs(in: id)
             return !members.isEmpty && members.allSatisfy(canPin)
         case (.kept, .open):
-            return prefs.usesTabGroups && tabs.contains { fitsKeptGroup($0) && $0.keptGroupID == id }
+            return prefs.usesTabGroups
+                && (tabs.contains { fitsKeptGroup($0) && $0.keptGroupID == id } || !heldRows(ofGroup: id).isEmpty)
         case (.kept, .kept):
             return true
         case (.open, .open):
@@ -640,6 +658,9 @@ extension Browser {
     /// as when a pin is unpinned in one: open tabs are a window's own.
     private func open(group id: UUID, at index: Int?) -> Bool {
         guard let group = keptGroups.first(where: { $0.id == id }) else { return false }
+        // Its rows held as data made tabs first, to be this window's open
+        // tabs (HeldPins.swift).
+        showHeld(group: id)
         let members = tabs.filter { fitsKeptGroup($0) && $0.keptGroupID == id }
         objectWillChange.send()
         if !tabGroups.contains(where: { $0.id == id }) { tabGroups.append(group) }

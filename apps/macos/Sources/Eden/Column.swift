@@ -143,15 +143,35 @@ enum ColumnTree {
             if seen.insert(id).inserted { out.append(.group(held, buckets[id] ?? [])) }
         }
         guard keepingEmpty else { return out }
+        // Each empty group noted under the group before it, then put in as
+        // the items are laid down again: looked for in `out` one by one,
+        // a window's pins in 750 folded folders, none of them with a tab,
+        // took 88 ms in a test build on every change to a pin.
+        var after: [UUID?: [TabGroup]] = [:]
         var before: UUID?
         for held in groups {
-            if seen.insert(held.id).inserted {
-                let at = before.flatMap { id in out.firstIndex { $0.group?.id == id } }.map { $0 + 1 } ?? 0
-                out.insert(.group(held, []), at: at)
-            }
+            if seen.insert(held.id).inserted { after[before, default: []].append(held) }
             before = held.id
         }
-        return out
+        guard !after.isEmpty else { return out }
+        var laid: [ColumnItem<Member>] = []
+        laid.reserveCapacity(out.count + after.values.reduce(0) { $0 + $1.count })
+        // Right after the group it follows, and the groups following it
+        // right after it in turn; of two put after the same group, the
+        // later one first, as inserting each there in turn had them.
+        func lay(after id: UUID?) {
+            var next = after[id] ?? []
+            while let group = next.popLast() {
+                laid.append(.group(group, []))
+                next += after[group.id] ?? []
+            }
+        }
+        lay(after: nil)
+        for item in out {
+            laid.append(item)
+            if let id = item.group?.id { lay(after: id) }
+        }
+        return laid
     }
 
     /// The items laid flat again: every tab in order with the group it is

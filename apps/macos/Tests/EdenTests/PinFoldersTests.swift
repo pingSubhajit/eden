@@ -213,6 +213,15 @@ final class PinFoldersTests: XCTestCase {
         XCTAssertEqual(items([a, b, c], [first, work, empty], keepingEmpty: false), [
             .tab(a.id), .group(work, [b.id]), .tab(c.id),
         ])
+
+        // Several in a row, each after the one before it, the first ones
+        // first, and one after the last group.
+        let second = group("Second"), third = group("Third"), docs = group("Docs"), last = group("Last")
+        let d = def("D", group: docs.id)
+        XCTAssertEqual(items([a, b, c, d], [first, second, work, empty, third, docs, last]), [
+            .group(first, []), .group(second, []), .tab(a.id), .group(work, [b.id]), .group(empty, []),
+            .group(third, []), .tab(c.id), .group(docs, [d.id]), .group(last, []),
+        ])
     }
 
     func testFlatteningTheItemsGivesBackTheTabsAndTheGroupsInOrder() {

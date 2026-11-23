@@ -2228,9 +2228,15 @@ final class Browser: NSObject, ObservableObject {
     func deletePin(_ tab: Tab) {
         guard tab.pin != nil, tabs.contains(where: { $0.id == tab.id }) else { return }
         let slot = tabs.filter { $0.pin != nil && $0.listed == tab.listed }.firstIndex { $0.id == tab.id } ?? 0
-        let pin = PinGhost(letter: tab.pin ?? tab.monogram, id: tab.pinID, listed: tab.listed,
+        var pin = PinGhost(letter: tab.pin ?? tab.monogram, id: tab.pinID, listed: tab.listed,
                            group: tab.keptGroupID, home: tab.home, homeTitle: tab.homeTitle, name: tab.name,
                            everywhere: tab.everywhere, slot: slot, asleep: tab.asleep)
+        if !tab.everywhere, let id = tab.pinID {
+            let kind = Pins.defs(spaceID).filter { ($0.listed == true) == tab.listed }
+            if let at = kind.firstIndex(where: { $0.id == id }) {
+                pin.stored = .init(after: at > 0 ? kind[at - 1].id : nil, before: at + 1 < kind.count ? kind[at + 1].id : nil)
+            }
+        }
         unpin(tab)
         close(tab)
         guard let ghost = ghosts.lastIndex(where: { $0.was == tab.id }) else { return }
@@ -2359,7 +2365,7 @@ final class Browser: NSObject, ObservableObject {
         cancelTabEdit()
         if let command = offer.command {
             command.run(on: self)
-        } else if let open = offer.tab, let other = tabs.first(where: { $0.id == open }) {
+        } else if let open = offer.tab, let other = openTab(open) {
             select(other)
         } else {
             tab.go(to: offer.url)
@@ -2672,6 +2678,10 @@ final class Browser: NSObject, ObservableObject {
         /// Its place in the row as it closed; moved on one by Clear when
         /// the empty tab it leaves comes in before it (see clear).
         var index: Int
+        /// The pinned tabs ahead of it then. A folder folded or unfolded
+        /// since changes how many of its rows are tabs (HeldPins.swift), so
+        /// it comes back by its place among the tabs after the pins.
+        var pinned = 0
         let groupID: UUID?
         /// When it was closed, to weigh against a window closed since.
         var at = Date()
@@ -2707,6 +2717,11 @@ final class Browser: NSObject, ObservableObject {
     /// the title kept for it (Pins.retitle), its name, whether every space
     /// showed it, its place among the pins of its kind, and whether it was
     /// asleep.
+    ///
+    /// And its neighbours of its kind in the pins store, rows held as data
+    /// among them (`stored`, for one of the space's own): the window has no
+    /// tab for those, so its place among the window's pins alone put a row
+    /// before a folded folder back after it.
     struct PinGhost: Equatable {
         let letter: String
         let id: UUID?
@@ -2718,6 +2733,14 @@ final class Browser: NSObject, ObservableObject {
         let everywhere: Bool
         let slot: Int
         let asleep: Bool
+        var stored: Stored? = nil
+
+        /// The pins either side of it in the store (nil: none, first or
+        /// last of its kind).
+        struct Stored: Equatable {
+            let after: UUID?
+            let before: UUID?
+        }
     }
 
     /// WebKit's interactionState is opaque; boxed so a Ghost still compares.
@@ -3358,7 +3381,11 @@ final class Browser: NSObject, ObservableObject {
         let defs = pinDefs(tabs)
         let everywhere = Set(tabs.filter(\.everywhere).compactMap(\.pinID))
         let parts = PinLists.split(defs, shared: everywhere)
-        Pins.set(spaceID, parts.own, from: self)
+        // With the rows held as data, which aren't tabs, back where they
+        // stand (HeldPins.merged).
+        let own = HeldPins.merged(parts.own, held: heldPins[spaceID] ?? [], stored: Pins.defs(spaceID), groups: keptGroups)
+        if !own.held.isEmpty { heldPins[spaceID] = own.held }
+        Pins.set(spaceID, own.pins, from: self)
         if let shared = PinLists.sharedToWrite(parts.shared, showing: prefs.showsSharedPins),
            Pins.setShared(shared, from: self) {
             for space in Array(parked.keys) { pinsChanged(in: space) }
@@ -3392,28 +3419,55 @@ final class Browser: NSObject, ObservableObject {
     /// pin new to this window, and the tab of a pin taken away closed. A
     /// pinned tab from before pins had ids is matched by letter and page,
     /// then by place.
-    func reconcilePins(_ row: [Tab], space: UUID) -> [Tab] {
+    ///
+    /// A row in a folded kept group is held as data instead (HeldPins.swift):
+    /// no tab is made for it, and its tab, if it holds nothing its pin
+    /// doesn't (Tab.holdsNothing), is let go, unless it is among `keeping`,
+    /// the tabs the window shows or is acting on, or its pin among
+    /// `opening`, those asked for. What the space holds so is kept in
+    /// heldPins.
+    func reconcilePins(_ row: [Tab], space: UUID, keeping: Set<Tab.ID> = [], opening: Set<UUID> = []) -> [Tab] {
         let showing = prefs.showsSharedPins
         let shared = showing ? Pins.shared(profileID) : []
         let sharedIDs = Set(shared.map(\.id))
+        let groups = Pins.groups(space)
         let defs = PinLists.row(own: Pins.defs(space), shared: shared, showing: showing)
-        var pinned = row.filter { $0.pin != nil && !$0.shy }
+        // The space's own rows as the kept area draws them, each group's
+        // together: where each folded group stands is worked out from them.
+        let own = ColumnTree.ordered(defs.filter { $0.listed == true && !sharedIDs.contains($0.id) },
+                                     group: \.group, groups: groups)
+        let folded = Set(groups.filter(\.collapsed).map(\.id))
+        let pinned = row.filter { $0.pin != nil && !$0.shy }
         let loose = row.filter { $0.pin == nil || $0.shy }
+        // Looked up by id rather than walked for each pin: walking the row
+        // for each of fifteen hundred took a third of a second in a test
+        // build, in every window, on every change to a pin.
+        var byID: [UUID: Tab] = [:]
+        for tab in pinned.reversed() { if let id = tab.pinID { byID[id] = tab } }
+        var taken = Set<ObjectIdentifier>()
         var out: [Tab] = []
+        var shown = Set<UUID>()
         let live = Set(defs.map(\.id))
-        for def in defs {
-            let found = pinned.first { $0.pinID == def.id }
+        let ordered = defs.filter { $0.listed != true } + defs.filter { $0.listed == true && sharedIDs.contains($0.id) } + own
+        for def in ordered {
+            let home = URL(string: def.home)
+            let rest = pinned.lazy.filter { !taken.contains(ObjectIdentifier($0)) }
+            let found = byID[def.id].flatMap { taken.contains(ObjectIdentifier($0)) ? nil : $0 }
                 // Its pin merged into this one, of the same page, on another
                 // device (SyncItems.applyPins): this one's tab now, page,
                 // history and all, rather than closed for a new one.
-                ?? pinned.first { tab in
-                    tab.pinID.map { !live.contains($0) } == true && PinDef.samePage(tab.home, URL(string: def.home))
-                }
-                ?? pinned.first { $0.pinID == nil && $0.pin == def.letter && ($0.home?.absoluteString ?? "") == def.home }
-                ?? pinned.first { $0.pinID == nil }
+                ?? rest.first { tab in tab.pinID.map { !live.contains($0) } == true && PinDef.samePage(tab.home, home) }
+                ?? rest.first { $0.pinID == nil && $0.pin == def.letter && ($0.home?.absoluteString ?? "") == def.home }
+                ?? rest.first { $0.pinID == nil }
+            if let found { taken.insert(ObjectIdentifier(found)) }
+            let holds = def.listed == true && !sharedIDs.contains(def.id) && def.group.map(folded.contains) == true
+                && !opening.contains(def.id)
+            if holds, found.map({ $0.holdsNothing && !keeping.contains($0.id) }) ?? true {
+                found?.close()
+                continue
+            }
             let tab: Tab
             if let found {
-                pinned.removeAll { $0 === found }
                 tab = found
             } else if let made = madeAhead.removeValue(forKey: def.id) {
                 // Into the row only now: wired to the window as it lands.
@@ -3422,6 +3476,7 @@ final class Browser: NSObject, ObservableObject {
             } else {
                 tab = pinTab(def, space: space)
             }
+            shown.insert(def.id)
             tab.pinID = def.id
             tab.everywhere = sharedIDs.contains(def.id)
             if tab.pin != def.letter { tab.pin = def.letter }
@@ -3430,15 +3485,20 @@ final class Browser: NSObject, ObservableObject {
             tab.keptGroupID = def.group
             // Only when it moved: each setting redraws the row, and every
             // window reconciles its pins whenever one of them changes.
-            let home = URL(string: def.home)
             if tab.home != home { tab.home = home }
             out.append(tab)
         }
-        for gone in pinned { gone.close() }
+        for gone in pinned where !taken.contains(ObjectIdentifier(gone)) { gone.close() }
+        let held = HeldPins.hold(own, groups: groups) { shown.contains($0.id) }
+        heldPins[space] = held.isEmpty ? nil : held
+        if space == spaceID, !standIns.isEmpty {
+            for tab in standIns.values { tab.close() }
+            standIns = [:]
+        }
         // In the order they were written, which already holds it; a file
         // put together by hand, or an import, may not: the rows in the order
         // the kept area draws them, each group's together.
-        return Browser.arrangedPins(Browser.tiered(out) + loose, groups: Pins.groups(space))
+        return Browser.arrangedPins(Browser.tiered(out) + loose, groups: groups)
     }
 
     /// A new tab for a pin, at its page, not loaded until it is shown.
@@ -3473,10 +3533,51 @@ final class Browser: NSObject, ObservableObject {
     /// it leaves nothing.
     private var madeAhead: [UUID: Tab] = [:]
 
-    /// Tabs made for `defs`, pins of `space` that are about to come in.
+    /// Each space's pinned rows this window holds as data rather than as
+    /// tabs, by the folded group they are in (see HeldPins.swift): worked
+    /// out as the row takes in the pins (reconcilePins), kept where they
+    /// stand as the kept area changes (applyKept), and written back with
+    /// the rows that are tabs (writeSession).
+    var heldPins: [UUID: [HeldGroup]] = [:]
+
+    /// Stand-ins for rows held as data, by pin, for a folder's card to show
+    /// (TabHoverCard): made as a tab made ahead is, wired to nothing and in
+    /// no row, and let go as the pins are next read (reconcilePins).
+    private var standIns: [UUID: Tab] = [:]
+
+    /// The first `count` rows of a folder held as data, as stand-ins.
+    func standIns(ofGroup id: UUID, count: Int) -> [Tab] {
+        guard count > 0 else { return [] }
+        return heldRows(ofGroup: id).prefix(count).map { def in
+            if let made = standIns[def.id] { return made }
+            let tab = pinTab(def, space: spaceID, prepared: false)
+            tab.pinID = def.id
+            tab.pin = def.letter
+            tab.listed = true
+            tab.home = URL(string: def.home)
+            standIns[def.id] = tab
+            return tab
+        }
+    }
+
+    /// The tab a card's tab stands for: itself while it is in the row, or,
+    /// for a stand-in, its pin's, made now if the row is still held as data.
+    func rowTab(for tab: Tab) -> Tab? {
+        if tabs.contains(where: { $0 === tab }) { return tab }
+        guard let pin = tab.pinID else { return nil }
+        return tabs.first { $0.pin != nil && $0.pinID == pin } ?? showHeld(pin)
+    }
+
+    /// Tabs made for `defs`, pins of `space` that are about to come in. None
+    /// for a row coming into a folded group: it comes in as data
+    /// (reconcilePins).
     func makeAhead(_ defs: some Sequence<PinDef>, space: UUID) {
         guard !isPopup, !retired, space == spaceID || parked[space] != nil else { return }
-        for def in defs where madeAhead[def.id] == nil { madeAhead[def.id] = pinTab(def, space: space, prepared: false) }
+        let folded = Set(Pins.groups(space).filter(\.collapsed).map(\.id))
+        for def in defs where madeAhead[def.id] == nil {
+            if def.listed == true, let group = def.group, folded.contains(group) { continue }
+            madeAhead[def.id] = pinTab(def, space: space, prepared: false)
+        }
     }
 
     /// Those not taken up, gone: the import was cancelled, or the pins
@@ -3485,13 +3586,15 @@ final class Browser: NSObject, ObservableObject {
         for id in ids { madeAhead.removeValue(forKey: id)?.close() }
     }
 
-    /// Another window changed a space's pins: this window's row there follows.
-    func pinsChanged(in space: UUID) {
+    /// Another window changed a space's pins, or this one did, or folded or
+    /// unfolded one of its kept groups: this window's row there follows.
+    /// `opening`: pins held as data to be made tabs all the same (showHeld).
+    func pinsChanged(in space: UUID, opening: Set<UUID> = []) {
         guard !isPopup, !retired else { return }
         if space == spaceID {
             // Drawn again even when only a pin's letter or name changed.
             objectWillChange.send()
-            let row = reconcilePins(tabs, space: space)
+            let row = reconcilePins(tabs, space: space, keeping: inUse, opening: opening)
             if row.map(\.id) != tabs.map(\.id) { tabs = row }
             splits.removeAll { pair in
                 !pair.tabs.allSatisfy { id in tabs.contains { $0.id == id } }
@@ -3503,7 +3606,7 @@ final class Browser: NSObject, ObservableObject {
             }
             writeRow(spaceID, session(tabs, active: activeID, groups: tabGroups, splits: splits), now: false)
         } else if var row = parked[space] {
-            row.tabs = reconcilePins(row.tabs, space: space)
+            row.tabs = reconcilePins(row.tabs, space: space, keeping: Set([row.active].compactMap { $0 }))
             row.splits.removeAll { pair in
                 !pair.tabs.allSatisfy { id in row.tabs.contains { $0.id == id } }
             }
@@ -3530,6 +3633,16 @@ final class Browser: NSObject, ObservableObject {
         let before = tabSwitcher.lastLeft(among: Set(standing.map(\.id)), other: gone)
             .flatMap { id in standing.first { $0.id == id } }
         return before ?? standing.first { $0.pin == nil }
+    }
+
+    /// The tabs on screen or being acted on, whose pin is never let go to
+    /// data while they are (reconcilePins): in front, beside it in a pair,
+    /// picked, being named or retyped, or out in the little window or the
+    /// picture.
+    private var inUse: Set<Tab.ID> {
+        var ids = visibleTabIDs.union(selectedTabIDs)
+        for id in [activeID, editingPin, editingTab, floating, pictured] { if let id { ids.insert(id) } }
+        return ids
     }
 
     /// The shared pins ahead of the space's own, squares ahead of rows (see
@@ -3878,6 +3991,9 @@ final class Browser: NSObject, ObservableObject {
         SidePanelPages.shared.forget(in: self)
         for tab in tabs + parkedTabs { tab.close() }
         parked = [:]
+        heldPins = [:]
+        for tab in standIns.values { tab.close() }
+        standIns = [:]
         splits = []
         tabs = []
     }
@@ -4876,6 +4992,12 @@ final class Browser: NSObject, ObservableObject {
             if activeID == tab.id { land(on: landing(leaving: tab, partner: partner)) }
             tabSwitcher.forget(tab.id)
             writeSession(now: true)
+            // A row of a folded folder, put down out of sight, holds nothing
+            // its pin doesn't: data again at once (HeldPins.swift).
+            if tab.holdsNothing, let group = keptGroup(of: tab), columnGroup(group)?.collapsed == true,
+               !inUse.contains(tab.id) {
+                pinsChanged(in: spaceID)
+            }
             return
         }
 
@@ -5080,6 +5202,7 @@ final class Browser: NSObject, ObservableObject {
         var front: Tab?
         var made: [Tab] = []
         var regrouped = false
+        let pinned = pinnedCount
         for ghost in members.reversed() {
             // One of Eden's own pages opened again since: it stays the one.
             // One that is gone (InternalPage.retired) stays closed.
@@ -5092,7 +5215,7 @@ final class Browser: NSObject, ObservableObject {
             regrouped = regrouped || group.back
             tab.muted = ghost.muted
             tab.restore(url: ghost.url, title: ghost.title, vouched: ghost.titleIsOwn, state: ghost.keepsake?.state)
-            tabs.insert(tab, at: safeInsertionIndex(ghost.index))
+            tabs.insert(tab, at: safeInsertionIndex(ghost.index - ghost.pinned + pinned))
             made.append(tab)
             if let was = ghost.was { back[was] = tab }
             if ghost.front { front = tab }
@@ -5150,7 +5273,7 @@ final class Browser: NSObject, ObservableObject {
         tab.groupID = group.id
         tab.muted = ghost.muted
         leaving()
-        tabs.insert(tab, at: safeInsertionIndex(ghost.index))
+        tabs.insert(tab, at: safeInsertionIndex(ghost.index - ghost.pinned + pinnedCount))
         if group.back { arrangeGroupedTabs() }
         activeID = tab.id
         editing = false
@@ -5204,8 +5327,34 @@ final class Browser: NSObject, ObservableObject {
         }
         if awake { select(tab) }
         writeSession(now: true)
+        if !pin.everywhere, let stored = pin.stored, let id = tab.pinID { putBack(id, listed: pin.listed, stored) }
         // Its kept title went with its pin; written back now the pin is.
         if !pin.homeTitle.isEmpty, let id = tab.pinID { Pins.retitle(id, pin.homeTitle, from: self) }
+    }
+
+    /// A pin of the space's own, just made again, moved in the store to
+    /// where it was: after the pin of its kind it followed, or else before
+    /// the one it preceded, or else first if it was. A folded folder's rows
+    /// held as data have no tab, so placing it among the window's pins
+    /// alone put it on the wrong side of the folder; the window's row and
+    /// the folder's place are then worked out from the store again.
+    private func putBack(_ id: UUID, listed: Bool, _ stored: PinGhost.Stored) {
+        var defs = Pins.defs(spaceID)
+        guard let from = defs.firstIndex(where: { $0.id == id }) else { return }
+        let def = defs.remove(at: from)
+        let to: Int? = if let after = stored.after, let at = defs.firstIndex(where: { $0.id == after }) {
+            at + 1
+        } else if let before = stored.before, let at = defs.firstIndex(where: { $0.id == before }) {
+            at
+        } else if stored.after == nil {
+            defs.firstIndex { ($0.listed == true) == listed } ?? (listed ? defs.count : 0)
+        } else {
+            nil
+        }
+        guard let to, to != from else { return }
+        defs.insert(def, at: to)
+        Pins.set(spaceID, defs, from: self)
+        pinsChanged(in: spaceID)
     }
 
     /// A pin every space shows, just shared again (shareEverywhere puts it
@@ -5248,6 +5397,7 @@ final class Browser: NSObject, ObservableObject {
                             kind: batching?.kind ?? .clear, muted: tab.muted,
                             keepsake: tab.keepsake.map(Keepsake.init)))
         ghosts[ghosts.count - 1].space = spaceID
+        ghosts[ghosts.count - 1].pinned = tabs.prefix(index).reduce(0) { $0 + ($1.pin != nil ? 1 : 0) }
         // Your other devices offer it for a few minutes (Sync).
         NotificationCenter.default.post(name: Sync.tabsChanged, object: nil)
         // Twelve steps back, a Clear counting as one: its tabs come back
@@ -5587,6 +5737,10 @@ final class Browser: NSObject, ObservableObject {
             change(&groups[index])
             guard groups[index] != before else { return }
             saveKeptGroups(groups)
+            // Folded, its rows go to data; unfolded, they are made tabs
+            // (HeldPins.swift). The other windows follow as they take the
+            // groups in.
+            if groups[index].collapsed != before.collapsed { pinsChanged(in: spaceID) }
         case .open:
             guard let index = tabGroups.firstIndex(where: { $0.id == id }) else { return }
             var group = tabGroups[index]
@@ -5666,7 +5820,21 @@ final class Browser: NSObject, ObservableObject {
     /// A group's tabs' addresses, for Copy All Links in its menu and on its
     /// hover card (TabHoverCard).
     func links(of id: UUID) -> [String] {
-        members(ofGroup: id).compactMap { ($0.restAddress ?? $0.address)?.absoluteString }
+        let members = members(ofGroup: id)
+        let link = { (tab: Tab) in (tab.restAddress ?? tab.address)?.absoluteString }
+        guard let held = heldPins[spaceID]?.first(where: { $0.id == id }) else { return members.compactMap(link) }
+        // A folded folder's rows held as data (HeldPins.swift) by their
+        // pages, in their places among those that are tabs.
+        var left = members
+        var out: [String] = []
+        for row in held.rows {
+            if held.held.contains(row) {
+                if let home = Pins.def(row)?.home { out.append(home) }
+            } else if let at = left.firstIndex(where: { $0.pinID == row }) {
+                if let address = link(left.remove(at: at)) { out.append(address) }
+            }
+        }
+        return out + left.compactMap(link)
     }
 
     /// A group folded or opened, in either area: a kept one in every window.
@@ -5701,6 +5869,8 @@ final class Browser: NSObject, ObservableObject {
                     group.collapsed = fold
                     return group
                 })
+                // Their rows to data, or made tabs (HeldPins.swift).
+                pinsChanged(in: spaceID)
             }
         }
         writeSession(now: true)
@@ -6008,19 +6178,24 @@ final class Browser: NSObject, ObservableObject {
     /// while its active tab is shown below its heading: the squares, then
     /// the kept area's rows and groups, then the open area's, as they are
     /// drawn down the column. Other tab navigation keeps using shownTabs.
-    var tabShortcutTargets: [(id: UUID, tab: Tab)] {
+    /// A folded folder whose rows are all held as data (HeldPins.swift) has
+    /// its place too, with no tab yet: its first row is made one when it is
+    /// gone to (select(index:)).
+    var tabShortcutTargets: [(id: UUID, tab: Tab?)] {
         let row = displayedTabs
         let squares = row.filter { $0.pin != nil && !$0.listed }
         let kept = keptItems()
         let open = prefs.usesTabGroups ? items(of: row) : row.filter { $0.pin == nil }.map(SideItem.tab)
-        return squares.map { ($0.id, $0) } + (kept + open).flatMap { item -> [(id: UUID, tab: Tab)] in
+        return squares.map { (id: $0.id, tab: Optional($0)) } + (kept + open).flatMap { item -> [(id: UUID, tab: Tab?)] in
             switch item {
             case .tab(let tab):
                 return [(tab.id, tab)]
             case .group(let group, let members):
-                guard group.collapsed else { return members.map { ($0.id, $0) } }
+                guard group.collapsed else { return members.map { (id: $0.id, tab: Optional($0)) } }
                 let current = active.flatMap { columnGroupID(of: $0) == group.id ? $0 : nil }
-                guard let tab = current ?? members.max(by: { $0.touched < $1.touched }) else { return [] }
+                guard let tab = current ?? members.max(by: { $0.touched < $1.touched }) else {
+                    return heldRows(ofGroup: group.id).isEmpty ? [] : [(group.id, nil)]
+                }
                 return [(group.id, tab)]
             }
         }
@@ -6121,7 +6296,9 @@ final class Browser: NSObject, ObservableObject {
     func select(index: Int) {
         let targets = tabShortcutTargets
         guard targets.indices.contains(index) else { return }
-        let tab = entry(targets[index].tab)
+        let target = targets[index]
+        guard let found = target.tab ?? heldRows(ofGroup: target.id).first.flatMap({ showHeld($0.id) }) else { return }
+        let tab = entry(found)
         if prefs.pinNumberGoesBack, tab.pin != nil, activeID == tab.id, let back = tabBefore(tab) {
             select(back)
             return
@@ -6210,7 +6387,7 @@ final class Browser: NSObject, ObservableObject {
     /// A tab picked in a small window's switcher: that tab, in this window,
     /// in front. A test run goes to the tab and puts nothing on a screen.
     func bringForward(_ id: Tab.ID) {
-        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        guard let tab = openTab(id) else { return }
         select(entry(tab))
         guard !Store.testing, let window else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
@@ -6588,7 +6765,15 @@ final class Browser: NSObject, ObservableObject {
     private func restoreRow(_ saved: Session.Shape, space: UUID, groups: [TabGroup]) -> Parked {
         var row: [Tab] = []
         var bySavedIndex: [Int: Tab] = [:]
+        // The pins this row holds as data, whose tabs would only be made to
+        // be let go (reconcilePins): a session written before held all of
+        // them. Not the tab in front, one in a pair, or one with a history
+        // or its sound turned off: those come back as tabs.
+        let paired = Set(saved.splits.flatMap(\.tabs))
+        let holding = holdable(in: space)
         for (savedIndex, entry) in saved.tabs.enumerated() {
+            if let id = entry.pinID, entry.pin != nil, holding.contains(id), savedIndex != saved.active,
+               !paired.contains(savedIndex), entry.keepsake == nil, !entry.muted { continue }
             // An empty page is never written; the first builds of Split View
             // on main wrote one for an empty half. The bookmarks page is gone
             // (InternalPage.retired): a tab left on it goes with it.
@@ -6625,7 +6810,7 @@ final class Browser: NSObject, ObservableObject {
             bySavedIndex[savedIndex] = tab
         }
         let said = bySavedIndex[saved.active]?.id
-        row = reconcilePins(row, space: space)
+        row = reconcilePins(row, space: space, keeping: Set([said].compactMap { $0 }))
         // Pairs, whether Split View is on or not: off, they wait, as groups
         // do. Each tab in one pair at most, and only a pair that still holds.
         var restoredSplits: [TabSplit] = []
@@ -7599,7 +7784,8 @@ final class Browser: NSObject, ObservableObject {
     /// is raised over none.
     func openPages(matching typed: String, front: Bool = false) -> [Suggestion] {
         let needle = typed.trimmingCharacters(in: .whitespaces).lowercased()
-        return tabs
+        let limit = needle.isEmpty ? 6 : 3
+        let found = tabs
             .filter { (front || $0.id != activeID) && !$0.isBlank }
             .filter { tab in
                 guard !needle.isEmpty else { return true }
@@ -7607,17 +7793,23 @@ final class Browser: NSObject, ObservableObject {
                 return tab.label.lowercased().contains(needle) || address.contains(needle)
             }
             .sorted { $0.touched > $1.touched }
-            .prefix(needle.isEmpty ? 6 : 3)
-            .compactMap { tab in
-                guard let url = tab.address else { return nil }
-                return Suggestion(
-                    key: tab.label,
-                    title: Address.pretty(url),
-                    url: url,
-                    kind: .open,
-                    tab: tab.id
-                )
-            }
+            .prefix(limit)
+        let open = found.compactMap { tab -> Suggestion? in
+            guard let url = tab.address else { return nil }
+            return Suggestion(
+                key: tab.label,
+                title: Address.pretty(url),
+                url: url,
+                kind: .open,
+                tab: tab.id
+            )
+        }
+        // The rows held as data in folded folders (HeldPins.swift) are
+        // pinned pages as much as their tabs were, found by what is typed
+        // after the tabs, which have been looked at: offered as switching
+        // to them, by their pin, whose tab is made as it is taken (openTab).
+        guard !needle.isEmpty, found.count < limit else { return open }
+        return open + heldOffers(matching: needle, limit: limit - found.count)
     }
 
     /// A row clicked in the list, taken directly rather than through the
@@ -7629,7 +7821,7 @@ final class Browser: NSObject, ObservableObject {
             command.run(on: self)
         } else if let elsewhere = offer.elsewhere {
             open(elsewhere)
-        } else if let id = offer.tab, let tab = tabs.first(where: { $0.id == id }) {
+        } else if let id = offer.tab, let tab = openTab(id) {
             // From the empty page of a pair, as Return takes it (submit):
             // that tab comes into the pair.
             if let blank = active, blank.isBlank, split(for: blank) != nil,
@@ -7775,7 +7967,7 @@ final class Browser: NSObject, ObservableObject {
         // A page already open is switched to, not opened again.
         if let picked, offers.indices.contains(picked),
            let id = offers[picked].tab,
-           let tab = tabs.first(where: { $0.id == id }) {
+           let tab = openTab(id) {
             // From the empty page of a pair: that tab comes into the pair.
             if let blank = active, blank.isBlank, split(for: blank) != nil, !aside,
                tab.shy == blank.shy, split(for: tab)?.contains(blank.id) != true {

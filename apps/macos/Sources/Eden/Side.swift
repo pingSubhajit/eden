@@ -441,7 +441,7 @@ struct SideBar: View {
     private func parkedLayout(_ row: Parked, space: UUID) -> ColumnLayout<Tab> {
         let listed = row.tabs.filter { $0.pin != nil && $0.listed }
         let groups = Pins.groups(space)
-        let kept = Browser.keptItems(listed, groups: groups).map { item -> SideItem in
+        let kept = browser.keptItems(listed, space: space).map { item -> SideItem in
             guard case .group(let group, let members) = item, group.collapsed else { return item }
             return .group(group, members.filter { $0.id == row.active })
         }

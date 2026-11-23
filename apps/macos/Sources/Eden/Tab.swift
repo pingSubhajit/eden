@@ -1617,6 +1617,16 @@ final class Tab: ObservableObject, Identifiable {
     /// brought back from the last session, or put down with ⌘W while pinned.
     var asleep: Bool { pending != nil }
 
+    /// A pin's tab holding nothing its pin doesn't: asleep at its home,
+    /// never woken since it was made or put down there, with no history,
+    /// picture or sound setting of its own. Made again from its pin, it
+    /// would be the same tab, so one in a folded folder is let go to data
+    /// (HeldPins.swift).
+    var holdsNothing: Bool {
+        pin != nil && built == nil && page == nil && pending != nil && pending == home && memory == nil
+            && picture == nil && !muted && awakeSites.isEmpty && translateOnWake == nil && arrival == nil && held == nil
+    }
+
     /// ⌘W on a pinned tab. The letter keeps its place in the row and the
     /// address is remembered; everything the page was holding is let go, so a
     /// pin you are not reading costs a line in a file and nothing else.

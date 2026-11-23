@@ -3340,6 +3340,11 @@ final class Bench {
                     // The rows in the order the row (and pins.json) keeps them.
                     "order": browser.listedPins.map { [Bench.short($0), $0.name ?? $0.title, name($0.keptGroupID)] },
                     "saved": Pins.defs(browser.spaceID).filter { $0.listed == true }.map { [$0.title, name($0.group)] },
+                    // The rows of folded folders held as data, not tabs
+                    // (HeldPins.swift), which the order above leaves out.
+                    "held": (browser.heldPins[browser.spaceID] ?? []).flatMap { group in
+                        browser.heldRows(ofGroup: group.id).map { [$0.name ?? $0.title, name(group.id)] }
+                    },
                 ]
                 for (key, value) in extra { out[key] = value }
                 return out

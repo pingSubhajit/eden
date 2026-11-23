@@ -23,7 +23,7 @@ final class PinNumberBackTests: XCTestCase {
         XCTAssertTrue(Preferences().pinNumberGoesBack)
     }
 
-    func testSecondPressGoesBackOnlyWhenOn() {
+    func testSecondPressGoesBackOnlyWhenOn() throws {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())
         let prefs = browser.prefs
@@ -45,7 +45,7 @@ final class PinNumberBackTests: XCTestCase {
         browser.pin(pin)
         defer { browser.unpin(pin) }
         let reading = browser.tabs.first { $0.pin == nil && $0.title == "Tab 3" }!
-        XCTAssertEqual(browser.tabShortcutTargets.first?.tab.id, pin.id, "The pin is ⌘1")
+        XCTAssertEqual(browser.tabShortcutTargets.first?.tab?.id, pin.id, "The pin is ⌘1")
 
         prefs.pinNumberGoesBack = false
         browser.select(reading)
@@ -64,7 +64,7 @@ final class PinNumberBackTests: XCTestCase {
         XCTAssertEqual(browser.activeID, pin.id, "And again to the pin")
 
         // A tab's number, not a pin's, never goes back.
-        let other = browser.tabShortcutTargets[1].tab
+        let other = try XCTUnwrap(browser.tabShortcutTargets[1].tab)
         browser.select(index: 1)
         XCTAssertEqual(browser.activeID, other.id)
         browser.select(index: 1)

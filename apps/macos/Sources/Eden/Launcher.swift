@@ -354,8 +354,11 @@ final class Launcher: NSObject, ObservableObject, NSWindowDelegate {
         var found: [Suggestion] = []
         for browser in windows(for: target) {
             for offer in browser.openPages(matching: typed, front: true) {
-                guard let id = offer.tab, let tab = browser.tabs.first(where: { $0.id == id }),
-                      !tab.shy, !tab.bench else { continue }
+                // A pinned row held as data (HeldPins.swift) is offered by
+                // its pin, its tab made as it is gone to (bringForward).
+                guard let id = offer.tab,
+                      browser.holds(pin: id) || browser.tabs.contains(where: { $0.id == id && !$0.shy && !$0.bench })
+                else { continue }
                 found.append(offer)
                 if found.count == 3 { return found }
             }
@@ -370,6 +373,10 @@ final class Launcher: NSObject, ObservableObject, NSWindowDelegate {
         for browser in windows(for: target) {
             if let tab = browser.tabs.first(where: { !$0.shy && !$0.bench && Browser.samePage(url, $0.address) }) {
                 return (browser, tab.id)
+            }
+            // A pinned row held as data, by its pin (HeldPins.swift).
+            if let pin = browser.heldRows.first(where: { Browser.samePage(url, URL(string: $0.home)) }) {
+                return (browser, pin.id)
             }
         }
         return nil
@@ -400,7 +407,7 @@ final class Launcher: NSObject, ObservableObject, NSWindowDelegate {
         let chosen = picked.flatMap { offers.indices.contains($0) ? offers[$0] : nil }
 
         if let chosen, let id = chosen.tab,
-           let owner = Browsers.all.first(where: { browser in browser.tabs.contains { $0.id == id } }) {
+           let owner = Browsers.all.first(where: { browser in browser.tabs.contains { $0.id == id } || browser.holds(pin: id) }) {
             dismiss(keeping: false)
             go(to: id, in: owner)
             comeForward()

@@ -149,7 +149,7 @@ enum TabHoverCard {
     private static func worthACard(_ subject: Subject, in browser: Browser) -> Bool {
         switch subject {
         case .tab(let tab): return !tab.isBlank
-        case .group(let id): return !browser.members(ofGroup: id).isEmpty
+        case .group(let id): return !browser.members(ofGroup: id).isEmpty || !browser.heldRows(ofGroup: id).isEmpty
         }
     }
 
@@ -397,7 +397,7 @@ enum TabHoverCard {
             members = [tab]
             wantsPicture = tab.hasPreview
         case .group(let id):
-            members = recent(browser.members(ofGroup: id), in: browser)
+            members = collage(id, in: browser)
             // Its collage stands whatever it has: a tab with no picture
             // shows its icon there.
             wantsPicture = true
@@ -433,6 +433,14 @@ enum TabHoverCard {
             return a.touched > b.touched
         }
         return Array(ordered.prefix(4))
+    }
+
+    /// A group's collage: the tabs you were in last, then, in a folder whose
+    /// rows are held as data (HeldPins.swift), stand-ins for its first rows
+    /// (Browser.standIns), four in all.
+    fileprivate static func collage(_ id: UUID, in browser: Browser) -> [Tab] {
+        let shown = recent(browser.members(ofGroup: id), in: browser)
+        return shown + browser.standIns(ofGroup: id, count: 4 - shown.count)
     }
 
     /// The cards the frame has left, once they have faded.
@@ -979,17 +987,19 @@ private struct GroupCard: View {
 
     private func card(_ found: TabGroup) -> some View {
         let tabs = browser.members(ofGroup: found.id)
+        // Its rows held as data count as much as its tabs (HeldPins.swift).
+        let total = tabs.count + browser.heldRows(ofGroup: found.id).count
         // Worked out as it is drawn: a tab closed or moved out leaves its
         // place to the next you were in.
-        let shown = TabHoverCard.recent(tabs, in: browser)
+        let shown = TabHoverCard.collage(found.id, in: browser)
         return VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
                 Collage(tabs: shown, pictures: pictures, glyph: prefs.glyph) { tab in
-                    browser.select(tab)
+                    if let tab = browser.rowTab(for: tab) { browser.select(tab) }
                     TabHoverCard.hide()
                 }
                 .overlay(alignment: .topLeading) {
-                    GroupIcons(tabs: shown, total: tabs.count, colour: found.colour, glyph: prefs.glyph)
+                    GroupIcons(tabs: shown, total: total, colour: found.colour, glyph: prefs.glyph)
                         .padding(6)
                         .allowsHitTesting(false)
                 }
@@ -999,7 +1009,7 @@ private struct GroupCard: View {
                         .foregroundStyle(Palette.ink)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(tabs.count == 1 ? "1 \(counted.one)" : "\(tabs.count) \(counted.many)")
+                    Text(total == 1 ? "1 \(counted.one)" : "\(total) \(counted.many)")
                         .font(.system(size: 12))
                         .foregroundStyle(Palette.muted)
                 }
@@ -1026,7 +1036,7 @@ private struct GroupCard: View {
 
     private func open(_ found: TabGroup, at tab: Tab?) {
         if found.collapsed { withAnimation(GroupLook.fold) { browser.toggleTabGroup(found.id) } }
-        if let tab { browser.select(tab) }
+        if let tab = tab.flatMap(browser.rowTab(for:)) { browser.select(tab) }
         TabHoverCard.hide()
     }
 

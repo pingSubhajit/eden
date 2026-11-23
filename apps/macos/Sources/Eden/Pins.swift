@@ -3,9 +3,11 @@ import Foundation
 
 // Pinned tabs are the same in every window: pinned, unpinned, moved,
 // relettered or renamed in one, so they are in the others. Each window holds
-// its own tab for each pin — its own page, wherever you took it — and only
-// what makes the pin a pin is shared: its letter, its name, the page it was
-// pinned at, its place among the pins. Per space, as the pins always were.
+// its own tab for each pin — its own page, wherever you took it — but for
+// the rows of a folded folder, which it holds as data until they are shown
+// (HeldPins.swift); and only what makes the pin a pin is shared: its letter,
+// its name, the page it was pinned at, its place among the pins. Per space,
+// as the pins always were.
 //
 // pins.json holds them. The oldest window's session file keeps its pins as
 // it always did, so 1.0.3 finds them there; the first launch of 1.0.4 takes
