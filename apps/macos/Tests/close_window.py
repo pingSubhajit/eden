@@ -41,7 +41,9 @@ W = w_key()
 
 
 def press(shift=False):
-    a = sv.cmd({"do": "keyeq", "code": W, "chars": "w", "mods": ["shift"] if shift else []})
+    # As the keyboard sends it: ⇧⌘W types "w", and "W" without its modifiers.
+    a = sv.cmd({"do": "keyeq", "code": W, "chars": "w", "ignoring": "W" if shift else "w",
+                "mods": ["shift"] if shift else []})
     time.sleep(0.8)
     return a
 

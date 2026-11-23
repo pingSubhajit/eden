@@ -64,7 +64,8 @@ def open_(url, **f):
 # posted press to reach. ⌥⇧⌘D is the menu's, which a posted press reaches.
 def press(*mods):
     if "opt" in mods: sv.cmd({"do": "press", "code": 2, "chars": "d", "mods": ["cmd", *mods]})
-    else: sv.cmd({"do": "keyeq", "code": 2, "chars": "d", "mods": list(mods)})
+    # As the keyboard sends it: ⇧⌘D types "d", and "D" without its modifiers.
+    else: sv.cmd({"do": "keyeq", "code": 2, "chars": "d", "ignoring": "D" if "shift" in mods else "d", "mods": list(mods)})
     time.sleep(0.8)
 def ui(**f): sv.cmd({"do": "ui", **f}); time.sleep(0.8)
 def sites():

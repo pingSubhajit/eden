@@ -1780,7 +1780,9 @@ final class Bench {
             // through the app's key handling and then to the page's view, as
             // AppKit does with a key window — which a hidden probe hasn't.
             // Reports what Eden did and what the page saw. Only on a
-            // EDEN_PROBE run.
+            // EDEN_PROBE run. "ignoring" is the key's characters without
+            // its modifiers, when they differ, as a real ⇧⌘W types "w" but
+            // reads "W" without its modifiers.
             guard Store.testing else { answer(["error": "keyeq only works on a --test run"]); return }
             guard let tab = browser.active, let web = tab.built, let window = web.window,
                   let chars = request["chars"] as? String, let code = request["code"] as? Int
@@ -1791,7 +1793,7 @@ final class Bench {
             guard let event = NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: UInt16(code)
+                characters: chars, charactersIgnoringModifiers: request["ignoring"] as? String ?? chars, isARepeat: false, keyCode: UInt16(code)
             ) else { answer(["error": "no event"]); return }
             let before = (finding: browser.finding, fieldUp: browser.editing, folded: browser.folded)
             var firstPass = "search"
