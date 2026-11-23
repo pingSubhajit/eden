@@ -26,7 +26,10 @@ windowId to go to another window, tabs staying after the pins, an error
 for a bad id, onMoved, onDetached and onAttached told once for each tab
 moved and never for one it passed, and a tab sent to another window
 neither woken nor put in front, a page of a split taking the split with
-it. A tab chrome.tabs.create makes goes to the place it asks, in the
+it. On held rows too: unpinned, then sent elsewhere by the next call, a
+pin's page changed, a row made and taken out by chrome.bookmarks, each
+told once, and grouping one or giving it a window of its own refused
+whole, as for a pin. A tab chrome.tabs.create makes goes to the place it asks, in the
 group of where it lands, or to the end when it asks none."""
 import json
 import shutil
@@ -46,7 +49,7 @@ work = Path(tempfile.mkdtemp(prefix="eden-heldpins-"))
 FILES = {
     "manifest.json": json.dumps({
         "manifest_version": 3, "name": "Held Rows", "version": "1.0",
-        "permissions": ["tabs", "tabGroups", "storage"],
+        "permissions": ["tabs", "tabGroups", "storage", "bookmarks"],
         "background": {"service_worker": "background.js"},
         "externally_connectable": {"matches": ["http://127.0.0.1/*"]},
     }),
@@ -62,7 +65,11 @@ chrome.tabs.onRemoved.addListener((id) => note("removed:" + id));
 chrome.tabs.onMoved.addListener((id, info) => note("moved:" + id + ":" + info.fromIndex + ":" + info.toIndex));
 chrome.tabs.onDetached.addListener((id) => note("detached:" + id));
 chrome.tabs.onAttached.addListener((id, info) => note("attached:" + id + ":" + info.newWindowId));
-chrome.tabs.onUpdated.addListener((id, info) => { if ("groupId" in info) note("grouped:" + id + ":" + info.groupId); });
+chrome.tabs.onUpdated.addListener((id, info) => {
+  if ("groupId" in info) note("grouped:" + id + ":" + info.groupId);
+  if ("pinned" in info) note("pinned:" + id + ":" + info.pinned);
+  if ("url" in info) note("url:" + id + ":" + info.url);
+});
 chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
   const failed = (e) => reply({ error: String(e && e.message) });
   if (message.type === "query") {
@@ -80,6 +87,24 @@ chrome.runtime.onMessageExternal.addListener((message, sender, reply) => {
     const props = { url: message.url, active: false };
     if (typeof message.index === "number") props.index = message.index;
     chrome.tabs.create(props).then((t) => reply({ id: t.id, index: t.index, groupId: t.groupId }), failed);
+  } else if (message.type === "unpin") {
+    chrome.tabs.update(message.id, { pinned: false }).then((t) => reply({ id: t && t.id }), failed);
+  } else if (message.type === "group") {
+    chrome.tabs.group({ tabIds: message.ids }).then((g) => reply({ group: g }), failed);
+  } else if (message.type === "window") {
+    chrome.windows.create({ tabId: message.id }).then((w) => reply({ window: w && w.id }), failed);
+  } else if (message.type === "bookmark") {
+    const find = (title) => chrome.bookmarks.search({ title }).then((found) => found[0]);
+    if (message.op === "update") {
+      chrome.bookmarks.search({ url: message.url }).then((found) => chrome.bookmarks.update(found[0].id, { url: message.to }))
+        .then((b) => reply({ id: b.id }), failed);
+    } else if (message.op === "create") {
+      find(message.folder).then((folder) => chrome.bookmarks.create({ parentId: folder.id, title: message.title, url: message.url }))
+        .then((b) => reply({ id: b.id }), failed);
+    } else {
+      chrome.bookmarks.search({ url: message.url }).then((found) => chrome.bookmarks.remove(found[0].id))
+        .then(() => reply({ ok: true }), failed);
+    }
   } else if (message.type === "windows") {
     chrome.windows.getAll({}).then((w) => reply(w.map((x) => x.id)), failed);
   } else {
@@ -169,6 +194,18 @@ def main():
         def told(ids, kinds=("created", "removed")):
             return [e for e in events() if e.split(":")[0] in kinds and int(e.split(":")[1]) in ids]
 
+        first = rows()
+        # From a fresh start, the first change to a held row an extension
+        # has only listed is told: its page changed by chrome.bookmarks.
+        b_id = first.get("b", {}).get("id")
+        heard = len(events())
+        answer = ask({"type": "bookmark", "op": "update", "url": sv.BASE + "/b", "to": sv.BASE + "/b-first"})
+        time.sleep(1.5)
+        told_first = [e for e in events()[heard:] if e.startswith("url:%s:" % b_id)]
+        t.ok("a held row's first change from a fresh start is told once", "error" not in (answer or {}) and len(told_first) == 1,
+             (answer, told_first))
+        ask({"type": "bookmark", "op": "update", "url": sv.BASE + "/b-first", "to": sv.BASE + "/b"})
+        time.sleep(1)
         first = rows()
         t.ok("chrome.tabs.query lists them, pinned, at their pages", all(first.get(k, {}).get("pinned") for k in ("a", "b", "d", "f")), first)
         ids = {first[k]["id"] for k in ("a", "b", "d", "f") if k in first}
@@ -401,6 +438,50 @@ def main():
         t.ok("a held row sent among the tabs stops at the last row, a pin still",
              "error" not in (answer or {}) and now["sa2"].get("pinned") and now["sa2"]["index"] == max(r["index"] for r in pinned),
              (answer, now.get("sa2"), max((r["index"] for r in pinned), default=None)))
+
+        # The rest of what an extension asks of rows held as data, each
+        # answered as it would be of their tabs, told once, and right at
+        # once for the next call: unpinned, then sent elsewhere; a pin's
+        # page changed by chrome.bookmarks; a row made and taken out by
+        # chrome.bookmarks; and grouped, or sent to a window of its own,
+        # each refused whole as a pin is.
+        now = rows()
+        sa1, da2, gx_id = now["sa1"]["id"], now["da2"]["id"], now["gx"]["id"]
+        heard = len(events())
+        answer = ask({"type": "unpin", "id": sa1})
+        moved_on = ask({"type": "go", "id": sa1, "url": sv.BASE + "/sa1-next"})
+        time.sleep(1)
+        pinned = [e for e in events()[heard:] if e.startswith("pinned:%d:" % sa1)]
+        t.ok("a held row unpinned is told so once, and is the tab the next call finds",
+             "error" not in (answer or {}) and "error" not in (moved_on or {}) and pinned == ["pinned:%d:false" % sa1]
+             and not rows().get("sa1-next", {}).get("pinned", True), (answer, moved_on, pinned, rows().get("sa1-next")))
+        heard = len(events())
+        answer = ask({"type": "bookmark", "op": "update", "url": sv.BASE + "/da2", "to": sv.BASE + "/da2-moved"})
+        time.sleep(1.5)
+        told_url = [e for e in events()[heard:] if e.startswith("url:%d:" % da2)]
+        t.ok("a held row's page changed by chrome.bookmarks is its address now, told once",
+             "error" not in (answer or {}) and rows().get("da2-moved", {}).get("id") == da2 and len(told_url) == 1
+             and "da2" in held_in(dst), (answer, told_url, held_in(dst)))
+        ask({"type": "bookmark", "op": "update", "url": sv.BASE + "/da2-moved", "to": sv.BASE + "/da2"})
+        time.sleep(1)
+        heard = len(events())
+        answer = ask({"type": "bookmark", "op": "create", "folder": dst, "title": "bn1", "url": sv.BASE + "/bn1"})
+        time.sleep(1.5)
+        made = rows().get("bn1", {})
+        t.ok("a row made in a folded folder by chrome.bookmarks is held, pinned, and told as created once",
+             "error" not in (answer or {}) and made.get("pinned") and "bn1" in held_in(dst)
+             and told({made.get("id")}, ("created",)) == ["created:%s" % made.get("id")], (answer, made, held_in(dst)))
+        answer = ask({"type": "bookmark", "op": "remove", "url": sv.BASE + "/bn1"})
+        time.sleep(1.5)
+        t.ok("and taken out by it, gone, told as removed once",
+             "error" not in (answer or {}) and "bn1" not in rows() and told({made.get("id")}, ("removed",)) == ["removed:%s" % made.get("id")],
+             (answer, told({made.get("id")})))
+        answer = ask({"type": "group", "ids": [gx_id, da2]})
+        t.ok("a held row grouped with a tab fails the whole call, as its tab would",
+             "error" in (answer or {}) and rows()["gx"].get("groupId") == now["gx"].get("groupId"), (answer, rows().get("gx")))
+        answer = ask({"type": "window", "id": da2})
+        t.ok("and sent to a window of its own, refused as a pin is, held still",
+             "error" in (answer or {}) and "da2" in held_in(dst), (answer, held_in(dst)))
 
         # With groups on, a tab moved lands where it was sent and takes the
         # group of where it lands: out of its group's span it leaves it,
