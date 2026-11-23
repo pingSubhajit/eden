@@ -22,8 +22,10 @@ staying in it, held. And chrome.tabs.move as the API has it, for ordinary
 tabs too: one id or several, each to the place after where the one
 before it landed (forward, back and both), taking the group of where it
 lands, -1 for the end, a windowId to go to another window, tabs staying
-after the pins, an error for a bad id, and onMoved, onDetached and
-onAttached told once for each tab moved and never for one it passed.
+after the pins, an error for a bad id, onMoved, onDetached and
+onAttached told once for each tab moved and never for one it passed,
+and a tab sent to another window neither woken nor put in front, a page
+of a split taking the split with it.
 """
 import json
 import shutil
@@ -120,7 +122,7 @@ def main():
     for name, body in FILES.items(): (folder / name).write_text(body)
     sv.APP = probe_copy()
     try:
-        sv.setup(**{"start.fresh": False, "tabs.groups": True})
+        sv.setup(splitView=True, **{"start.fresh": False, "tabs.groups": True})
         sv.launch()
         sv.cmd({"do": "ext-folder", "path": str(folder), "yes": True})
         t.ok("the extension loads", loaded("Held Rows") is not None)
@@ -454,15 +456,62 @@ def main():
         windows = ask({"type": "windows"}) or []
         other = next((w for w in windows if w != mine), None)
         t.ok("a second window", other is not None, windows)
+        # Asleep and not in front, it goes as it is: neither window's tab in
+        # front changes, and it doesn't wake.
+        sv.sp("select", id=x)
+        sv.cmd({"do": "sleep", "id": y})
+        def fronts():
+            return [(w.get("active"), w.get("awake")) for w in sv.cmd({"do": "windows"})["windows"]]
+        before = [w.get("active") for w in sv.cmd({"do": "windows"})["windows"]]
         answer = ask({"type": "move", "ids": y_id, "props": {"windowId": other, "index": -1}})
         went = ((answer or {}).get("tabs") or [{}])[0]
         t.ok("a tab moved to another window by its windowId is there", went.get("windowId") == other, answer)
+        time.sleep(1)
+        after = sv.cmd({"do": "windows"})["windows"]
+        t.ok("neither window's tab in front changed", [w.get("active") for w in after] == before, (before, fronts()))
+        t.ok("and it didn't wake", not any(u.rstrip("/").endswith("/y") for w in after for u in w.get("awake", [])), fronts())
         time.sleep(1)
         t.ok("told as detached and attached, once each",
              len(told({y_id}, ("detached",))) == 1 and len(told({y_id}, ("attached",))) == 1,
              [e for e in events() if e.split(":")[0] in ("detached", "attached")])
         answer = ask({"type": "move", "ids": now["a"]["id"], "props": {"windowId": other, "index": -1}})
         t.ok("a pin, in every window already, doesn't go to another", "error" in (answer or {}), answer)
+        answer = ask({"type": "move", "ids": rows()["da2"]["id"], "props": {"windowId": other, "index": -1}})
+        t.ok("nor a row held as data: the call fails, and it stays held where it was",
+             "error" in (answer or {}) and rows()["da2"]["windowId"] == mine and "da2" in held_in(dst), (answer, rows().get("da2")))
+        # A page of a split takes the split with it, whole: both pages in
+        # the other window, in their order and a split there, neither in
+        # front nor woken, each told as detached and attached, and the
+        # answer the tab named alone.
+        s1, s2 = sv.page("s1"), sv.page("s2")
+        sv.sp("pair", id=s2, **{"with": s1}, side="right")
+        time.sleep(0.8)
+        sv.sp("select", id=x)
+        for page in (s1, s2): sv.cmd({"do": "sleep", "id": page})
+        time.sleep(1)
+        here = next((p.get("tabs") for p in sv.sp("state").get("splits", []) if set(p.get("tabs", [])) == {s1, s2}), None)
+        t.ok("a split of s1 and s2", here is not None, sv.sp("state").get("splits"))
+        now = rows()
+        s1_id, s2_id = now["s1"]["id"], now["s2"]["id"]
+        before = [w.get("active") for w in sv.cmd({"do": "windows"})["windows"]]
+        answer = ask({"type": "move", "ids": s2_id, "props": {"windowId": other, "index": -1}})
+        went = (answer or {}).get("tabs") or []
+        time.sleep(1.5)
+        after = rows()
+        there = sv.cmd({"do": "split", "action": "state", "window": 2}).get("splits", [])
+        t.ok("a page of a split sent to another window takes the split: both there, in order, a split",
+             after["s1"]["windowId"] == other and after["s2"]["windowId"] == other
+             and abs(after["s2"]["index"] - after["s1"]["index"]) == 1 and any(p.get("tabs") == here for p in there),
+             (after.get("s1"), after.get("s2"), here, there))
+        windows = sv.cmd({"do": "windows"})["windows"]
+        t.ok("neither window's tab in front changed, and neither page woke",
+             [w.get("active") for w in windows] == before
+             and not any(u.rstrip("/").endswith(("/s1", "/s2")) for w in windows for u in w.get("awake", [])),
+             (before, [(w.get("active"), w.get("awake")) for w in windows]))
+        t.ok("the answer is the tab named alone", [w.get("id") for w in went] == [s2_id], answer)
+        t.ok("each page told as detached and attached, once",
+             all(len(told({i}, ("detached",))) == 1 and len(told({i}, ("attached",))) == 1 for i in (s1_id, s2_id)),
+             [e for e in events() if e.split(":")[0] in ("detached", "attached")])
 
         # While a tab opened meanwhile is told, as ever: the extension hears.
         def created():

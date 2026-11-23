@@ -5781,17 +5781,36 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// A tab moved to another window by an extension (chrome.tabs.move
-    /// with a windowId): into its row where a new tab goes, in front there
-    /// as Move to Window has it, with neither window brought forward. False
-    /// for a pin, which every window has already, or a window it can't go
-    /// to.
+    /// with a windowId): at the end of its row, which tab is in front in
+    /// either window left as it was, but here when it was this one, which
+    /// goes to the next as a close does; not woken, and neither window
+    /// brought forward. A page of a split takes the split with it, whole
+    /// and in its order, a split there too, as a move along the row carries
+    /// it (carried(with:)): handed over alone, it left the others behind and
+    /// the split came apart. False for a pin, which every window has
+    /// already, or a window it can't go to.
     func hand(_ tab: Tab, to target: Browser) -> Bool {
         guard target !== self, !target.isPopup, target.profileID == profileID, tab.pin == nil,
               tabs.contains(where: { $0 === tab }) else { return false }
-        stepAside(from: [tab])
-        detach(tab)
-        target.receive([tab], front: tab)
+        let pair = split(for: tab)
+        let going = pair.map { pair in tabs.filter { pair.contains($0.id) } } ?? [tab]
+        stepAside(from: going)
+        for member in going { detach(member) }
+        target.take(going, split: pair)
         return true
+    }
+
+    /// Tabs from another window at the end of the row, as they were, a
+    /// split again if they were one: not put in front, nor woken, and the
+    /// tab in front left as it is.
+    private func take(_ moved: [Tab], split pair: TabSplit?) {
+        for tab in moved {
+            prepare(tab)
+            if !tab.shy { tab.rehome(in: spaceID) }
+            tabs.append(tab)
+        }
+        if let pair, Browser.holds(pair, in: tabs) { splits.append(pair) }
+        writeSession(now: true)
     }
 
     /// Out of this row, not closed: it is on its way to another window.

@@ -382,6 +382,98 @@ final class ExtensionTabsMoveTests: XCTestCase {
         XCTAssertTrue(followed.movers.isEmpty, "the row followed, its movers let go")
     }
 
+    /// A tab sent to another window by an extension goes as it is: the
+    /// tab in front there stays in front, it isn't woken, and the window it
+    /// left keeps its own tab in front.
+    func testATabSentToAnotherWindowGoesAsItIs() throws {
+        let here = makeBrowser()
+        let there = Browser(record: WindowRecord())
+        Browsers.register(there)
+        defer { Browsers.discard(there); there.closeAll() }
+        func page(_ word: String, in browser: Browser) throws -> Eden.Tab {
+            browser.newTab()
+            let tab = try XCTUnwrap(browser.tabs.last)
+            tab.restore(url: try XCTUnwrap(URL(string: "https://\(word).example/")), title: word)
+            return tab
+        }
+        let front = try page("front", in: here)
+        let going = try page("going", in: here)
+        let theirs = try page("theirs", in: there)
+        here.select(front)
+        there.select(theirs)
+        XCTAssertTrue(going.asleep)
+        XCTAssertTrue(here.hand(going, to: there))
+        XCTAssertTrue(there.tabs.contains { $0 === going })
+        XCTAssertEqual(there.activeID, theirs.id, "the tab in front there stays in front")
+        XCTAssertEqual(here.activeID, front.id, "and here")
+        XCTAssertTrue(going.asleep, "not woken")
+        XCTAssertFalse(here.hand(front, to: here), "not to its own window")
+    }
+
+    /// A page of a split sent to another window takes the split with it,
+    /// whole, in its order and a split there, as a move along the row does;
+    /// neither page is woken nor put in front, in either window.
+    func testASplitSentToAnotherWindowGoesWhole() throws {
+        let here = makeBrowser()
+        let there = Browser(record: WindowRecord())
+        Browsers.register(there)
+        defer { Browsers.discard(there); there.closeAll() }
+        let split = here.prefs.splitView
+        here.prefs.splitView = true
+        defer { here.prefs.splitView = split }
+        let front = try pages(["front"], in: here)[0]
+        let pair = try pages(["a", "b"], in: here)
+        let theirs = try pages(["theirs"], in: there)[0]
+        here.pair(pair[1], with: pair[0], onLeft: false)
+        XCTAssertEqual(here.split(for: pair[0])?.tabs, pair.map(\.id))
+        here.select(front)
+        there.select(theirs)
+        // Shown as a split, they woke: asleep again out of sight.
+        for page in pair where !page.asleep { page.sleep(picture: nil) }
+        XCTAssertTrue(pair.allSatisfy(\.asleep))
+
+        XCTAssertTrue(here.hand(pair[1], to: there))
+        XCTAssertFalse(here.tabs.contains { $0 === pair[0] || $0 === pair[1] }, "neither page left behind")
+        XCTAssertEqual(row(there).suffix(2), ["a", "b"], "both, in their order")
+        XCTAssertEqual(there.split(for: pair[0])?.tabs, pair.map(\.id), "a split there too")
+        XCTAssertEqual(there.activeID, theirs.id, "the tab in front there stays in front")
+        XCTAssertEqual(here.activeID, front.id, "and here")
+        XCTAssertTrue(pair.allSatisfy(\.asleep), "neither woken")
+    }
+
+    /// A split sent to another window by one of its pages goes whole, to
+    /// the end there, and the call says so: its place there, within the
+    /// split itself, is where it already is, which is no failure.
+    func testASplitSentToAnotherWindowByAnExtensionSucceeds() async throws {
+        let here = makeBrowser()
+        let there = Browser(record: WindowRecord())
+        Browsers.register(there)
+        defer { Browsers.discard(there); there.closeAll() }
+        func frame(of browser: Browser, at x: CGFloat) -> [String: Any] {
+            let window = NSWindow(contentRect: NSRect(x: x, y: -30_000, width: 800, height: 600), styleMask: .borderless,
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            browser.window = window
+            addTeardownBlock { @MainActor in window.close() }
+            let height = (window.screen ?? NSScreen.main)?.frame.height ?? 0
+            return ["left": window.frame.minX, "top": height - window.frame.maxY, "width": window.frame.width, "height": window.frame.height]
+        }
+        let mine = frame(of: here, at: -40_000), theirs = frame(of: there, at: -30_000)
+        let split = here.prefs.splitView
+        here.prefs.splitView = true
+        defer { here.prefs.splitView = split }
+        let pair = try pages(["a", "b"], in: here)
+        _ = try pages(["theirs"], in: there)
+        here.pair(pair[1], with: pair[0], onLeft: false)
+        let context = try await extensionContext()
+        let source: [String: Any] = ["i": try place("a", in: here, for: context), "w": mine]
+        let reply = try await ExtensionShims.answer(["api": "tabs.move", "args": [source, -1, theirs]],
+                                                    from: context, owner: Extensions.shared) as? [String: Any]
+        XCTAssertNil(reply?["error"], "\(String(describing: reply))")
+        XCTAssertEqual(row(there).suffix(2), ["a", "b"])
+        XCTAssertEqual(there.split(for: pair[0])?.tabs, pair.map(\.id), "a split there")
+    }
+
     // MARK: - the pieces
 
     /// Tabs after any the window has, titled and in the order given.

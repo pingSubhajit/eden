@@ -743,6 +743,9 @@ final class Bench {
                         "shown": b.window?.isVisible ?? false, "files": b.usesFiles,
                         "away": Browsers.isAway(b.window),
                         "space": b.space.name, "tabs": b.tabs.map { $0.address?.absoluteString ?? "" },
+                        // The tab in front, and those with a page loaded.
+                        "active": b.active?.address?.absoluteString ?? "",
+                        "awake": b.tabs.filter { $0.built != nil }.map { $0.address?.absoluteString ?? "" },
                         "profile": Profiles.shared.profile(b.profileID).name,
                         "spaces": b.spaces.map(\.name),
                         "stores": b.tabs.map { $0.store.identifier?.uuidString ?? "default" },
