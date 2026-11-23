@@ -879,6 +879,10 @@ final class Tab: ObservableObject, Identifiable {
 
     private var watch: [NSKeyValueObservation] = []
 
+    /// What its window watches it for (Browser.prepare): its sound, its
+    /// address and its title. Kept here, so the watching ends with the tab.
+    var wiring = Set<AnyCancellable>()
+
     /// A tab that has never been anywhere shows the address field instead of a
     /// page. It still owns a web view — built now, warm by the time it's needed.
     var isBlank: Bool { address == nil && page == nil }

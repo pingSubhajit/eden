@@ -7172,6 +7172,11 @@ final class Browser: NSObject, ObservableObject {
             announce("\(percent)%", symbol: "plus.magnifyingglass", key: "zoom")
         }
 
+        // Kept by the tab, so they go with it: kept by the window, they
+        // stayed as long as it was open, for every tab it had ever made. A
+        // tab come from another window is wired to this one alone.
+        tab.wiring = []
+
         // What plays, and what the player paused, for the player at the foot
         // of the sidebar (Player.swift).
         Publishers.CombineLatest(tab.$noisy.removeDuplicates(), tab.$stilled.removeDuplicates())
@@ -7180,7 +7185,7 @@ final class Browser: NSObject, ObservableObject {
                 guard let self, let tab else { return }
                 heard(tab, noisy: noisy, stilled: stilled)
             }
-            .store(in: &bag)
+            .store(in: &tab.wiring)
 
         // A page's title lands a beat after the page itself, and a history
         // entry that only ever holds an address is half a memory.
@@ -7188,12 +7193,12 @@ final class Browser: NSObject, ObservableObject {
         tab.$address
             .dropFirst()
             .sink { [weak self] _ in self?.rememberSession() }
-            .store(in: &bag)
+            .store(in: &tab.wiring)
 
         tab.$muted
             .dropFirst()
             .sink { [weak self] _ in self?.rememberSession() }
-            .store(in: &bag)
+            .store(in: &tab.wiring)
 
         tab.$title
             .dropFirst()
@@ -7203,7 +7208,7 @@ final class Browser: NSObject, ObservableObject {
                 guard let tab, !tab.shy, tab.translator == nil, let url = tab.address else { return }
                 self?.history.retitle(url, title)
             }
-            .store(in: &bag)
+            .store(in: &tab.wiring)
     }
 
     /// Put the cursor back in the field, from wherever asked.
