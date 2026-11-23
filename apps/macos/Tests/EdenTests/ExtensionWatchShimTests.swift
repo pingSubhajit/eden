@@ -58,9 +58,10 @@ final class ExtensionWatchShimTests: XCTestCase {
     /// The shim names each of the browser's lines as the browser takes it
     /// (Extensions' connectUsing), and lets them post at once. Its fetch,
     /// groups and idle ports kept an older name of the app's: the browser
-    /// turned them away as ports to an app the extension never asked for,
-    /// and every port of the app's own name waited ten seconds behind a
-    /// question meant for an app on the Mac.
+    /// turned them away as ports to an app the extension never asked for.
+    /// And once named right, the groups and idle ports, whose lines don't
+    /// answer the question meant for an app on the Mac, waited ten seconds
+    /// behind it.
     func testTheShimNamesTheBrowsersLinesAsTheBrowserTakesThem() {
         let script = ExtensionShims.script
         for opened in ["connectNative(\"\(ExtensionSocket.name)\")", "connect(\"\(ExtensionFetch.name)\")",

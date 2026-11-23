@@ -1072,8 +1072,9 @@ enum ExtensionShims {
             if (!state) {
               // Not the browser's own lines (eden, eden.socket, eden.groups
               // and the rest, ExtensionShims.application), which say they
-              // have arrived in their own way: held behind a question none of
-              // them answers, a hello waited out the twenty asks, ten seconds.
+              // have arrived in their own way. The groups and idle lines
+              // don't answer the question, and held behind it their hellos
+              // waited out the twenty asks, ten seconds.
               const native = !toPages.has(this) && this.sender == null && typeof this.name === "string" && !/^eden(\.|$)/.test(this.name);
               state = native ? start(this) : { held: null };
               ports.set(this, state);
