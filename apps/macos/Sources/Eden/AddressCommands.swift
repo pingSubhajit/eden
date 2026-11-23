@@ -5,14 +5,12 @@ import Foundation
 // handful of words that mean "go here in the app" rather than "go here on
 // the web". Only the whole word runs on Return, so a search that starts
 // with one still searches; part of a word is just offered lower in the
-// list. Off by default (Settings › Spaces & Pins ›
-// Opening and starting › Address bar commands): nobody typing "settings" into a browser
-// expects the app to open its own panel instead of asking Google.
+// list. Always on, for everyone (#41).
 //
-// With it on, every menu command (Shortcuts.swift's Command) is offered
-// too, as in Arc's Command Bar, found by the words of its name, and every
-// Settings page by its name: under what was typed, so Return still goes
-// where it went, and run through the menu's own action.
+// Every menu command (Shortcuts.swift's Command) is offered too, as in
+// Arc's Command Bar, found by the words of its name, and every Settings
+// page by its name: under what was typed, so Return still goes where it
+// went, and run through the menu's own action.
 
 @MainActor
 enum AddressCommand: Equatable {

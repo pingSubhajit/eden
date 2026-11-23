@@ -130,8 +130,10 @@ extension Browser {
               var row = parked[space] else { return }
         row.tabs.removeAll { $0 === tab }
         row.splits = row.splits.filter { Browser.holds($0, in: row.tabs) }
+        // The first loose tab there comes to the front, or nothing does:
+        // never a pin you weren't on, and no tab made for it.
         if row.active == tab.id {
-            row.active = row.tabs.first { $0.pin == nil }?.id ?? row.tabs.first?.id
+            row.active = row.tabs.first { $0.pin == nil }?.id
         }
         tab.close()
         parked[space] = row

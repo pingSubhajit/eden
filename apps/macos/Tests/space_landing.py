@@ -8,9 +8,10 @@ front (Varun, 1.0.5):
 
 - mid-swipe, the space coming in is drawn with its group folded, as it will
   be once it lands, not with every page of the group out (Parked.drawn);
-- gone to again, in the same run and after ⌘Q and a relaunch, it opens on
-  what was in front when it was left — the empty tab, as an empty tab —
-  never on the last page of the folded group;
+- gone to again in the same run, it opens on what was in front when it was
+  left, the empty tab; after ⌘Q and a relaunch, where the empty tab isn't
+  kept, on nothing in front, with no tab made for it — never on the last
+  page of the folded group;
 - a page in front is still the page in front after a relaunch.
 
 Nothing here makes, shows or brings forward a window.
@@ -89,8 +90,9 @@ def main():
         space(action="go", index=2); time.sleep(1)
         f, st = front()
         g = group()
-        t.ok("after a relaunch: an empty tab in front, not a page of the folded group",
-             f and f["blank"] and f["id"] not in (g["groups"][0]["tabs"] if g["groups"] else []), (f, g))
+        # The empty tab isn't kept: nothing in front, and no tab made for it.
+        t.ok("after a relaunch: nothing in front, not a page of the folded group",
+             f is None and not any(x["blank"] for x in st["tabs"]), (f, g))
         t.ok("the group is still folded with its three pages",
              g["groups"] and g["groups"][0]["collapsed"] and len(g["groups"][0]["tabs"]) == 3, g)
 

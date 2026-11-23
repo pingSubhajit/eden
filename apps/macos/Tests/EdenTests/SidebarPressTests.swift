@@ -208,7 +208,10 @@ final class SidebarPressTests: XCTestCase {
         // the cross, and the click closes the tab. (Before, the cross's reach
         // took a press with no pointer on the row too, and the test pressed
         // there unhovered; since the cross became one that wears its square
-        // under the pointer, its reach comes and goes with it.)
+        // under the pointer, its reach comes and goes with it.) The press
+        // goes through the app, as a real one does: the cross takes it as
+        // a split's half's does (CloseClick), by the event AppKit is
+        // delivering, which one sent straight to the window isn't (#41).
         let browser = makeBrowser()
         let first = browser.tabs[0], second = browser.tabs[1], before = browser.activeID
         XCTAssertNotEqual(before, first.id)
@@ -218,9 +221,9 @@ final class SidebarPressTests: XCTestCase {
         Bench.hoverRows[first.id]?(true)
         try await settle()
         let cross = NSPoint(x: browser.prefs.sideWidth - 24, y: rowPoint(0, in: window).y)
-        try await send(.leftMouseDown, at: cross, in: window)
+        try await post(.leftMouseDown, at: cross, in: window)
         XCTAssertEqual(browser.activeID, before, "A press on the cross must not select its row")
-        try await send(.leftMouseUp, at: cross, in: window)
+        try await post(.leftMouseUp, at: cross, in: window)
         try await settle()
         XCTAssertEqual(browser.activeID, before)
         XCTAssertFalse(browser.tabs.contains { $0 === first }, "its click closes the tab")
@@ -380,7 +383,7 @@ final class SidebarPressTests: XCTestCase {
         // one there would be the first one reused.
         browser.prefs.newTabPlace = .next
         for word in ["one", "two", "three"] {
-            if browser.tabs.last?.isBlank == false { browser.newTab() }
+            if browser.tabs.last?.isBlank != true { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)
         }
         return browser

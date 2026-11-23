@@ -74,8 +74,8 @@ enum Session {
     /// with the groups (Arc's folders come in as groups, and a folder is
     /// never last time's leftovers); and a tab you named — and nothing else.
     /// A Split View pair stays only when both its pages do. No tab is marked
-    /// as in front, so the window opens on an empty tab beside the pins (see
-    /// Browser.restoreSession).
+    /// as in front, so the window opens with nothing in front, beside the
+    /// pins, and no empty tab made for it (see Browser.restoreSession).
     static func startFresh(spaces: [UUID]) {
         for space in spaces {
             let shape = read(space: space)

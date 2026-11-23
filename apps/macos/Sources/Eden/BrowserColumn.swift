@@ -1,3 +1,4 @@
+import EdenCore
 import Foundation
 
 // The column's two areas as a window holds them (see Column.swift for what
@@ -304,6 +305,223 @@ extension Browser {
         }
     }
 
+    /// What is carried with `tab` put at `place` (the column's carry): the
+    /// tab alone, or with its pair, as move(_:to:detaching:) puts it; with
+    /// several picked, everything picked that can stand there, pins of
+    /// either kind and tabs alike (travelling), in their order. Tabs under
+    /// the line alone carried into a group there, or out of one, are
+    /// already carried together by those moves (carried(with:)).
+    @discardableResult
+    func move(carrying tab: Tab, to place: ColumnPlace, detaching: Bool = false) -> Bool {
+        let moving = travelling(with: tab)
+        guard !detaching, isPickedAmongOthers(tab), moving.count > 1,
+              !(place.area == .open && moving.allSatisfy { $0.pin == nil }) else {
+            return move(tab, to: place, detaching: detaching)
+        }
+        return move(together: moving, carrying: tab, to: place)
+    }
+
+    /// Several tabs, picked together, put at `place` as one, in their order:
+    /// above the line pinned rows there, whatever they were — a row moved,
+    /// a square made one, a tab pinned — and under it tabs there, pins
+    /// unpinned. Those that can't go (takes) stay where they are: above
+    /// the line, no pair. `carried`, the one in hand: its own place in the
+    /// run was closed while it was carried, so `place.index` counts the run
+    /// without it. They land in front of what stood there, the first place
+    /// from it that stays, or at the end.
+    private func move(together moving: [Tab], carrying carried: Tab, to place: ColumnPlace) -> Bool {
+        let going = moving.filter { takes($0, at: place) }
+        guard !going.isEmpty else { return false }
+        let ids = Set(going.map(\.id))
+        func stays(_ item: SideItem) -> Bool { item.tabs.contains { !ids.contains($0.id) } }
+        objectWillChange.send()
+        switch place.area {
+        case .kept:
+            // Among the rows every space shows, those that are theirs, as
+            // move(_:to:) puts one; the rest in one go.
+            let shared = going.filter { $0.pin != nil && $0.everywhere }
+            let own = going.filter { tab in !shared.contains { $0 === tab } }
+            // Where they land, found before anything moves.
+            let run: [SideItem] = place.group.map { group in
+                ownKeptItems().first { $0.group?.id == group }?.tabs.map(SideItem.tab) ?? []
+            } ?? everywhereRows.map(SideItem.tab) + ownKeptItems()
+            let places = run.filter { $0.id != .tab(carried.id) }
+            let anchor = place.index.flatMap { at in places.indices.contains(at) ? places[at...].first(where: stays) : nil }
+            if !own.isEmpty {
+                for tab in own {
+                    if tab.pin == nil {
+                        leaveSplit(tab)
+                        makePin(tab, listed: true)
+                    } else if !tab.listed {
+                        if editingPin == tab.id { editingPin = nil }
+                        tab.listed = true
+                    }
+                }
+                let items = ownKeptItems(without: ids)
+                let index: Int? = anchor.map { anchor in
+                    if place.group != nil {
+                        let members = items.first { $0.group?.id == place.group }?.tabs ?? []
+                        return members.firstIndex { SideItemID.tab($0.id) == anchor.id } ?? members.count
+                    }
+                    // Before a row every space shows: the head of this
+                    // space's own.
+                    return items.firstIndex { $0.id == anchor.id } ?? 0
+                }
+                applyKept(Browser.inserting(own, into: place.group, at: index, in: items))
+            }
+            // Each at the same place, the last first: they stand in order.
+            for tab in shared.reversed() {
+                if !tab.listed {
+                    if editingPin == tab.id { editingPin = nil }
+                    tab.listed = true
+                }
+                _ = moveEverywhereRow(tab, to: place.index)
+            }
+        case .open:
+            // Where they land, found before anything moves: in the group, in
+            // front of a tab of it; at the top of the area, in front of a
+            // tab in no group or of a group.
+            let anchor: Tab?
+            if let group = place.group {
+                let pair = split(for: carried)
+                let peers = tabs(in: group).filter { standsInRow($0) && $0.id != carried.id && pair?.contains($0.id) != true }
+                anchor = place.index.flatMap { at in peers.indices.contains(at) ? peers[at...].first { !ids.contains($0.id) } : nil }
+            } else {
+                let shown = prefs.usesTabGroups ? sideItems : displayedTabs.filter { $0.pin == nil }.map(SideItem.tab)
+                let own = split(for: carried)?.left ?? carried.id
+                let places = shown.filter { $0.id != .tab(own) }
+                let item = place.index.flatMap { at in places.indices.contains(at) ? places[at...].first(where: stays) : nil }
+                anchor = item?.tabs.first { !ids.contains($0.id) }
+            }
+            for tab in going where tab.pin != nil { unpin(tab) }
+            let previous = Set(going.compactMap(\.groupID))
+            for tab in going { tab.groupID = place.group }
+            var row = tabs.filter { !ids.contains($0.id) }
+            let before = anchor.map { split(for: $0)?.left ?? $0.id }
+            let at = before.flatMap { id in row.firstIndex { $0.id == id } }
+                ?? place.group.flatMap { group in row.lastIndex { $0.groupID == group }.map { $0 + 1 } }
+                ?? row.count
+            row.insert(contentsOf: going, at: min(max(at, 0), row.count))
+            rearrangeTabs(row)
+            if let group = place.group, let index = tabGroups.firstIndex(where: { $0.id == group }) {
+                tabGroups[index].collapsed = false
+            }
+            for id in previous where id != place.group { removeEmptyGroup(id) }
+        }
+        writeSession(now: true)
+        return true
+    }
+
+    /// Carried onto the squares (Browser.square), with the tabs picked with
+    /// it, pins of either kind and tabs alike (travelling): each that can be
+    /// one made a square there, in their order, in front of the square
+    /// that stood at `slot`, or after them all.
+    @discardableResult
+    func square(carrying tab: Tab, at slot: Int) -> Bool {
+        let moving = travelling(with: tab)
+        guard isPickedAmongOthers(tab), moving.count > 1 else { return square(tab, at: slot) }
+        let going = moving.filter { $0.pin == nil ? pinsByDrag($0) : true }
+        guard !going.isEmpty else { return false }
+        let ids = Set(going.map(\.id))
+        // Where they land, found before anything moves.
+        let squares = tabs.filter { $0.pin != nil && !$0.listed && $0.id != tab.id }
+        let anchor = squares.indices.contains(slot) ? squares[slot...].first { !ids.contains($0.id) } : nil
+        for each in going {
+            if each.pin == nil { pin(each, listed: false) } else if each.listed { setListed(each, false) }
+        }
+        let made = going.filter { $0.pin != nil && !$0.listed }
+        guard !made.isEmpty else { return false }
+        let pins = tabs.filter { $0.pin != nil }
+        var row = pins.filter { !$0.listed && !ids.contains($0.id) }
+        let at = anchor.flatMap { anchor in row.firstIndex { $0.id == anchor.id } } ?? row.count
+        row.insert(contentsOf: made, at: min(max(at, 0), row.count))
+        // The squares every space shows keep the head of the squares, as
+        // they always do (keepBlocks): those of the batch go among them,
+        // the space's own after them, each in their order. Placed by
+        // pinSlot, which counts the squares as they stand, mid-move, a
+        // shared one just made a square was counted where nothing stood.
+        row = row.filter(\.everywhere) + row.filter { !$0.everywhere }
+        rearrangeTabs(row + pins.filter(\.listed) + tabs.filter { $0.pin == nil })
+        writeSession(now: true)
+        return true
+    }
+
+    /// The column as it stands, and what puts it back so: the row's order
+    /// and each tab's group, in either area, and the groups under the line.
+    /// For a carry that moved tabs on its way and is then kept where it
+    /// was (Carried.keep): picked tabs moved with the one in hand, and one
+    /// move back of that one alone left them where they went. False, and
+    /// nothing changed, when a tab has come or gone since.
+    func arrangement() -> () -> Bool {
+        let order = tabs.map(\.id)
+        let groups = Dictionary(tabs.map { ($0.id, ($0.groupID, $0.keptGroupID)) }, uniquingKeysWith: { first, _ in first })
+        let open = tabGroups
+        return { [weak self] in
+            guard let self else { return false }
+            let byID = Dictionary(self.tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let row = order.compactMap { byID[$0] }
+            guard row.count == self.tabs.count else { return false }
+            for tab in row {
+                guard let (group, kept) = groups[tab.id] else { continue }
+                if tab.groupID != group { tab.groupID = group }
+                if tab.keptGroupID != kept { tab.keptGroupID = kept }
+            }
+            if self.tabGroups != open { self.tabGroups = open }
+            self.rearrangeTabs(row)
+            self.writeSession(now: true)
+            return true
+        }
+    }
+
+    /// A pinned row carried along its run of the kept area — its folder, or
+    /// the top of the area — to `index` there, the others making way (the
+    /// column's carry): with the rows picked with it, all of them as one
+    /// block in their order, as tabs under the line move (moveItem). It
+    /// lands beside the nearest place passed that stays: the block's own
+    /// rows aren't places to land by. Rows picked in another folder come
+    /// into this run with it. Rows every space shows keep the head of the
+    /// area, so with one of them in hand it moves alone (move(_:to:)).
+    func moveKept(carrying tab: Tab, in group: UUID?, to index: Int) {
+        let moving = carried(with: tab)
+        guard isPickedAmongOthers(tab), moving.count > 1, tab.listed, !moving.contains(where: \.everywhere) else {
+            move(tab, to: ColumnPlace(area: .kept, group: group, index: index))
+            return
+        }
+        let ids = Set(moving.map(\.id))
+        var items = ownKeptItems()
+        let run: [SideItem]
+        if let group {
+            run = items.first { $0.group?.id == group }?.tabs.map(SideItem.tab) ?? []
+        } else {
+            run = everywhereRows.map(SideItem.tab) + items
+        }
+        guard let from = run.firstIndex(where: { $0.id == .tab(tab.id) }), run.indices.contains(index), from != index else { return }
+        func stays(_ item: SideItem) -> Bool {
+            if case .tab(let other) = item { return !ids.contains(other.id) }
+            return true
+        }
+        let down = from < index
+        let passed = down ? Array(run[(from + 1)...index].reversed()) : Array(run[index..<from])
+        guard let anchor = passed.first(where: stays) else { return }
+        // Out of wherever they stand, a folder emptied by it staying.
+        items = items.map { item in
+            guard case .group(let held, let members) = item else { return item }
+            return .group(held, members.filter { !ids.contains($0.id) })
+        }.filter(stays)
+        if let group, let at = items.firstIndex(where: { $0.group?.id == group }), case .group(let held, var members) = items[at] {
+            let place = members.firstIndex { SideItemID.tab($0.id) == anchor.id }.map { down ? $0 + 1 : $0 } ?? members.count
+            members.insert(contentsOf: moving, at: min(max(place, 0), members.count))
+            items[at] = .group(held, members)
+        } else {
+            // Past a row every space shows: the head of this space's own.
+            let place = items.firstIndex { $0.id == anchor.id }.map { down ? $0 + 1 : $0 } ?? 0
+            items.insert(contentsOf: moving.map(SideItem.tab), at: min(max(place, 0), items.count))
+        }
+        objectWillChange.send()
+        applyKept(items)
+        writeSession(now: true)
+    }
+
     /// A row every space shows, carried along those rows at the head of
     /// the kept area, or a square of theirs made one: among them, at
     /// `index`, and no further. The row put back in the pins' order: the
@@ -442,6 +660,52 @@ extension Browser {
         // The rows out of the pins, then the group out of the store.
         writeSession(now: true)
         saveKeptGroups(keptGroups.filter { $0.id != id })
+        return true
+    }
+
+    // MARK: - the address, in a row
+
+    /// ⌘Return in the field a row opens for its address (beginTabEdit), as
+    /// in ⌘L's (submit(aside:front:)): what is typed opens in a new tab,
+    /// behind, or in front with ⇧ (`front`), and the row's own tab is left
+    /// as it was. An open tab picked from the list is gone to, and a
+    /// command run, as Return does. Naming the tab, or typed where nothing
+    /// can be gone to, it is Return.
+    func commitTabEditAside(front: Bool) {
+        guard let id = editingTab, let tab = tabs.first(where: { $0.id == id }), !renamingTab else {
+            return commitTabEdit()
+        }
+        if let picked = tabPicked, tabOffers.indices.contains(picked) {
+            let offer = tabOffers[picked]
+            guard offer.command == nil, offer.tab == nil else { return takeTabOffer(offer) }
+            cancelTabEdit()
+            open(offer.url, foreground: front, from: tab, mayWait: true)
+            return
+        }
+        guard let url = destination(for: tabDraft) else { return commitTabEdit() }
+        cancelTabEdit()
+        // eden://settings and the rest: the page's own tab, one of each.
+        if let page = InternalPage(url: url) {
+            show(page)
+            return
+        }
+        // Opened behind the page by hand, as a ⌘-clicked link is: it may
+        // wait to load (Settings › Tabs › Load background tabs…).
+        open(url, foreground: front, from: tab, mayWait: true)
+    }
+
+    /// ⇧Return in the row's field, with an engine chosen for it in Settings
+    /// › Browsing: the words go there, as from ⌘L's (submitToShiftEngine).
+    /// False, and Return has it, with none chosen or the tab being named.
+    func commitTabEditToShiftEngine() -> Bool {
+        guard let engine = prefs.shiftEngine, let id = editingTab, !renamingTab,
+              let tab = tabs.first(where: { $0.id == id }) else { return false }
+        guard let url = Engine.url(for: tabDraft, template: engine.template(custom: prefs.shiftCustom)) else {
+            commitTabEdit()
+            return true
+        }
+        cancelTabEdit()
+        tab.go(to: url)
         return true
     }
 }

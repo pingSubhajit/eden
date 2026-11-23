@@ -82,7 +82,7 @@ final class ColumnScrollToTests: XCTestCase {
         // Each new tab after the last, so the last made is the last row.
         browser.prefs.newTabPlace = .next
         for number in 1...30 {
-            if browser.tabs.last?.isBlank == false { browser.newTab() }
+            if browser.tabs.last?.isBlank != true { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(number)")!, title: "Tab \(number)")
         }
         let tabs = browser.tabs

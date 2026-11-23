@@ -560,9 +560,7 @@ struct SettingsPanel: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .fixedSize()
-        case "tabs.newAfterLast": Switch(on: $prefs.newTabAfterLast)
         case "tabs.closeGoesBack": Switch(on: $prefs.closeGoesBack)
-        case "tabs.undoReopens": Switch(on: $prefs.undoReopensTab)
         case "tabs.switcherBehindFirst": Switch(on: $prefs.switcherBehindFirst)
         case "tabs.switcherLeavesOutPins": Switch(on: $prefs.switcherLeavesOutPins)
         case "tabs.frontBeside": Switch(on: $prefs.frontLinksBeside)
@@ -626,7 +624,6 @@ struct SettingsPanel: View {
                         .opacity(draftProblem == nil ? 1 : 0.4)
                 }
             }
-        case "links.little": Switch(on: $prefs.littleLinks)
         case "links.little.tabs": Switch(on: $prefs.littleFindsTabs)
         case "reader.twins": Switch(on: $prefs.readsTwins)
         case "reader.follows": Switch(on: $prefs.readerFollowsLook)
@@ -677,7 +674,6 @@ struct SettingsPanel: View {
         case "profiles.oneWindow": Switch(on: $prefs.profilesInOneWindow)
         case "spaces.links": Switch(on: $prefs.sendsLinksToSpaces)
         case "pins.commandNewTab": Switch(on: $prefs.pinCommandOpensTab)
-        case "commandbar": Switch(on: $prefs.commandBar)
         case "start.fresh": Switch(on: $prefs.startsFresh)
         case "note.sharedpins", "note.pinback": Always()
         default: EmptyView()

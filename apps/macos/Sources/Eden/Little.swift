@@ -5,10 +5,8 @@ import SwiftUI
 // it with the site, Open in Eden and nothing else — to read and close, or
 // to keep. Arc calls it Little Arc; the idea came to Eden as #227.
 //
-// On for a new install, in Settings › General; an install from before it
-// was the default keeps it off, and a link from Mail opens in the browser's
-// window, as it always did, until it is turned on (see
-// Preferences.settleLittleLinks).
+// Always on: a link from Mail opens here, not in the browser's window,
+// whether the install is new or from before it was the default (#41).
 //
 // The page is a tab of its own, as a peek is (see Peek.swift), only in a
 // window of its own: Open in Eden moves it into the browser's row, where

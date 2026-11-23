@@ -112,8 +112,12 @@ final class TabSwitcher: ObservableObject {
     }
 
     /// The card the gesture started on: the tab on screen, or the small
-    /// window the keys were in. The switcher shows over its window.
+    /// window the keys were in. The switcher shows over its window. None
+    /// for a gesture started with nothing in front, which has no card of
+    /// its own: every card is somewhere to go.
     private(set) var home: Tab.ID?
+    /// A gesture under way, from a card or from nothing in front.
+    private var underway = false
     /// Walked from a small window: its moons come first, then the planet.
     private var moonsLead = false
 
@@ -128,12 +132,21 @@ final class TabSwitcher: ObservableObject {
     private var reveal: DispatchWorkItem?
     private var previewRequested = false
     private var generation = UUID()
-    var active: Bool { home != nil }
+    var active: Bool { underway }
 
     /// The latest tab left that is still among `row`, other than `id`: where
     /// a pin's number pressed again goes back to.
     func lastLeft(among row: Set<Tab.ID>, other id: Tab.ID) -> Tab.ID? {
         recentIDs.first { $0 != id && row.contains($0) }
+    }
+
+    /// A tab closed, put away or put down by hand: never gone back to again
+    /// until it is visited again. A pin put down stays in the row, and
+    /// left as the latest, ⌘W on the pin landed on would go straight back
+    /// to it, waking it, and the two pins would take turns for ever.
+    func forget(_ id: Tab.ID) {
+        recentIDs.removeAll { $0 == id }
+        usedIDs.removeAll { $0 == id }
     }
 
     /// The tab just left goes to the front, with a picture of it as it was.
@@ -165,9 +178,11 @@ final class TabSwitcher: ObservableObject {
     /// before this one: a quick press goes back to the last tab, and the
     /// next comes back again. ⇧ starts from the far end, which is the last
     /// moon when there are any: the walk is one ring, grid then moons.
-    func step(row: [Tab.ID], current: Tab.ID, backwards: Bool, moons: [Tab.ID] = [], behindFirst: Bool = false) {
+    /// With nothing in front (`current` nil), it stops on the first card:
+    /// the tab left last, or the first of the row.
+    func step(row: [Tab.ID], current: Tab.ID?, backwards: Bool, moons: [Tab.ID] = [], behindFirst: Bool = false) {
         guard active else {
-            guard row.contains(current) else { return }
+            if let current, !row.contains(current) { return }
             let planet = ordered(row: row, current: current, behindFirst: behindFirst)
             begin(home: current, planet: planet, moons: moons.filter { !planet.contains($0) },
                   moonsLead: false, backwards: backwards)
@@ -209,22 +224,24 @@ final class TabSwitcher: ObservableObject {
         usedIDs = [id] + usedIDs.filter { $0 != id }
     }
 
-    private func begin(home: Tab.ID, planet: [Tab.ID], moons: [Tab.ID], moonsLead: Bool, backwards: Bool) {
+    private func begin(home: Tab.ID?, planet: [Tab.ID], moons: [Tab.ID], moonsLead: Bool, backwards: Bool) {
         // The tab just left, still waiting for its picture: taken now, for
         // the card it is about to have.
         if let picturing { picturing.perform(); picturing.cancel() }
         candidates = planet
         self.moons = Array(moons.prefix(Self.maxMoons))
         self.moonsLead = moonsLead
-        // One tab and a small window is still somewhere to go.
-        guard ring.count > 1, ring.first == home else {
+        // One tab and a small window is still somewhere to go; from nothing
+        // in front, so is one card alone.
+        guard home.map({ ring.count > 1 && ring.first == $0 }) ?? !ring.isEmpty else {
             candidates = []
             self.moons = []
             self.moonsLead = false
             return
         }
         self.home = home
-        selectedID = backwards ? ring.last : ring[1]
+        underway = true
+        selectedID = backwards ? ring.last : ring[home == nil ? 0 : 1]
         let work = DispatchWorkItem { [weak self] in self?.show() }
         reveal = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
@@ -277,7 +294,7 @@ final class TabSwitcher: ObservableObject {
         candidates.removeAll { $0 == id }
         moons.removeAll { $0 == id }
         cardFrames[id] = nil
-        guard ring.count > 1 else { return cancel() }
+        guard ring.count > (home == nil ? 0 : 1) else { return cancel() }
         if selectedID == id { selectedID = before[(index + 1) % before.count] }
     }
 
@@ -300,6 +317,7 @@ final class TabSwitcher: ObservableObject {
         candidates = []
         moons = []
         home = nil
+        underway = false
         moonsLead = false
         selectedID = nil
         visible = false

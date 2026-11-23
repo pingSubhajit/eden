@@ -240,10 +240,11 @@ extension Browser {
     /// opens it as it opens any address, beside or in front.
     func followCopiedLink(_ change: Int) {
         guard let url = copiedLinkURL(change) else { return }
-        if launching {
+        if launching || active == nil {
+            // With nothing in front, a tab of its own, never a pin of the row.
             open(url, foreground: true, from: active, loose: true)
         } else {
-            (active ?? tabs.first)?.go(to: url)
+            active?.go(to: url)
         }
     }
 }

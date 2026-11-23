@@ -83,9 +83,14 @@ final class EmptyHalfOpenTabsTests: XCTestCase {
         prefs.splitView = true
         // Each new tab after the last, so they stand in the order made.
         prefs.newTabPlace = .next
+        // Whatever an earlier test left in this world's session, gone: its
+        // tabs would stand before these and take their places.
+        let left = browser.tabs
+        browser.showRow([], active: nil)
+        left.forEach { $0.close() }
         let titles = (1...8).map { "Page \($0)" } + ["Notes"]
         for (number, title) in titles.enumerated() {
-            if number > 0 { browser.newTab() }
+            if number > 0 || browser.tabs.isEmpty { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://example.invalid/\(number + 1)")!, title: title)
         }
         // Looked at from the last to the first: "Notes" longest ago.

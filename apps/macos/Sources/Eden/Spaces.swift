@@ -303,7 +303,7 @@ extension Browser {
 
         // The row on screen is parked as it is, sound and all: music or a
         // stream keeps playing in the space you left, as it does in a tab
-        // you left. ⌘⇧M, or its speaker, stops it.
+        // you left. ⇧⌘M, or its speaker, mutes it.
         parked[spaceID] = Parked(tabs: tabs, active: activeID, splits: splits, groups: tabGroups)
 
         spaceID = id
@@ -319,13 +319,15 @@ extension Browser {
         if Browsers.primary === self { Store.settings.set(id.uuidString, forKey: "space.current") }
         Store.settings.set(id.uuidString, forKey: "space.current.\(profileID.uuidString)")
         if let back = parked.removeValue(forKey: id), !back.tabs.isEmpty {
-            // Nothing in front there (a fresh start, see Session.startFresh):
-            // an empty tab beside its pins, as at launch, not the first pin.
-            // One that has gone from the row falls to its first tab that isn't a pin.
-            let front = back.active.map { active in
-                back.tabs.contains { $0.id == active } ? active : (back.tabs.first { $0.pin == nil } ?? back.tabs[0]).id
+            // Nothing in front there (left so, or a fresh start, see
+            // Session.startFresh): nothing in front here either, beside its
+            // pins, as at launch — not the first pin, and no empty tab made
+            // for it. One that has gone from the row falls to its first tab
+            // that isn't a pin, or to nothing.
+            let front = back.active.flatMap { active in
+                back.tabs.contains { $0.id == active } ? active : back.tabs.first { $0.pin == nil }?.id
             }
-            showRow(back.tabs, active: front, splits: back.splits, blank: true)
+            showRow(back.tabs, active: front, splits: back.splits)
             for tab in tabs where visibleTabIDs.contains(tab.id) {
                 if !tab.wake() { tab.revive() }
             }
@@ -334,14 +336,13 @@ extension Browser {
             restoreSession()
         }
         returnSpaceVideo()
-        editing = active?.isBlank ?? true
+        // A blank tab's field stands on it; nothing in front has none.
+        editing = active?.isBlank == true
         typed = ""
         // A row read from its file just now may hold tabs whose time ran out
         // while it wasn't in memory (see Closing.swift).
         closeLeftAlone()
         askFocus()
-        // Its name, as the window's toast, wherever the tabs are.
-        if !peeking && !makingSpace { announce(space.name, symbol: space.symbol, key: "space") }
     }
 
     /// Every other space's row, made ahead of time, so the column can show
@@ -529,6 +530,8 @@ struct SpaceDot: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // A right-click, or a ⌃-click, opens the same menu, as on a group.
+        .overlay { GroupMenuArea { SpaceMenu.menu(for: browser) } }
         .onHover { hovering = $0 }
         .animation(Motion.quick, value: browser.space.colour)
         .help("\(browser.space.name) — ⌃1–⌃9, or two fingers sideways over the tabs, to switch")
@@ -555,12 +558,11 @@ enum SpaceMenu {
 
     private static var actions: [Action] = []
 
-    private static func item(_ title: String, key: String = "", checked: Bool = false, _ run: @escaping () -> Void) -> NSMenuItem {
+    private static func item(_ title: String, checked: Bool = false, _ run: @escaping () -> Void) -> NSMenuItem {
         let action = Action(run)
         actions.append(action)
-        let item = NSMenuItem(title: title, action: #selector(Action.fire), keyEquivalent: key)
+        let item = NSMenuItem(title: title, action: #selector(Action.fire), keyEquivalent: "")
         item.target = action
-        item.keyEquivalentModifierMask = key.isEmpty ? [] : .control
         item.state = checked ? .on : .off
         return item
     }
@@ -609,9 +611,12 @@ enum SpaceMenu {
         for list in lists where !list.spaces.isEmpty {
             if let name = list.name { menu.addItem(.sectionHeader(title: name)) }
             for space in list.spaces {
-                let entry = item(space.name, key: index < 9 ? "\(index + 1)" : "", checked: space.id == browser.spaceID) {
+                let entry = item(space.name, checked: space.id == browser.spaceID) {
                     browser.switchSpace(to: space.id)
                 }
+                // The key it has as things stand (Settings › Shortcuts), as
+                // the menu bar's Spaces menu shows it: ⌃1–⌃9 unless changed.
+                if index < 9 { entry.shortcut("spaces.\(index + 1)") }
                 entry.image = image(space.symbol, colour: space.colour)
                 menu.addItem(entry)
                 index += 1

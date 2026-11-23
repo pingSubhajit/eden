@@ -123,7 +123,9 @@ final class ColumnDragTests: XCTestCase {
         browser.welcoming = false
         // A tab with somewhere to be: a blank one stands the address field
         // over the page.
-        browser.tabs.last?.restore(url: URL(string: "about:blank#one")!, title: "one")
+        // A window opens with nothing in front: the tab is asked for.
+        browser.newTab()
+        browser.active?.restore(url: URL(string: "about:blank#one")!, title: "one")
         return browser
     }
 

@@ -80,15 +80,17 @@ def case_menu(t):
     t.ok("menu: a stays in front", a in ids and st["activeID"] == a, (urls(st), st["activeID"]))
     t.ok("menu: ⇧⌘T offers both as one", st["reopenTitle"] == "Reopen 2 Closed Tabs", st["reopenTitle"])
 
-    # Every tab in the window picked: a new tab is left, as the last tab
-    # closed leaves one, and the window stays.
+    # Every tab in the window picked: nothing is left in front, as the last
+    # tab closed leaves nothing, no new tab is made, and the window stays.
     b = sv.page("b2"); sv.sp("select", id=a)
     # a, in front, first: the first ⌘-click picks it; a later one would let go.
     everything = [x["id"] for x in state()["tabs"]]
     st = pick(a, *[x for x in everything if x != a])
     t.ok("all picked: every tab", sorted(st["selected"]) == sorted(everything), (st["selected"], everything))
     st = cmd_w()
-    t.ok("all picked: one new tab left", len(st["tabs"]) == 1 and st["tabs"][0]["blank"], urls(st))
+    t.ok("all picked: nothing left in front, and no new tab", st["tabs"] == [] and st["activeID"] is None, urls(st))
+    w = sv.cmd({"do": "windows"})["windows"]
+    t.ok("all picked: the window stays open", any(x["open"] for x in w), w)
 
 
 def case_pair_and_pin(t):

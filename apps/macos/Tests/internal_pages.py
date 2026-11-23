@@ -78,8 +78,10 @@ def case_open_focus(t):
 def case_blank_and_private(t):
     """an empty tab becomes the page; a private one doesn't"""
     sv.setup(); sv.launch()
+    # A window opens with nothing in front: the empty tab is asked for.
+    sv.sp("newTab"); time.sleep(0.3)
     blank = active()
-    t.ok("starts on an empty tab", one(blank)["blank"], tabs())
+    t.ok("an empty tab, asked for", one(blank)["blank"], tabs())
     press(COMMA, ",", "cmd")
     t.ok("⌘, on an empty tab: that tab becomes Settings", len(tabs()) == 1 and one(blank)["internal"].startswith("eden://settings"), tabs())
     sv.sp("private"); time.sleep(0.5)

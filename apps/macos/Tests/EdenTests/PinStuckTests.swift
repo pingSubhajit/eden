@@ -212,7 +212,7 @@ final class PinStuckTests: XCTestCase {
         // Each new tab after the last, so they stand in the order made.
         browser.prefs.newTabPlace = .next
         for word in (0..<count).map({ "t\($0)" }) {
-            if browser.tabs.last?.isBlank == false { browser.newTab() }
+            if browser.tabs.last?.isBlank != true { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(word)")!, title: word)
         }
         return browser

@@ -198,17 +198,10 @@ enum SettingsIndex {
               title: "Links opened in front go beside their page", detail: "A link that opens a new tab lands right after the tab it came from",
               more: "In the order you click them, as ⌘-clicks do, while you go back and forth between the page and the tabs it opened. Going to any other tab starts again right after the page.",
               keys: ["tabs.frontBeside"], words: ["target blank", "new tab", "order", "next to", "opener", "link"], parent: "tabs.newPlace"),
-        .init(id: "tabs.newAfterLast", group: "newtabs", icon: "plus.rectangle.on.rectangle",
-              title: "Leave a new tab when the last tab closes", detail: "Otherwise you land on a pinned tab",
-              keys: ["tabs.newAfterLast"], words: ["last tab"]),
         .init(id: "tabs.closeGoesBack", group: "newtabs", icon: "arrow.uturn.backward",
               title: "Closing a tab goes back to the one before", detail: "Otherwise you land on the tab beside it",
-              more: "The tab you viewed last in this space, as ⌃Tab would take you. The other half of a Split View stays first.",
+              more: "The tab you viewed last in this space, as ⌃Tab would take you. The other half of a Split View stays first. A pin put down or a tab in a group put away always goes back, and with nowhere to go the window shows nothing in front.",
               keys: ["tabs.closeGoesBack"], words: ["close", "previous tab", "recent"]),
-        .init(id: "tabs.undoReopens", group: "newtabs", icon: "arrow.uturn.backward.circle",
-              title: "⌘Z reopens a closed tab", detail: "Right after closing it, as ⇧⌘T would bring it back",
-              more: "Only while closing it is the last thing you did: type or click anything else and ⌘Z undoes as before. A page that uses ⌘Z itself, such as a document or a drawing, keeps it.",
-              keys: ["tabs.undoReopens"], words: ["undo", "reopen", "closed tab", "cmd z", "restore"]),
         .init(id: "tabs.switcherBehindFirst", group: "newtabs", icon: "rectangle.stack",
               title: "⌃Tab goes to a link opened behind", detail: "Otherwise a quick ⌃Tab goes back to the tab you were on before",
               more: "A link you ⌘-click, middle-click or open with Open Link in New Tab comes right after the page in the ⌃Tab switcher, the newest first. Off, it comes after the tab you were on before.",
@@ -252,12 +245,9 @@ enum SettingsIndex {
         .init(id: "search.keywords", group: "search", icon: "character.cursor.ibeam",
               title: "Site shortcuts", detail: "A word before your search sends it to that site: \"yt cats\"",
               keys: ["search.keywords"], words: ["keyword", "bang"]),
-        .init(id: "links.little", group: "links", icon: "rectangle.on.rectangle",
-              title: "Open links from other apps in a small window", detail: "To read and close, or keep with Open in Eden (⌘O)",
-              keys: ["links.little"], words: ["little arc", "mini window"]),
         .init(id: "links.little.tabs", group: "links", icon: "arrow.right.square",
-              title: "Go to a tab that has the page", detail: "A link to a page already open in a tab goes to that tab, not a small window",
-              keys: ["links.little.tabs"], words: ["switch to tab", "already open", "duplicate"], parent: "links.little"),
+              title: "Go to a tab that has the page", detail: "A link from another app to a page open in a tab goes there, not to a small window",
+              keys: ["links.little.tabs"], words: ["switch to tab", "already open", "duplicate", "mini window", "small window"]),
         .init(id: "reader.twins", group: "reading", icon: "doc.text",
               title: "Read the site's own Markdown", detail: "When a page has a Markdown copy, reading mode shows that",
               more: "⇧⌘R shows a page's article alone, in clean type. Most docs sites publish a Markdown copy; nothing in it can run, its text is escaped.",
@@ -333,10 +323,6 @@ enum SettingsIndex {
               more: "As in Arc: ⌘-clicking a pin opens a new tab at its address; on a pin that has wandered from its page, the wandered page is kept in loose tabs and the pin gets a fresh tab at home. Off, ⌘-click adds the pin to your tab selection.",
               keys: ["pins.commandNewTab"],
               words: ["command click", "cmd click", "pinned", "arc", "selection", "multi select"]),
-        .init(id: "commandbar", group: "opening", icon: "chevron.right.square",
-              title: "Address bar commands", detail: "\"settings\" or \"new tab\" alone in the address field goes there",
-              more: "Part of a name, like \"down\" or \"dwn\", shows the command lower in the list, with every menu command and Settings page whose name has the words typed, as Arc's Command Bar.",
-              keys: ["commandbar"], words: ["commands", "command palette"]),
         .init(id: "start.fresh", group: "opening", icon: "sunrise",
               title: "Start with a fresh window", detail: "Pins, groups and named tabs come back; last time's others don't",
               keys: [Preferences.freshKey], words: ["restore", "session", "startup"]),
@@ -513,7 +499,6 @@ enum SettingsIndex {
         case "profiles.oneWindow": return Profiles.shared.several
         case "spaces.links": return prefs.usesSpaces
         case "tabs.frontBeside": return prefs.newTabPlace == .next
-        case "links.little.tabs": return prefs.littleLinks
         case "launcher.key": return prefs.launcher
         default: return true
         }
@@ -527,7 +512,6 @@ enum SettingsIndex {
         case "profiles.oneWindow": return "Only with more than one profile"
         case "spaces.links": return "Only with Spaces on"
         case "tabs.frontBeside": return "Only with New tab position on After current"
-        case "links.little.tabs": return "Only with links from other apps in a small window"
         case "launcher.key": return "Only with the address field from any app on"
         default: return ""
         }

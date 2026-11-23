@@ -103,7 +103,8 @@ struct SideBar: View {
         ZStack(alignment: .top) {
             // Not under the card for a new space: it isn't made of views that
             // would take the click first.
-            DragStrip(below: browser.makingSpace ? .greatestFiniteMagnitude : rowsEnd, onDoubleClick: browser.newTab)
+            DragStrip(below: browser.makingSpace ? .greatestFiniteMagnitude : rowsEnd, onDoubleClick: browser.newTab,
+                      menu: columnMenu)
 
             // The band the lights sit in is the window's title bar: the
             // window is dragged by it and a double-click fills the screen
@@ -620,7 +621,8 @@ struct SideBar: View {
                 .modifier(PinCarried(index: index, cells: cells,
                                      cross: { squareOverRows(tab, $0) },
                                      land: { squareLand(tab, $0) },
-                                     keep: { browser.pinOrder }, putBack: { browser.putBack($0) }) { browser.move(tab, to: $0) })
+                                     keep: { browser.pinOrder }, putBack: { browser.putBack($0) },
+                                     back: PressBack(browser: browser, pin: tab)) { browser.move(tab, to: $0) })
             }
             if let ghost, let tab = crossingTab {
                 PinGhost(tab: tab, width: all[ghost].width, height: all[ghost].height)
@@ -727,6 +729,7 @@ struct SideBar: View {
             VStack(spacing: SideBar.gap) {
                 if laid.line != nil {
                     KeepLine(clears: drawn.live && !looseTabs.isEmpty) { if drawn.live { browser.clearTabs() } }
+                        .overlay { if drawn.live { GroupMenuArea(menu: columnMenu) } }
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("rows")).minY }) { top in
                             if Store.testing, drawn.live { SideBar.lineDrawn = top }
                         }
@@ -804,7 +807,9 @@ struct SideBar: View {
                                       if !held { putDown() }
                                   },
                                   gap: { carrying(.tab(tab.id), row: tab, at: $0) },
-                                  placed: { placed($0) }, keptInView: true) { shift(tab, along: run, to: $0) })
+                                  placed: { placed($0) }, back: PressBack(browser: browser, pin: tab),
+                                  keep: { browser.arrangement() },
+                                  keptInView: true) { shift(tab, along: run, to: $0) })
         } else {
             item
         }
@@ -880,7 +885,7 @@ struct SideBar: View {
                 browser.moveDisplayedTab(tab, to: index + browser.pinnedCount)
             }
         case .kept:
-            browser.move(tab, to: ColumnPlace(area: .kept, group: run.group, index: index))
+            browser.moveKept(carrying: tab, in: run.group, to: index)
         }
     }
 
@@ -931,7 +936,7 @@ struct SideBar: View {
         } ?? false
         var target: ColumnCarry.Target?
         var refused = false
-        let answer = source.flatMap { device(for: $0, at: point, in: laid) }
+        let answer = tab.flatMap { row in source.flatMap { device(for: sending($0, row: row), at: point, in: laid) } }
         switch answer {
         case .takes(let device):
             target = .device(device)
@@ -982,29 +987,40 @@ struct SideBar: View {
         }
     }
 
-    /// What another device's group under the hand makes of a tab carried
-    /// over it, nil when it is over none: it takes one the other devices
-    /// can be shown (Sync.page(of:in:)) and that device hasn't open
-    /// already, to open there too. Kept a little past its edge, as a group
-    /// keeps a tab (GroupDropFrames.resolve).
+    /// What another device's group under the hand makes of the pages
+    /// carried over it (sending), nil when it is over none: it takes them
+    /// when it takes any one of them — one the other devices can be shown
+    /// (Sync.page(of:in:)) and that device hasn't open already — to open
+    /// there too; the others are said to be turned down when let go
+    /// (Browser.send). Kept a little past its edge, as a group keeps a tab
+    /// (GroupDropFrames.resolve).
     ///
     /// A pin, row or square, goes only once it has gone on from its home:
     /// what goes is the page its row shows it on, and the pin stays here as
     /// it is. At its home it is on every device already.
-    private func device(for tab: Tab, at point: CGPoint, in laid: ColumnLayout<Tab>) -> DeviceAnswer? {
-        guard Sync.shared.on, let over = laid.device(at: point.y, holding: carry?.device) else { return nil }
-        let device = Sync.shared.devicesWithTabs.first { $0.device == over }
-        let name = device?.name ?? "That device"
-        guard let device, let page = Sync.page(of: tab, in: browser.spaceID), let url = URL(string: page.url) else {
-            if tab.shy { return .refuses("Private tabs stay on this Mac") }
-            if tab.pin != nil, tab.isHome(tab.restAddress) { return .refuses("\(name) has this pin already") }
-            return .refuses("This page can't be opened on \(name)")
-        }
-        let identity = History.identity(for: url)
-        guard !device.tabs.contains(where: { URL(string: $0.url).map(History.identity(for:)) == identity }) else {
-            return .refuses("Already open on \(name)")
-        }
-        return .takes(over)
+    private func device(for pages: [Tab], at point: CGPoint, in laid: ColumnLayout<Tab>) -> DeviceAnswer? {
+        guard Sync.shared.on, let over = laid.device(at: point.y, holding: carry?.device),
+              // Drawn, so heard of: a group is laid out only for a device
+              // with tabs (devices(in:)).
+              let device = Sync.shared.devicesWithTabs.first(where: { $0.device == over }) else { return nil }
+        // The same rules, and words, as Send to in a menu.
+        return Sync.shared.refusal(sending: pages, from: browser.spaceID, to: device).map(DeviceAnswer.refuses) ?? .takes(over)
+    }
+
+    /// The pages a drop on a device sends: `source`, the page picked up
+    /// with `row` (a pair's half, either one), or every tab picked with it,
+    /// pins and tabs alike (Browser.travelling).
+    private func sending(_ source: Tab, row: Tab) -> [Tab] {
+        browser.isPickedAmongOthers(row) ? browser.travelling(with: row) : [source]
+    }
+
+    /// Let go on `device`, which takes some of what is carried: each page
+    /// it takes opened there, as Send to sends them (Browser.send). Nothing
+    /// is said of what went, which comes into the group under the hand;
+    /// what was turned down is.
+    private func send(_ source: Tab, row: Tab, to device: String) {
+        guard let tabs = Sync.shared.devicesWithTabs.first(where: { $0.device == device }) else { return }
+        browser.send(sending(source, row: row), to: tabs, dropped: true)
     }
 
     /// What a device's group makes of a tab carried over it (device(for:)):
@@ -1020,14 +1036,14 @@ struct SideBar: View {
     }
 
     /// Let go at `point`, in the rows' space, over a device's group that
-    /// won't take `tab`: letting go on a device is asking it to open the
-    /// page, and an ask turned down is told, not only shown (#25). True
-    /// when it was, and nothing else is done with the tab. Asked where the
-    /// hand let go, not where it last moved: a let-go just past the group,
-    /// or out of the window, is not one.
-    private func refused(_ tab: Tab, at point: CGPoint) -> Bool {
+    /// won't take any of `pages`: letting go on a device is asking it to
+    /// open them, and an ask turned down is told, not only shown (#25).
+    /// True when it was, and nothing else is done with them. Asked where
+    /// the hand let go, not where it last moved: a let-go just past the
+    /// group, or out of the window, is not one.
+    private func refused(_ pages: [Tab], at point: CGPoint) -> Bool {
         guard point.x >= -PinDrop.sideSlack, point.x <= width - 20 + PinDrop.sideSlack,
-              let why = device(for: tab, at: point, in: layout(carrying: carry))?.refusal else { return false }
+              let why = device(for: pages, at: point, in: layout(carrying: carry))?.refusal else { return false }
         browser.announce(why)
         return true
     }
@@ -1094,7 +1110,7 @@ struct SideBar: View {
             // Let go over a device's group that wouldn't take it: said, and
             // the tab left where it was.
             guard carry == nil, let row = drop.row else { return false }
-            return refused(drop.source ?? row, at: drop.point)
+            return refused(sending(drop.source ?? row, row: row), at: drop.point)
         }
         // Into the group it opened: it stays open.
         if carry.group == sprung { sprung = nil }
@@ -1102,13 +1118,13 @@ struct SideBar: View {
         switch carry.target {
         case .device(let device):
             withAnimation(Motion.settle) {
-                Sync.shared.askToOpen(source, in: browser.spaceID, on: device)
+                send(source, row: row, to: device)
                 self.carry = nil
             }
         case .place(let place):
             let detaching = drop.detaching || !carry.whole
             let moving = detaching ? source : row
-            land(moving.id, drawn: drop.drawn) { browser.move(moving, to: place, detaching: detaching) }
+            land(moving.id, drawn: drop.drawn) { browser.move(carrying: moving, to: place, detaching: detaching) }
         }
         return true
     }
@@ -1217,7 +1233,7 @@ struct SideBar: View {
         }
         withAnimation(Motion.settle) {
             crossing = nil
-            browser.square(tab, at: shown)
+            browser.square(carrying: tab, at: shown)
         }
         return true
     }
@@ -1244,7 +1260,7 @@ struct SideBar: View {
                 let at = columnPoint(point, from: .pins)
                 let gridBottom = browser.squarePins.isEmpty ? nil : frames.grid?.maxY
                 if PinDrop.zone(at, width: width - 20, gridBottom: gridBottom) == .rows {
-                    _ = refused(tab, at: CGPoint(x: at.x - frames.rows.minX, y: at.y - frames.rows.minY))
+                    _ = refused(sending(tab, row: tab), at: CGPoint(x: at.x - frames.rows.minX, y: at.y - frames.rows.minY))
                 }
             }
             putDown()
@@ -1253,8 +1269,8 @@ struct SideBar: View {
         if carry.group == sprung { sprung = nil }
         withAnimation(Motion.settle) {
             switch carry.target {
-            case .device(let device): Sync.shared.askToOpen(tab, in: browser.spaceID, on: device)
-            case .place(let place): browser.move(tab, to: place)
+            case .device(let device): send(tab, row: tab, to: device)
+            case .place(let place): browser.move(carrying: tab, to: place)
             }
             self.carry = nil
         }
@@ -1283,7 +1299,14 @@ struct SideBar: View {
         let carried = lifting || carry != nil || crossing != nil
         Quiet(icon: "plus", title: "New tab", height: rowHeight, size: prefs.sideTitle,
               lit: browser.launching) { browser.launch() }
+            .overlay { GroupMenuArea(menu: columnMenu) }
             .allowsHitTesting(!carried)
+    }
+
+    /// What a right-click on the column's own places offers: the New Tab
+    /// row, the line and the room under the tabs (ColumnMenu).
+    private func columnMenu() -> NSMenu {
+        ColumnMenu.make(for: browser, clears: !looseTabs.isEmpty)
     }
 
     /// One small door at the bottom: the settings.
@@ -1400,6 +1423,11 @@ private struct PinSquare: View, Equatable {
 
     @State private var hovering = false
     @State private var selectedOnPress = false
+    @State private var pressed = false
+
+    /// What taking it out would do (CloseMark): put down, or, put down
+    /// already, delete. A square shows no mark, but VoiceOver names it.
+    private var closeMark: CloseMark { CloseMark.of(tab, putsAway: false) }
 
     /// The colour its glow takes while it is in front: its site icon's own.
     private var accent: Color? {
@@ -1466,8 +1494,11 @@ private struct PinSquare: View, Equatable {
             }
         }
         .animation(Motion.quick, value: peek?.id)
+        // Gives under the button as a row does, with the same setting.
+        .modifier(Give(pressed: pressed && prefs.tabsGive))
         .contentShape(RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous))
-        .modifier(TabPress(enabled: !lettering && !pickedAmongOthers, active: live, selected: $selectedOnPress) {
+        .modifier(TabPress(enabled: !lettering && !pickedAmongOthers, active: live, selected: $selectedOnPress,
+                           pressing: $pressed) {
             browser.clearTabSelection()
             browser.select(tab)
         })
@@ -1485,6 +1516,17 @@ private struct PinSquare: View, Equatable {
         // takes the tooltip's place.
         .tabHoverCard(tab, in: browser, enabled: interactive && !lettering)
         .contextMenu { TabMenu(browser: browser, tab: tab, close: { browser.close(tab) }) }
+        // One thing to VoiceOver, as a row is, its letter's field apart.
+        .modifier(TabAccessibility(label: tab.label, live: live, open: lettering, closing: closeMark.name) {
+            guard interactive else { return }
+            browser.clearTabSelection()
+            browser.select(tab)
+        } close: {
+            guard interactive else { return }
+            if closeMark == .delete { browser.deletePin(tab) } else { browser.close(tab) }
+        } menu: {
+            if interactive { TabAccessibility.showMenu(TabMenu(browser: browser, tab: tab, close: { browser.close(tab) })) }
+        })
         .animation(nil, value: hovering)
         .transition(.scale(scale: 0.8).combined(with: .opacity))
     }
@@ -1591,6 +1633,8 @@ private struct SideRow: View, Equatable {
     /// A pin already put down has nothing left to put down (#1050): its
     /// cross is a × that takes the pin out for good (Browser.deletePin).
     private var deletes: Bool { tab.pin != nil && tab.asleep }
+    /// What its cross does, and says: close, put away, put down or delete.
+    private var closeMark: CloseMark { CloseMark.of(tab, putsAway: putsAway) }
     /// A pin gone on from its page (Tab.wandered): its home's icon at the
     /// start, which takes it back there, then a slash and the page it is on.
     private var away: Bool { !editing && tab.wandered }
@@ -1614,6 +1658,33 @@ private struct SideRow: View, Equatable {
 
     var body: some View {
         let _ = Bench.count("row")
+        line
+            // One thing to VoiceOver (TabAccessibility). The speaker and the
+            // way home, hidden with the row's other controls, are named
+            // actions too while they show. While its address is typed, the
+            // field is.
+            .modifier(TabAccessibility(label: away ? tab.pageLabel : tab.label, live: live, open: editing,
+                                       closing: closeMark.name, select: pressedBySpeech, close: {
+                if interactive { closeByMark() }
+            }, menu: {
+                if interactive { TabAccessibility.showMenu(TabMenu(browser: browser, tab: tab, close: close)) }
+            }))
+            .accessibilityActions {
+                if speaker { Button(tab.muted ? "Unmute Tab" : "Mute Tab", action: muteBySpeech) }
+                if away { Button("Back to Pinned Page", action: homeBySpeech) }
+            }
+            .animation(nil, value: hovering)
+            .animation(Motion.glide, value: editing)
+            .onChange(of: refusals) { _, _ in
+                guard editing else { return }
+                shake = 0
+                withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
+            }
+            .transition(.sideRow)
+    }
+
+    /// The row as drawn, and what the pointer does to it.
+    private var line: some View {
         HStack(spacing: Metrics.rowSpacing) {
             HStack(spacing: Metrics.rowSpacing) {
                 if editing {
@@ -1733,18 +1804,7 @@ private struct SideRow: View, Equatable {
         .overlay(alignment: .trailing) {
             if !editing {
                 ZStack {
-                    if hovering {
-                        // A pinned row is put down, not closed (see
-                        // Browser.close), and says so with a minus; so is a
-                        // grouped tab's page while it is open (closeTab).
-                        // Put down, its × takes the pin out.
-                        RowCross(symbol: (tab.pin != nil && !deletes) || (putsAway && !tab.asleep) ? "minus" : "xmark",
-                                 height: prefs.sideRow) {
-                            guard hovering else { return }
-                            if deletes { browser.deletePin(tab) } else { close() }
-                        }
-                            .transition(.opacity)
-                    }
+                    if hovering { cross }
                 }
                 .frame(width: RowCross.size, height: RowCross.size)
                 .padding(.trailing, Metrics.rowCrossInset)
@@ -1790,17 +1850,51 @@ private struct SideRow: View, Equatable {
                 SplitDropZone(browser: browser, tab: tab, kind: .strip)
             }
         }
-        .animation(nil, value: hovering)
-        .animation(Motion.glide, value: editing)
-        .onChange(of: refusals) { _, _ in
-            guard editing else { return }
-            shake = 0
-            withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
-        }
-        .transition(.sideRow)
     }
 
     private func hover(_ over: Bool) { hovering = over }
+
+    /// A pinned row is put down, not closed (see Browser.close), and says
+    /// so with a minus; so is a grouped tab's page while it is open
+    /// (closeTab). Put down, its × takes the pin out. The click is taken
+    /// as a split's half takes it (CloseClick): a tap here never came in
+    /// the column folded out over the page.
+    private var cross: some View {
+        RowCross(symbol: closeMark.symbol, height: prefs.sideRow)
+            .help(closeMark.help)
+            .overlay {
+                CloseClick(armed: hovering, act: closeByMark)
+                    .frame(width: RowCross.reachWidth, height: prefs.sideRow)
+            }
+            .closeClickOnly()
+            .transition(.opacity)
+    }
+
+    /// Its cross pressed, or its named action: put down or put away as
+    /// `close` does, or, put down already, the pin taken out.
+    private func closeByMark() {
+        if deletes { browser.deletePin(tab) } else { close() }
+    }
+
+    /// VoiceOver's press: to it, as a click.
+    private func pressedBySpeech() {
+        guard interactive, !editing else { return }
+        browser.clearTabSelection()
+        browser.select(tab)
+    }
+
+    /// VoiceOver's mute, while the speaker shows.
+    private func muteBySpeech() {
+        if interactive && speaker { tab.toggleMute() }
+    }
+
+    /// VoiceOver's way home, while the pin is away (HomeDoor).
+    private func homeBySpeech() {
+        guard interactive, away else { return }
+        browser.clearTabSelection()
+        if !live { browser.select(tab) }
+        browser.goHome(tab)
+    }
 
     /// The icon, the same view at home and away, so going away or coming
     /// back changes only its picture where the two differ: away, the home's,
@@ -1857,6 +1951,126 @@ private struct SideRow: View, Equatable {
         if live { return Palette.ink }
         let colour = hovering ? Palette.ink.opacity(0.7) : Palette.muted
         return putAway ? colour.opacity(0.45) : colour
+    }
+}
+
+/// What a tab's close mark does, read the same by every line that draws
+/// one, a row or a split's half, and by VoiceOver on a square: a tab is
+/// closed; a grouped tab's open page is put away, its row staying in the
+/// group (Browser.putsAway); a pin is put down, and, put down already,
+/// taken out for good (#1050). A minus for what stays, a cross for what
+/// goes.
+enum CloseMark: Equatable {
+    case close, putAway, putDown, delete
+
+    /// `putsAway`: Browser.putsAway(tab), read where the line is made.
+    @MainActor
+    static func of(_ tab: Tab, putsAway: Bool) -> CloseMark {
+        if tab.pin != nil { return tab.asleep ? .delete : .putDown }
+        return putsAway ? .putAway : .close
+    }
+
+    var symbol: String {
+        switch self {
+        case .putAway, .putDown: "minus"
+        case .close, .delete: "xmark"
+        }
+    }
+
+    /// Its name, as VoiceOver offers it.
+    var name: String {
+        switch self {
+        case .close: "Close Tab"
+        case .putAway: "Put Away"
+        case .putDown: "Put Down"
+        case .delete: "Delete"
+        }
+    }
+
+    /// What the pointer resting on it is told.
+    var help: String {
+        switch self {
+        case .close: "Close Tab"
+        case .putAway: "Put Away: the page goes, the tab stays in its group"
+        case .putDown: "Put Down: the page goes, the pin stays"
+        case .delete: "Delete Pin"
+        }
+    }
+}
+
+/// A tab's row or pinned square as one thing to VoiceOver, named by the
+/// page it shows, as a split's half is: pressed, it goes to the tab; its
+/// close mark is a named action of the same name (CloseMark); Show Menu
+/// opens the right-click's menu, as a group heading's does. `open`: what it
+/// holds is spoken on its own, a field being typed in.
+private struct TabAccessibility: ViewModifier {
+    let label: String
+    let live: Bool
+    let open: Bool
+    let closing: String
+    let select: () -> Void
+    let close: () -> Void
+    let menu: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: open ? .contain : .ignore)
+            .accessibilityLabel(label.isEmpty ? "New Tab" : label)
+            .accessibilityAddTraits(live ? .isSelected : [])
+            .accessibilityAction(.default, select)
+            .accessibilityAction(named: closing, close)
+            .accessibilityAction(named: "Show Menu", menu)
+    }
+
+    /// The tab's menu without a right-click, at the pointer, as a group
+    /// heading's (GroupMenu.show). The menu is SwiftUI's, which AppKit can
+    /// show on its own only from macOS 14.4.
+    static func showMenu(_ menu: TabMenu) {
+        guard #available(macOS 14.4, *) else { return }
+        NSHostingMenu(rootView: menu).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+}
+
+/// The column's own menu, for a right-click where there is no tab or group
+/// to have one: the New Tab row, the line and the room under the tabs.
+/// One menu for the three.
+@MainActor
+enum ColumnMenu {
+    /// Menu rows call back into Swift through this, each kept by its own
+    /// row, so it goes with the menu.
+    private final class Action: NSObject {
+        let run: () -> Void
+        init(_ run: @escaping () -> Void) { self.run = run }
+        @objc func fire() { run() }
+    }
+
+    /// `command`: the command whose key it wears, as things stand
+    /// (Settings › Shortcuts).
+    private static func item(_ title: String, command: String? = nil, _ run: @escaping () -> Void) -> NSMenuItem {
+        let action = Action(run)
+        let item = NSMenuItem(title: title, action: #selector(Action.fire), keyEquivalent: "")
+        // The target is held weakly; the row's object is what keeps it.
+        item.target = action
+        item.representedObject = action
+        if let command { item.shortcut(command) }
+        return item
+    }
+
+    /// New Tab as ⌘T and the New Tab row make one (Browser.launch); New
+    /// Group while groups are on; New Folder; Clear Tabs, as Clear on the
+    /// line does, while there are tabs in no group (`clears`).
+    static func make(for browser: Browser, clears: Bool) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(item("New Tab", command: "file.newTab") { browser.launch() })
+        if browser.prefs.usesTabGroups {
+            menu.addItem(item("New Group", command: "tabs.newGroup") { browser.newGroup() })
+        }
+        menu.addItem(item("New Folder") { browser.newKeptGroup() })
+        if clears {
+            menu.addItem(.separator())
+            menu.addItem(item("Clear Tabs") { browser.clearTabs() })
+        }
+        return menu
     }
 }
 
@@ -1976,6 +2190,19 @@ private extension View {
     /// is round it, a button the cross is the face of.
     @ViewBuilder func taking(_ action: (() -> Void)?) -> some View {
         if let action { onTapGesture(perform: action) } else { self }
+    }
+}
+
+extension View {
+    /// A cross whose click CloseClick takes, and only CloseClick. SwiftUI
+    /// still hears the click, and hands it to the gestures of what the
+    /// cross is laid over: the line's own click, which goes to the tab. A
+    /// click on a row's cross went to the tab and then closed it, so the
+    /// tab beside it came to the front, and a split's half was focused or
+    /// had its address opened before it went. This tap, nearer, takes the
+    /// click from them and does nothing with it.
+    func closeClickOnly() -> some View {
+        onTapGesture {}
     }
 }
 
@@ -2223,12 +2450,19 @@ struct PinCarried: ViewModifier {
     /// so: for one sent to another device, which is kept here as it was.
     var keep: (() -> [Tab.ID])? = nil
     var putBack: (([Tab.ID]) -> Void)? = nil
+    /// The tab you were on before the press that brought the square
+    /// forward comes back once the carry is over (PressBack).
+    var back: PressBack? = nil
     let move: (Int) -> Void
 
     @State private var held = false
     @State private var from = 0
     @State private var travel: CGSize = .zero
     @State private var kept: [Tab.ID] = []
+    /// Called off with Escape: put down until the hand lets go, not picked
+    /// up again by its next move.
+    @State private var escaped = false
+    @State private var backTo: Tab.ID?
     /// Put back by SwiftUI when the drag is called off as well as when it
     /// ends: the square's look changing under the hand calls it off, and the
     /// square stayed floating (see CarryGuard).
@@ -2257,10 +2491,12 @@ struct PinCarried: ViewModifier {
                     .updating($carrying) { _, carrying, _ in carrying = true }
                     .onChanged { value in
                         if !held {
+                            guard !escaped else { return }
                             held = true
                             from = index
                             kept = keep?() ?? []
-                            CarryGuard.open(ticket, end: callOff)
+                            backTo = back?.before()
+                            CarryGuard.open(ticket, end: callOff, escape: escape)
                         }
                         travel = value.translation
                         if let gap = cross?(value.location) {
@@ -2280,6 +2516,7 @@ struct PinCarried: ViewModifier {
                         }
                     }
                     .onEnded { value in
+                        escaped = false
                         guard CarryGuard.close(ticket) else { return }
                         // Where it was let go, asked once more, as on every
                         // move: over a device's group with no move there
@@ -2292,6 +2529,7 @@ struct PinCarried: ViewModifier {
                             held = false
                             travel = .zero
                         }
+                        goBack()
                     }
             )
             .onChange(of: carrying) { _, now in if !now { callOff() } }
@@ -2301,12 +2539,37 @@ struct PinCarried: ViewModifier {
     /// moved to, and nothing is dropped across.
     private func callOff() {
         CarryGuard.close(ticket)
+        escaped = false
         guard held else { return }
         _ = land?(nil)
         withAnimation(Motion.settle) {
             held = false
             travel = .zero
         }
+        goBack()
+    }
+
+    /// Called off with Escape (CarryGuard.escape), the button still down:
+    /// nothing dropped across, and the pins back as they stood when it was
+    /// picked up, the others picked with it and those it passed too.
+    private func escape() {
+        CarryGuard.close(ticket)
+        guard held else { return }
+        escaped = true
+        _ = land?(nil)
+        withAnimation(Motion.settle) {
+            if let putBack, !kept.isEmpty { putBack(kept) }
+            held = false
+            travel = .zero
+        }
+        goBack()
+    }
+
+    /// The carry over, however it ended: back on the tab you were on.
+    private func goBack() {
+        guard let id = backTo else { return }
+        backTo = nil
+        back?.go(to: id)
     }
 
     /// The held square stays glued to the fingers; every other square is

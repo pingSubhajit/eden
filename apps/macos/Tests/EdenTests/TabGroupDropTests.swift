@@ -37,7 +37,7 @@ final class TabGroupDropTests: XCTestCase {
         browser.newTab()
         for tab in left { browser.close(tab) }
         for number in 0..<6 {
-            if number > 0 { browser.newTab() }
+            if number > 0 || browser.tabs.isEmpty { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://\(number).example/")!, title: "\(number)")
         }
         let tabs = browser.tabs
@@ -173,7 +173,7 @@ final class TabGroupDropTests: XCTestCase {
         browser.newTab()
         for tab in left { browser.close(tab) }
         for number in 0..<6 {
-            if number > 0 { browser.newTab() }
+            if number > 0 || browser.tabs.isEmpty { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://\(number).example/")!, title: "\(number)")
         }
         let tabs = browser.tabs

@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
-"""Closing the last tab that isn't a pin (Browser.close, #537), in a hidden probe.
+"""Closing the tab in front goes back to the tab you were on before it, and a
+close never makes a new tab (Browser.landing), in a hidden probe.
 
 Build first (`./build.sh`), then `python3 Tests/close_last_tab.py` from a
-worktree. With Settings › Tabs › Leave a new tab when the last tab closes,
-and only pins left beside it, the tab on screen closed leaves a new tab in
-its place, not a pin; the pins stay, and ⇧⌘T brings the page back. Closed
-in the background, it takes nothing from the pin on screen. With another
-ordinary tab left, the neighbour is picked as before. With the switch off,
-a pin is picked, as it always was.
+worktree. With two pins and one ordinary tab beside them:
+
+- ⌘W on the ordinary tab lands on the pin you were on before it, not on a
+  new tab, and makes none;
+- ⌘W on that pin puts it down and lands on the pin before it, and ⌘W on the
+  last pin leaves nothing in front: the pins, the window open, no new tab.
+  The pin put down first is not gone back to;
+- ⇧⌘T brings the page back, in front;
+- closed in the background, a tab takes nothing from the pin on screen;
+- with another ordinary tab you were on, that one is gone back to;
+- ⌘W with nothing in front closes the window.
+
+The window was made by the probe and is never shown.
 """
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -23,12 +32,12 @@ def name(st, id):
     return next((x["url"].rsplit("/", 1)[-1] for x in st["tabs"] if x["id"] == id), None)
 
 
-def active(st):
-    return next((x for x in st["tabs"] if x["id"] == st["activeID"]), None)
-
-
 def loose(st):
     return [x["id"] for x in st["tabs"] if x["id"] not in st["pins"]]
+
+
+def blanks(st):
+    return [x["id"] for x in st["tabs"] if x.get("blank")]
 
 
 def only(*keep):
@@ -38,12 +47,22 @@ def only(*keep):
             sv.sp("close", id=id)
 
 
+def cmd_w():
+    sv.cmd({"do": "press", "code": 13, "chars": "w", "mods": ["cmd"]}); time.sleep(0.6)
+    return sv.sp("state")
+
+
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"tabs.newAfterLast": True}); sv.launch()
+        sv.setup(**sv.IN_ORDER); sv.launch()
+        st = sv.sp("state")
+        t.ok("a window opens with nothing in front, and no tab made for it",
+             st["activeID"] is None and st["tabs"] == [], st)
         a = sv.page("a"); p = sv.page("p")
         sv.cmd({"do": "pin", "id": a}); sv.cmd({"do": "pin", "id": p})
+        sv.sp("select", id=a); time.sleep(0.3)
+        sv.sp("select", id=p); time.sleep(0.3)
         b = sv.page("b")
         only(b)
         st = sv.sp("state")
@@ -51,38 +70,46 @@ def main():
              sorted(st["pins"]) == sorted([a, p]) and loose(st) == [b] and st["activeID"] == b, st)
 
         # The case in the issue: ⌘W on the last ordinary tab.
-        st = sv.sp("close", id=b)
-        now = active(st)
-        t.ok("a new tab is on screen, not a pin",
-             now is not None and st["activeID"] not in st["pins"] and now["blank"], st)
+        st = cmd_w()
+        t.ok("⌘W on b: back to the pin you were on before it", st["activeID"] == p, st)
+        t.ok("no new tab is made", blanks(st) == [] and loose(st) == [], st["tabs"])
         t.ok("the pins are still there", sorted(st["pins"]) == sorted([a, p]), st["pins"])
-        t.ok("b is gone", b not in [x["id"] for x in st["tabs"]], st["tabs"])
 
-        st = sv.sp("reopen")
+        st = cmd_w()
+        t.ok("⌘W on that pin: put down, back to the pin before it", st["activeID"] == a, st)
+        st = cmd_w()
+        t.ok("⌘W on the last pin: nothing in front, not the pin put down",
+             st["activeID"] is None, st)
+        t.ok("…the pins stay, and no tab is made", sorted(sv.order(st)) == sorted([a, p]) and blanks(st) == [], st["tabs"])
+
+        st = sv.sp("reopen"); time.sleep(0.5)
         t.ok("⇧⌘T brings b back, on screen", name(st, st["activeID"]) == "b", st)
 
         # Closed in the background, it takes nothing from the pin on screen.
         c = sv.page("c")
         only(c)
-        sv.cmd({"do": "select", "id": a})
+        sv.sp("select", id=a); time.sleep(0.3)
         st = sv.sp("close", id=c)
         t.ok("closing it behind a pin leaves the pin on screen", st["activeID"] == a, st)
 
-        # Another ordinary tab left: its neighbour, as before.
+        # Another ordinary tab you were on: that one, not a pin.
         d = sv.page("d"); e = sv.page("e")
         only(d, e)
-        sv.cmd({"do": "select", "id": d})
-        st = sv.sp("close", id=d)
-        t.ok("with another tab left, that one is picked", st["activeID"] == e, st)
-        t.ok("and no new tab is made for it", loose(st) == [e], st["tabs"])
+        sv.sp("select", id=d); time.sleep(0.3)
+        st = cmd_w()
+        t.ok("with another tab you were on, that one is gone back to", st["activeID"] == e, st)
+        t.ok("and no new tab is made for it", loose(st) == [e] and blanks(st) == [], st["tabs"])
 
-        # The switch off, as it comes: a pin is picked, as before.
-        sv.quit(); sv.setup(); sv.launch()
-        a = sv.page("a"); sv.cmd({"do": "pin", "id": a})
-        b = sv.page("b")
-        only(b)
-        st = sv.sp("close", id=b)
-        t.ok("switch off: the pin is picked, as before", st["activeID"] == a, st)
+        # Nothing in front, ⌘W closes the window, as on a lone empty tab.
+        sv.sp("close", id=e); time.sleep(0.3)
+        st = sv.sp("state")
+        for _ in range(4):
+            if st["activeID"] is None: break
+            st = cmd_w()
+        t.ok("nothing in front before the last ⌘W", st["activeID"] is None, st)
+        cmd_w()
+        w = sv.cmd({"do": "windows"})["windows"]
+        t.ok("⌘W with nothing in front closes the window", not any(x["open"] for x in w), w)
     finally:
         t.done(); sv.finish()
     sys.exit(1 if t.failed else 0)

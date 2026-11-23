@@ -376,7 +376,7 @@ final class SpeedBenchTests: XCTestCase {
         browser.prefs.usesTabGroups = false
         browser.prefs.splitView = false
         for i in 0..<count {
-            if browser.tabs.last?.isBlank == false { browser.newTab() }
+            if browser.tabs.last?.isBlank != true { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "https://tab\(i).example/")!, title: "Tab \(i)")
         }
         return browser

@@ -55,7 +55,7 @@ final class VeilingTabSwitchTests: XCTestCase {
         // Each new tab after the last, so they stand in the order made.
         prefs.newTabPlace = .next
         for number in 1...2 {
-            if number > 1 { browser.newTab() }
+            if number > 1 || browser.tabs.isEmpty { browser.newTab() }
             browser.tabs.last?.restore(url: URL(string: "about:blank#\(number)")!, title: "Tab \(number)")
         }
         try body(browser, browser.tabs)

@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""The last loose tab closed beside tab groups leaves a new tab (Varun, 1.0.6).
+"""The last loose tab closed beside tab groups goes back to the tab you were
+on before it, and never leaves a new tab (Browser.landing).
 
 Build first (`./build.sh`), then `python3 Tests/close_beside_groups.py`. A
-hidden probe (tab groups on, Start with a fresh window off, Leave a new tab
-when the last tab closes off, as it ships) holds a folded group of two pages
-and one loose page:
+hidden probe (tab groups on, Start with a fresh window off) holds a folded
+group of two pages and one loose page:
 
-- closing the loose page leaves an empty tab in front, not a page out of
-  the folder, and the folder stays folded;
-- closing that empty tab keeps an empty tab and the window: it is already
-  what closing it would leave;
+- closing the loose page goes back to the page of the group you were on
+  before it, and makes no new tab;
 - ⇧⌘T brings the page back;
-- with only pins beside it and the switch off, the old rule stands: the
-  neighbour is picked (#537), and a loose tab closed among other loose
-  tabs still lands on its neighbour.
+- with the group's pages put away, closing the loose page leaves nothing in
+  front: no new tab, the folder as it was, and the window open;
+- a loose tab closed among other loose tabs goes back to the one you were on
+  before it, not into the folder.
 
 Nothing here makes, shows or brings forward a window.
 """
@@ -35,10 +34,13 @@ def front():
     return next((x for x in st["tabs"] if x["id"] == st["activeID"]), None), st
 
 
+def blanks(st): return [x["id"] for x in st["tabs"] if x.get("blank")]
+
+
 def main():
     t = sv.T()
     try:
-        sv.setup(**{"tabs.groups": True, "start.fresh": False, "tabs.newAfterLast": False})
+        sv.setup(**{"tabs.groups": True, "start.fresh": False})
         sv.launch()
         pages = [sv.page(n) for n in ("alpha", "beta")]
         group(id=pages[0], new=True, name="Folder")
@@ -46,44 +48,51 @@ def main():
         # Opened beside a page of the group, it would join it: taken out.
         loose = sv.page("gamma")
         group(id=loose, name="none")
-        # The window's first empty tab, if it is still there, goes first.
-        for x in sv.sp("state")["tabs"]:
-            if x.get("blank") and x["id"] != loose:
-                sv.sp("close", id=x["id"]); time.sleep(0.3)
+        # Alpha, then the loose page: alpha is the tab before it.
+        sv.sp("select", id=pages[0]); time.sleep(0.4)
+        sv.sp("select", id=loose); time.sleep(0.4)
         if not group()["groups"][0]["collapsed"]:
             group(name="Folder", fold=True)
-        sv.sp("select", id=loose); time.sleep(0.4)
         g = group()
         t.ok("a folded group of two, one loose page in front",
              len(g["groups"]) == 1 and g["groups"][0]["collapsed"] and len(g["groups"][0]["tabs"]) == 2, g)
 
-        sv.sp("close", id=loose); time.sleep(0.5)
+        sv.sp("closeTab", id=loose); time.sleep(0.5)
         f, st = front()
-        t.ok("closing the loose page leaves an empty tab in front", f and f.get("blank"), f)
-        t.ok("not a page out of the folder", f and f["id"] not in pages, f)
-        g = group()
-        t.ok("the folder stays folded with its two pages",
-             g["groups"] and g["groups"][0]["collapsed"] and len(g["groups"][0]["tabs"]) == 2, g)
-
-        blank = f["id"] if f else None
-        sv.sp("close", id=blank); time.sleep(0.5)
-        f, st = front()
-        t.ok("closing that empty tab keeps an empty tab in front", f and f.get("blank"), f)
-        t.ok("and the window", len(sv.cmd({"do": "windows"}).get("windows", [1])) >= 1)
-        t.ok("still one empty tab, not two", sum(1 for x in st["tabs"] if x.get("blank")) == 1, st["tabs"])
+        t.ok("closing the loose page goes back to the page you were on before it",
+             f and f["id"] == pages[0], f)
+        t.ok("no new tab is made", blanks(st) == [] and len(st["tabs"]) == 2, st["tabs"])
 
         sv.sp("reopen"); time.sleep(0.8)
         f, st = front()
         t.ok("⇧⌘T brings the page back", f and f["url"].endswith("/gamma"), f)
+        loose = f["id"] if f else loose
 
-        # A loose tab among other loose tabs: its neighbour, as before.
-        delta = sv.page("delta")
-        group(id=delta, name="none")
-        sv.sp("select", id=delta); time.sleep(0.3)
-        sv.sp("close", id=delta); time.sleep(0.5)
+        # The group's pages put away from their rows: nothing open in it to
+        # go back to.
+        for page in pages:
+            sv.sp("closeTab", id=page); time.sleep(0.4)
+        if not group()["groups"][0]["collapsed"]:
+            group(name="Folder", fold=True)
+        sv.sp("closeTab", id=loose); time.sleep(0.5)
         f, st = front()
-        t.ok("a loose tab among loose tabs lands on a loose neighbour, not in the folder",
-             f and f["id"] not in pages, f)
+        t.ok("with the group's pages put away, nothing in front", st["activeID"] is None, st)
+        t.ok("…and no new tab", blanks(st) == [] and sorted(sv.order(st)) == sorted(pages), st["tabs"])
+        g = group()
+        t.ok("the folder stays as it was, folded, with its two pages",
+             g["groups"] and g["groups"][0]["collapsed"] and len(g["groups"][0]["tabs"]) == 2, g)
+        w = sv.cmd({"do": "windows"})["windows"]
+        t.ok("and the window stays open", any(x["open"] for x in w), w)
+
+        # A loose tab among other loose tabs: back to the one you were on.
+        delta = sv.page("delta"); group(id=delta, name="none")
+        epsilon = sv.page("epsilon"); group(id=epsilon, name="none")
+        sv.sp("select", id=epsilon); time.sleep(0.3)
+        sv.sp("select", id=delta); time.sleep(0.3)
+        sv.sp("closeTab", id=delta); time.sleep(0.5)
+        f, st = front()
+        t.ok("a loose tab among loose tabs goes back to the one before, not into the folder",
+             f and f["id"] == epsilon, f)
     finally:
         t.done()
         sv.finish()

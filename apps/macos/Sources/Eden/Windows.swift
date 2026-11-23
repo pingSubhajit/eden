@@ -144,7 +144,8 @@ enum Browsers {
 
     /// ⌘N. A window that is closed but kept — the last one, closed with the
     /// app running — comes back first, as a window always did; otherwise a
-    /// new one, with one empty tab, in the space of the window in front.
+    /// new one, in the space of the window in front, with its pins and
+    /// nothing in front: no tab is made for it (see Browser.restoreSession).
     static func newWindow() {
         if bringBack() { return }
         if let kept = all.first(where: { !$0.isOpen && !$0.tucked }) {

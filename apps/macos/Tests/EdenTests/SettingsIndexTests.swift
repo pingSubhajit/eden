@@ -16,7 +16,8 @@ final class SettingsIndexTests: XCTestCase {
                            "toolbar.left", "sidebar.position", "tabs.sleep", SleepPace.key, "float.leave", "float.away",
                            "pins.home", "pins.peek", "links.peek", "links.peekClick", "pages.120", "pages.120.mode",
                            "swipe.history", "links.show", "float.flicks", "spaces", "pins.list", "pins.folders",
-                           "search.shift", "search.shiftCustom"]
+                           "search.shift", "search.shiftCustom", "tabs.undoReopens", "commandbar", "links.little",
+                           "tabs.newAfterLast"]
 
     private func fresh(_ body: () -> Void) {
         let saved = touched.map { ($0, Store.settings.object(forKey: $0)) }
@@ -143,6 +144,40 @@ final class SettingsIndexTests: XCTestCase {
             XCTAssertTrue(SettingsIndex.apply("sidebar.position", "right", to: prefs))
             XCTAssertEqual(prefs.sidePosition, .right)
             XCTAssertFalse(SettingsIndex.apply("sidebar.position", "top", to: prefs))
+        }
+    }
+
+    /// One behaviour for everyone (#41): ⌘Z no longer reopens a tab, the
+    /// address field always knows Eden's commands, and links from other
+    /// apps always open in a small window. Their rows leave Settings, and
+    /// what they kept goes at launch, whichever way it was set.
+    func testRetiredSwitchesAreGone() {
+        fresh {
+            let gone = ["tabs.undoReopens", "commandbar", "links.little"]
+            for key in gone { Store.settings.set(true, forKey: key) }
+            _ = Preferences()
+            for key in gone { XCTAssertNil(Store.settings.object(forKey: key), key) }
+            for key in gone { Store.settings.set(false, forKey: key) }
+            _ = Preferences()
+            for key in gone { XCTAssertNil(Store.settings.object(forKey: key), key) }
+            for id in gone { XCTAssertNil(SettingsIndex.item(id), id) }
+            XCTAssertNil(SettingsIndex.item("links.little.tabs")?.parent, "its own row now, no switch above it")
+            XCTAssertTrue(SettingsIndex.find("small window").contains { $0.id == "links.little.tabs" })
+        }
+    }
+
+    /// A close never makes a new tab: the switch that left one after the
+    /// last tab closed means nothing now. Its row leaves Settings, and what
+    /// it kept goes at launch, whichever way it was set.
+    func testNewTabAfterLastIsGone() {
+        fresh {
+            for on in [true, false] {
+                Store.settings.set(on, forKey: "tabs.newAfterLast")
+                _ = Preferences()
+                XCTAssertNil(Store.settings.object(forKey: "tabs.newAfterLast"))
+            }
+            XCTAssertNil(SettingsIndex.item("tabs.newAfterLast"))
+            XCTAssertFalse(SettingsIndex.find("last tab").contains { $0.id == "tabs.newAfterLast" })
         }
     }
 

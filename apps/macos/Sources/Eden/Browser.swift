@@ -231,18 +231,22 @@ final class Browser: NSObject, ObservableObject {
 
     // MARK: - pins, as Arc keeps pages
 
-    /// ⌘D, as in Arc: the tab in front pinned as a row, or unpinned if it
-    /// is a pin of either kind. Pins are where pages are kept (#6). The
-    /// column shows it happen; folded away, nothing does, so a word says so.
+    /// ⌘D, as in Arc: the tab in front, with the tabs picked alongside it
+    /// as every menu-bar action takes them (frontTabs), pinned as rows; or,
+    /// all of them pins of either kind already, unpinned. Pins are where
+    /// pages are kept (#6). The column shows it happen; folded away,
+    /// nothing does, so a word says so.
     func togglePinRow() {
-        guard let tab = active else { return }
-        if tab.pin != nil {
-            unpin(tab)
+        let tabs = frontTabs
+        guard !tabs.isEmpty else { return }
+        if tabs.allSatisfy({ $0.pin != nil }) {
+            unpin(tabs)
             if folded { announce("Unpinned", look: .done) }
             return
         }
-        guard tab.isWeb, !tab.shy else { return }
-        pin(tab, listed: true)
+        let pinning = tabs.filter { $0.pin == nil && $0.isWeb && !$0.shy }
+        guard !pinning.isEmpty else { return }
+        pin(pinning, listed: true)
         if folded { announce("Pinned", look: .done) }
     }
 
@@ -427,7 +431,10 @@ final class Browser: NSObject, ObservableObject {
     /// is up, whose New tab row is lit instead (Zen's), the tab that will be
     /// made being the one in front.
     var liveID: Tab.ID? { launching ? nil : activeID }
-    var fieldShowing: Bool { editing || active?.isBlank ?? true }
+    /// Whether the address field is up: raised by ⌘T or ⌘L, or standing on
+    /// a blank tab. With nothing in front there is no field until one of
+    /// those keys raises it — only the window's ground.
+    var fieldShowing: Bool { editing || active?.isBlank == true }
 
     /// What Return in the field will do, which the field says with its
     /// placeholder: ⌘T and ⌘L raise one field that looks the same for both.
@@ -559,9 +566,29 @@ final class Browser: NSObject, ObservableObject {
     /// ⌘F on the Settings tab: its Find a setting field takes the keys.
     @Published var settingsFind = 0
 
+    /// Eden's own pages with a search field of their own, which ⌘F goes to
+    /// as it goes to Settings' (`searchFind`).
+    static let searchedPages: Set<InternalPage.Kind> = [.history, .passwords, .archive]
+
+    /// ⌘F on one of Eden's own pages with a search field: told so it can
+    /// put the keyboard in its field. Each page asks whether it is the one
+    /// in front.
+    @Published var searchFind = 0
+
+    /// ⌘F has somewhere to go on the page in front other than the find bar:
+    /// Settings' find field, or a page's own search.
+    var findsInPage: Bool {
+        guard let kind = active?.page?.kind else { return false }
+        return kind == .settings || Browser.searchedPages.contains(kind)
+    }
+
     func openFind() {
         if active?.page?.kind == .settings {
             settingsFind += 1
+            return
+        }
+        if let kind = active?.page?.kind, Browser.searchedPages.contains(kind) {
+            searchFind += 1
             return
         }
         guard active?.isWeb == true else { return }
@@ -692,14 +719,6 @@ final class Browser: NSObject, ObservableObject {
               !needle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let tab = active, !tab.loading, tab.isWeb else { return }
         look(forward: true)
-    }
-
-    /// ⌘⇧M. Whatever is making noise in this tab stops making noise.
-    func pauseMedia() {
-        guard let tab = active else { return }
-        // An empty handler, not nil: see Tab.discard (#1031).
-        tab.web.pauseAllMediaPlayback {}
-        announce("Paused")
     }
 
     // MARK: - taking things off pages
@@ -2349,7 +2368,11 @@ final class Browser: NSObject, ObservableObject {
 
     /// Rename. The name the tab is wearing arrives selected, so typing
     /// replaces it; emptying the field gives the page its own title back.
+    /// A square shows no name, only its letter: renaming it is changing
+    /// that (editLetter), which the field in a row, never drawn on a
+    /// square, left looking as if nothing happened.
     func beginTabRename(_ tab: Tab) {
+        if tab.pin != nil, !tab.listed { return editLetter(tab) }
         renamingTab = true
         tabDraft = tab.label
         editingTab = tab.id
@@ -2415,28 +2438,190 @@ final class Browser: NSObject, ObservableObject {
     /// Downloads while they happen (see Fetching.swift).
     let fetches = Shared.fetches
 
+    // MARK: - one set of tab actions
+
+    // The tab's menu, its hover card and the menu bar act through these, so
+    // an action reads and does the same wherever it is asked for. Each takes
+    // the tabs it acts on and never goes to them: copying, duplicating or
+    // muting a tab doesn't wake it or unfold its group.
+
+    /// What an action asked of `tab` acts on: every tab picked in the column
+    /// when it is one of several picked, in the column's order, as ⌘W and a
+    /// drag take them; else the tab alone.
+    func acting(on tab: Tab) -> [Tab] {
+        isPickedAmongOthers(tab) ? pickedTabs : [tab]
+    }
+
+    /// What the menu bar's tab commands act on: the tab in front, with the
+    /// tabs picked alongside it.
+    var frontTabs: [Tab] { active.map(acting(on:)) ?? [] }
+
     /// ⌘⇧C. The address, in the clipboard, and a line that says as much.
-    func copyAddress() {
-        guard let url = active?.address else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-        announce("Address copied", look: .done)
+    func copyAddress() { copyAddresses(of: frontTabs) }
+
+    /// The tabs' addresses, a line each.
+    /// `quietly`: nothing said, where what was pressed says it (a hover
+    /// card's tick).
+    func copyAddresses(of tabs: [Tab], quietly: Bool = false) {
+        copy(addresses: tabs.compactMap { $0.address?.absoluteString }, quietly: quietly)
+    }
+
+    /// Addresses into the clipboard, a line each, and said so unless
+    /// `quietly`: a tab's, or a page's open on another device (Elsewhere).
+    func copy(addresses: [String], quietly: Bool = false) {
+        guard !addresses.isEmpty else { return }
+        paste(addresses)
+        guard !quietly else { return }
+        announce(addresses.count == 1 ? "Address copied" : "\(addresses.count) addresses copied", look: .done)
     }
 
     /// ⌥⇧⌘C. The address without its tracking parameters (CleanLink).
-    func copyCleanLink() {
-        guard let url = active?.address else { return }
-        CleanLink.copy(url)
-        announce("Clean link copied", look: .done)
+    func copyCleanLink() { copyCleanLinks(of: frontTabs) }
+
+    func copyCleanLinks(of tabs: [Tab]) {
+        let links = tabs.compactMap { $0.address.map { CleanLink.clean($0).absoluteString } }
+        guard !links.isEmpty else { return }
+        paste(links)
+        announce(links.count == 1 ? "Link copied" : "\(links.count) links copied", look: .done)
     }
 
     /// For pasting into notes and messages that read Markdown: a title that
     /// links, not a bare address to explain in your own words.
-    func copyMarkdownLink() {
-        guard let tab = active, let url = tab.address else { return }
+    func copyMarkdownLink() { copyMarkdownLinks(of: frontTabs) }
+
+    func copyMarkdownLinks(of tabs: [Tab]) {
+        let links = tabs.compactMap { tab in tab.address.map { Browser.markdownLink(tab.label, $0) } }
+        guard !links.isEmpty else { return }
+        paste(links)
+        announce(links.count == 1 ? "Link copied" : "\(links.count) links copied", look: .done)
+    }
+
+    /// Lines of text into the clipboard, in place of what was there.
+    private func paste(_ lines: [String]) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(Browser.markdownLink(tab.label, url), forType: .string)
-        announce("Link copied", look: .done)
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    /// Duplicate: the same page beside each tab. One comes to the front, as
+    /// ⌘D once did; several open behind, each beside its own, so the page
+    /// you are on stays in front.
+    func duplicate(_ tabs: [Tab]) {
+        let pages = tabs.compactMap { tab in tab.address.map { (url: $0, tab: tab) } }
+        for page in pages { open(page.url, foreground: pages.count == 1, from: page.tab) }
+    }
+
+    /// Mute Tab, or Unmute Tab when `tab` is muted: `tab` and the tabs
+    /// picked with it all one way, as the menu said, not each turned over.
+    func toggleMute(_ tab: Tab) {
+        mute(acting(on: tab), !tab.muted)
+    }
+
+    /// The tabs all muted, or all unmuted: a tab's menu's picked tabs, or a
+    /// hover card's one tab.
+    func mute(_ tabs: [Tab], _ on: Bool) {
+        for each in tabs where each.muted != on { each.toggleMute() }
+    }
+
+    /// ⇧⌘M: Mute Tab or Unmute Tab, for the tab in front.
+    func toggleMute() {
+        guard let tab = active else { return }
+        toggleMute(tab)
+    }
+
+    /// Reload, from a tab's menu: each page loaded again where it stands. A
+    /// tab asleep stays asleep, its page loaded when it is gone to.
+    func reload(_ tabs: [Tab]) {
+        for tab in tabs where tab.built != nil { tab.reload() }
+    }
+
+    /// Put to Sleep: each page let go of now, as it would be after half an
+    /// hour unseen. Not one on screen, nor one that has to stay awake (#310):
+    /// for a tab alone, why not is said.
+    func sleep(_ tabs: [Tab]) {
+        let alone = tabs.count == 1
+        for tab in tabs {
+            sleep(tab) { [weak self] outcome in
+                if alone, outcome != "asleep" { self?.announce("Stays awake: \(outcome)") }
+            }
+        }
+    }
+
+    /// Pin, or Pin as Row: each of the tabs that can be, in the column's
+    /// order. Not a private tab, nor one without a page.
+    func pin(_ tabs: [Tab], listed: Bool) {
+        for tab in tabs where tab.pin == nil && tab.isWeb && !tab.shy { pin(tab, listed: listed) }
+    }
+
+    /// Unpin: each pin among the tabs.
+    func unpin(_ tabs: [Tab]) {
+        for tab in tabs where tab.pin != nil { unpin(tab) }
+    }
+
+    /// Those of `tabs` Move to Space can take: not a script's tab, nor an
+    /// extension's page, nor a pin every space shows, which is in every
+    /// space already. Moved, it left the shared pins as this window wrote
+    /// them next, without it, and every space closed its copy.
+    func movableToSpace(_ tabs: [Tab]) -> [Tab] {
+        tabs.filter { tab in
+            self.tabs.contains { $0.id == tab.id } && !tab.bench && !(tab.pin != nil && tab.everywhere)
+                && tab.address.flatMap({ Browser.extensionHost(of: $0) }) == nil
+        }
+    }
+
+    /// Move to Space: the tabs that can go, together, as Move to Space
+    /// takes one and Move Group to Space a group: a space with other
+    /// sign-ins asks first only when a page has unsaved form entries, once
+    /// for them all. Every one is there before `then`, for New Space… to go
+    /// after them. Moved one by one, a sleeping tab, with no page to ask,
+    /// went at once and took you to the new space, and a page still being
+    /// asked found its space gone from under it and stayed behind.
+    func move(_ tabs: [Tab], toSpace id: UUID, then: (() -> Void)? = nil) {
+        guard tabs.count > 1 else {
+            if let tab = tabs.first { move(tab, toSpace: id, then: then) }
+            return
+        }
+        guard prefs.usesSpaces, id != spaceID, let destination = spaces.first(where: { $0.id == id }) else { return }
+        let going = movableToSpace(tabs)
+        guard !going.isEmpty else { return }
+        let from = spaceID
+        let complete: () -> Void = { [weak self] in
+            guard let self, self.spaceID == from else { return }
+            let here = going.filter { tab in self.tabs.contains { $0.id == tab.id } }
+            guard !here.isEmpty else { return }
+            self.stepAside(from: here)
+            for tab in here { self.finishMove(tab, toSpace: id, quietly: true) }
+            self.writeSession(now: true)
+            if let row = self.parked[id] { self.writeSession(now: true, space: id, row: row) }
+            self.announce("Moved to \(destination.name)", look: .done)
+            then?()
+        }
+        let store = Spaces.store(for: id)
+        let asking = going.filter { !$0.shy && $0.store !== store }
+        guard !asking.isEmpty else { return complete() }
+        // Any page with something typed and not sent, asked once.
+        var unsaved = false
+        let asked = DispatchGroup()
+        for tab in asking {
+            asked.enter()
+            tab.unsaved { if $0 { unsaved = true }; asked.leave() }
+        }
+        asked.notify(queue: .main) {
+            guard unsaved else { return complete() }
+            Ask.sure(
+                "Move Tabs?",
+                detail: "A page among them has unsaved form entries. They will reopen in “\(destination.name)” with that Space’s sign-ins, so the entries may be lost.",
+                confirm: "Move",
+                then: complete
+            )
+        }
+    }
+
+    /// Whether Move to Window can take the tabs anywhere: not pins, and not
+    /// every tab this window has.
+    func canMoveToWindow(_ tabs: [Tab]) -> Bool {
+        let going = tabs.filter { $0.pin == nil && !$0.bench }
+        guard !going.isEmpty else { return false }
+        return going.count > 1 ? going.count < self.tabs.count : self.tabs.count > 1
     }
 
     /// A page as a Markdown link, its title the text. A backslash first, so
@@ -2468,39 +2653,6 @@ final class Browser: NSObject, ObservableObject {
     /// Tabs you closed, newest last, so ⌘⇧T can put them back where they were
     /// and the History menu can offer them by name.
     @Published private(set) var ghosts: [Ghost] = []
-
-    /// The close ⌘Z may undo (Settings › Tabs › ⌘Z reopens a closed tab):
-    /// one only, and only while it is still the last thing done. Any key or
-    /// click after it lets it go (ContentView.take, watchKeys); so does the
-    /// row or the tab in front changing some other way, a swipe or a page
-    /// opening a tab of its own, which `scene` catches. One for the whole
-    /// app: a close in one window, then something done in another, isn't
-    /// the last thing done any more.
-    struct LastClose {
-        weak var browser: Browser?
-        let ghost: Ghost.ID
-        /// The row and the tab in front just after the close, read once it
-        /// has settled.
-        var scene: [Tab.ID]?
-    }
-    static var lastClose: LastClose?
-
-    /// What `LastClose.scene` compares: the tab in front, then the row.
-    private var closeScene: [Tab.ID] { [activeID].compactMap { $0 } + tabs.map(\.id) }
-
-    /// Whether ⌘Z brings back a close: the one made last here, with nothing
-    /// done since, not even a window closed.
-    var canUndoClose: Bool {
-        guard let last = Browser.lastClose, last.browser === self, let ghost = ghosts.last, ghost.id == last.ghost,
-              (Browsers.lastClosedAt ?? .distantPast) <= ghost.at else { return false }
-        return last.scene == nil || last.scene == closeScene
-    }
-
-    /// ⌘Z, just after a close: what ⇧⌘T would bring back, once.
-    func undoClose() {
-        Browser.lastClose = nil
-        reopen()
-    }
 
     /// Groups closed with Close Group, kept while a tab they held can still
     /// come back with ⌘⇧T: the first one back brings its group back too,
@@ -2577,9 +2729,6 @@ final class Browser: NSObject, ObservableObject {
     /// The bulk close under way, whose tabs are remembered
     /// together (see closingTogether).
     private var batching: (id: UUID, kind: CloseKind)?
-    /// The last Clear, and the empty tab it left in front: an undo takes
-    /// that tab away again while it is still empty.
-    private var lastClear: (batch: UUID, blank: Tab.ID?)?
 
     private var bag = Set<AnyCancellable>()
     /// The minute-by-minute look for tabs to put to sleep, and the ear for
@@ -2823,10 +2972,9 @@ final class Browser: NSObject, ObservableObject {
             }
             .store(in: &bag)
 
-        // Yesterday's tabs, or one empty one. Either way a web view is built
-        // now, which starts a content process while the window is still being
-        // drawn — so the first address you type navigates instead of waiting
-        // for WebKit to get up.
+        // Yesterday's tabs, or nothing in front. The tab in front, if there
+        // is one, builds its web view now, which starts a content process
+        // while the window is still being drawn.
         defer {
             follow()
             if !isPopup { watchForSleep() }
@@ -2919,9 +3067,9 @@ final class Browser: NSObject, ObservableObject {
         floater.onClose = { [weak self] in self?.land() }
     }
 
-    /// The row of tabs the space on screen had last time, or one empty tab.
+    /// The row of tabs the space on screen had last time, or nothing.
     /// The pins are every window's (see Pins.swift): a window new to this
-    /// space has them too, before an empty tab.
+    /// space has them too, with nothing in front.
     func restoreSession() {
         let saved = readRow(spaceID)
         tabGroups = (saved.groups ?? []).filter { group in
@@ -2930,12 +3078,13 @@ final class Browser: NSObject, ObservableObject {
         let restored = restoreRow(saved, space: spaceID, groups: tabGroups)
         splits = restored.splits
         tabs += restored.tabs
-        // No tab in front (a fresh start, see Session.startFresh): an empty
-        // one beside the pins.
+        // No tab in front — left so, or a fresh start (see
+        // Session.startFresh), or a window new to the space — stays so:
+        // nothing in front, beside the pins, and no empty tab made for it.
         let front = saved.tabs.isEmpty || saved.active < 0 ? nil
             : restored.active.flatMap { id in tabs.first { $0.id == id } } ?? tabs.first { $0.pin == nil } ?? tabs.first
         guard let first = front else {
-            frontBlank()
+            activeID = nil
             return
         }
         activeID = first.id
@@ -2950,24 +3099,6 @@ final class Browser: NSObject, ObservableObject {
             }
         } else {
             for tab in tabs where visibleTabIDs.contains(tab.id) { _ = tab.wake() }
-        }
-    }
-
-    /// An empty tab at the end of the row, in front: a row with nothing in
-    /// front (a fresh start, see Session.startFresh) opens on one, beside its
-    /// pins, rather than on the first of them.
-    func frontBlank() {
-        // A blank tab costs nothing until it is asked for its page. Its
-        // web view — and with it WebKit's helper processes — is built a
-        // moment after the window is up, so that the first address typed
-        // finds everything already running, and the first frame never
-        // had to share the CPU with it.
-        let tab = Tab(configuration: Web.configuration(space: spaceID))
-        adopt(tab)
-        activeID = tab.id
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak tab] in
-            guard let tab, tab.isBlank else { return }
-            _ = tab.web
         }
     }
 
@@ -3362,12 +3493,18 @@ final class Browser: NSObject, ObservableObject {
             objectWillChange.send()
             let row = reconcilePins(tabs, space: space)
             if row.map(\.id) != tabs.map(\.id) { tabs = row }
-            if !tabs.contains(where: { $0.id == activeID }) {
-                activeID = tabs.first { $0.pin == nil }?.id ?? tabs.first?.id
-                if activeID == nil { newTab() }
-            }
             splits.removeAll { pair in
                 !pair.tabs.allSatisfy { id in tabs.contains { $0.id == id } }
+            }
+            // The pin in front taken away there: back to the tab you were on
+            // before it, or else the first loose tab, or nothing in front —
+            // never a tab made for the purpose. Nothing in front already
+            // stays so.
+            if let gone = activeID, !tabs.contains(where: { $0.id == gone }) {
+                let standing = tabs.filter(standsInRow)
+                let back = tabSwitcher.lastLeft(among: Set(standing.map(\.id)), other: gone)
+                    .flatMap { id in standing.first { $0.id == id } }
+                if let next = back ?? standing.first(where: { $0.pin == nil }) { select(next) } else { showNothing() }
             }
             writeRow(spaceID, session(tabs, active: activeID, groups: tabGroups, splits: splits), now: false)
         } else if var row = parked[space] {
@@ -3376,7 +3513,7 @@ final class Browser: NSObject, ObservableObject {
                 !pair.tabs.allSatisfy { id in row.tabs.contains { $0.id == id } }
             }
             if let active = row.active, !row.tabs.contains(where: { $0.id == active }) {
-                row.active = row.tabs.first { $0.pin == nil }?.id ?? row.tabs.first?.id
+                row.active = row.tabs.first { $0.pin == nil }?.id
             }
             parked[space] = row
         }
@@ -3735,9 +3872,9 @@ final class Browser: NSObject, ObservableObject {
     private func session(_ tabs: [Tab], active id: Tab.ID?, groups: [TabGroup]? = nil, splits: [TabSplit] = [],
                          keeping: Bool = false) -> Session.Shape {
         var entries: [Session.Entry] = []
-        // A row with nothing in front — a space not yet gone to since a fresh
-        // start — stays that way in its file, rather than its first tab (a
-        // pin) coming to the front next time.
+        // A row with nothing in front — left so, or a space not yet gone to
+        // since a fresh start — stays that way in its file, rather than its
+        // first tab (a pin) coming to the front next time.
         var active = id == nil ? -1 : 0
         var indices: [Tab.ID: Int] = [:]
         for tab in tabs {
@@ -3762,9 +3899,9 @@ final class Browser: NSObject, ObservableObject {
         }
         // The tab you were on isn't kept — a private one: the one kept just
         // before it comes back in front, not the first of the row. An empty
-        // one stays an empty one, beside the pins (see frontBlank): the tab
-        // just before it is the last of the row, often the last page of a
-        // folded group, which then came out of its folder in front.
+        // one comes back as nothing in front, beside the pins: the tab just
+        // before it is the last of the row, often the last page of a folded
+        // group, which then came out of its folder in front.
         if let id, let at = tabs.firstIndex(where: { $0.id == id }), indices[id] == nil {
             active = tabs[at].isBlank && !tabs[at].shy ? -1 : max(0, tabs[..<at].filter(kept).count - 1)
         }
@@ -4080,6 +4217,19 @@ final class Browser: NSObject, ObservableObject {
         selectedTabIDs.contains(tab.id) && visibleSelectedTabCount > 1
     }
 
+    /// What goes with `tab` carried out of its own run, to another place in
+    /// the column, another device or another window: every tab picked with
+    /// it, pins of either kind and tabs alike, with their pairs, in the
+    /// column's order; alone, the tab and its pair (carried(with:)). Along
+    /// its own run, where kinds don't mix, only its own kind goes with it
+    /// (carried(with:)).
+    func travelling(with tab: Tab) -> [Tab] {
+        let picked = pickedTabs
+        guard picked.count > 1, picked.contains(where: { $0.id == tab.id }) else { return carried(with: tab) }
+        let ids = Set(picked.flatMap { split(for: $0)?.tabs ?? [$0.id] })
+        return tabs.filter { ids.contains($0.id) }
+    }
+
     /// What a drag carries: the tab and its pair, or, when it is one of
     /// several picked, every picked tab of its kind with their pairs, in the
     /// row's order. A pin carried leaves the picked tabs where they are, and
@@ -4296,10 +4446,11 @@ final class Browser: NSObject, ObservableObject {
 
     /// ⌘T, the + button and the menu: the field comes up over the page in
     /// front, as Zen's and Arc's do, and the tab is made by Return, not by
-    /// asking for one. There is no blank new tab to choose instead. Only
-    /// where there is no page to come up over — a window with nothing open,
-    /// or a blank tab already in front, whose field is the same one standing
-    /// on the window — or for an extension's new tab page you chose, or one
+    /// asking for one. There is no blank new tab to choose instead. With
+    /// nothing in front it comes up over the window's empty ground the same
+    /// way, and putting it away leaves nothing in front again. Only over a
+    /// blank tab already in front, whose field is the same one standing on
+    /// the window, or for an extension's new tab page you chose, or one
     /// still to be asked about, whose page needs a tab to show in, is it
     /// the tab. From a private tab the field still comes up for one to be
     /// asked about: a private new tab never asks.
@@ -4310,11 +4461,12 @@ final class Browser: NSObject, ObservableObject {
         if launching { putAway(); return }
         // A website's popup has no field to raise: its new tab goes to a
         // window of tabs, as ⌘T's always has from there.
-        guard !websitePopup, let tab = active, !tab.isBlank else {
+        guard !websitePopup, active?.isBlank != true else {
             newTab()
             return
         }
-        if #available(macOS 15.4, *), Extensions.shared.newTabPage != nil || (!tab.shy && Extensions.shared.newTabUnaskedAsker != nil) {
+        let shy = active?.shy == true
+        if #available(macOS 15.4, *), Extensions.shared.newTabPage != nil || (!shy && Extensions.shared.newTabUnaskedAsker != nil) {
             newTab()
             return
         }
@@ -4422,7 +4574,7 @@ final class Browser: NSObject, ObservableObject {
             editing = false
             focusRequest += 1
             rememberSession()
-            // Asked here too: the blank a window opens with is the one the
+            // Asked here too: an empty tab already there is the one the
             // first ⌘T after adding an extension lands on.
             if #available(macOS 15.4, *) { Extensions.shared.offerNewTabPage(into: blank) }
             return
@@ -4505,7 +4657,8 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// ⌘W closes what is in front: a peek, then a card over the page (What's
-    /// New), then the tabs picked in the column, or else the tab. Settings,
+    /// New), then Hide Elements, Capture or the list of what is hidden on
+    /// the site, then the tabs picked in the column, or else the tab. Settings,
     /// History and the rest are tabs of their own, as in Chrome, and ⌘W on
     /// one closes it. Escape puts things away in the same order, so the two
     /// keys agree on what is in front.
@@ -4524,8 +4677,17 @@ final class Browser: NSObject, ObservableObject {
         }
         if peekInFront { closePeek() }
         else if closePanel() { return }
+        // Hide Elements, Capture and the list of what is hidden here lie
+        // over the page as panels do: ⌘W puts them away, as Escape does and
+        // in its order, rather than closing the page under them.
+        else if veiling { toggleHiding() }
+        else if snapping { stopSnapping() }
+        else if reviewing { reviewing = false }
         else if !pickedTabs.isEmpty { closePickedTabs() }
         else if let tab = active { closeTab(tab) }
+        // Nothing in front: the window is what is left to close, as ⌘W on a
+        // lone empty tab closes it.
+        else { closeWindow() }
     }
 
     /// Close Tab as a hand asks for it: ⌘W, the cross or a middle click on
@@ -4540,6 +4702,9 @@ final class Browser: NSObject, ObservableObject {
     /// brings it back, and a toast for every tab closed would be noise.
     func closeTab(_ tab: Tab) {
         if putsAway(tab) { return putAway(tab) }
+        // A lone empty tab, with nothing beside it, is the window: ⌘W on it
+        // closes the window, as ⌘W with nothing in front does (closeFront).
+        if tabs.count == 1, tab.isBlank, activeID == tab.id { return closeWindow() }
         close(tab)
     }
 
@@ -4553,34 +4718,96 @@ final class Browser: NSObject, ObservableObject {
 
     /// A grouped tab's page let go where it stands, as a pin is put down:
     /// out of its pair, if it was in one, the row left in the group, and you
-    /// on whatever you were looking at before. It comes back at the address
-    /// it had: a tab in a group keeps no page of its own to go home to, as a
-    /// pin does, so this is where it was, not where it was when grouped.
+    /// on whatever you were looking at before (see landing). It comes back
+    /// at the address it had: a tab in a group keeps no page of its own to
+    /// go home to, as a pin does, so this is where it was, not where it was
+    /// when grouped.
     func putAway(_ tab: Tab) {
         guard tabs.contains(where: { $0.id == tab.id }) else { return }
         // Its page goes, and its peek, hidden or not, with it.
         if peekFrom == tab.id { closePeek() }
+        let partner = split(for: tab).flatMap { pair in tabs.first { $0.id == pair.partner(of: tab.id) } }
         leaveSplit(tab)
         heldDialogs.removeValue(forKey: tab.id)?.forEach { $0.dismiss() }
         dropQuestions(for: tab.id)
         if floating == tab.id { land(covering: false) }
         tab.rest()
-        if activeID == tab.id { leave(tab) }
+        if activeID == tab.id { land(on: landing(leaving: tab, partner: partner)) }
+        tabSwitcher.forget(tab.id)
         writeSession(now: true)
     }
 
-    /// Off a pin or a grouped tab just put away, onto the tab looked at last.
-    /// Ordinary tabs first. Falling back to the most recent tab of any kind
-    /// meant closing one pin landed you on another pin, and ⌘W bounced
-    /// between the two instead of getting you out of them.
-    private func leave(_ tab: Tab) {
-        let others = tabs.filter { $0.id != tab.id && !$0.asleep }
-        let loose = others.filter { $0.pin == nil }
-        if let back = (loose.isEmpty ? others : loose).max(by: { $0.touched < $1.touched }) {
-            select(back)
-        } else {
-            newTab()
+    /// Where you land when the tab in front goes by your hand: closed, put
+    /// away, put down, cleared, or moved to another space or window. One
+    /// rule for all of them, in this order:
+    ///
+    /// 1. the other page of its pair, as Split View always had it;
+    /// 2. the tab you were on before it, woken if it sleeps (see
+    ///    TabSwitcher.lastLeft) — the tabs closed, put away or put down by
+    ///    hand are forgotten there (TabSwitcher.forget), or ⌘W on one pin
+    ///    went back to the pin before it, and the two took turns for ever;
+    /// 3. the nearest tab that looks open, the one below first, then the
+    ///    one above: a loose tab, awake or asleep, or a pin or a grouped tab
+    ///    only while its page is open, as the switcher offers them. Off a
+    ///    pin, never another pin you weren't on before: that is how ⌘W
+    ///    landed you in one pin after another instead of getting you out;
+    /// 4. nothing in front. A close never makes a new tab by itself: an
+    ///    empty window is what is left when there is nothing to go to.
+    ///
+    /// With Settings › Tabs › Closing a tab goes back off, a loose tab closed
+    /// lands on its neighbour first, as it always did; only a page a link
+    /// just opened in front still goes back to the page it came from. Pins,
+    /// grouped tabs and Eden's own pages go back whatever the switch says:
+    /// History or Settings is called up over what you were doing, and a pin
+    /// or a group's tab was gone to, not come across on the way down.
+    ///
+    /// `gone`: the other tabs going with it, which are no place to land.
+    func landing(leaving tab: Tab, partner: Tab? = nil, gone: Set<Tab.ID> = []) -> Tab? {
+        let gone = gone.union([tab.id])
+        if let partner, !gone.contains(partner.id), tabs.contains(where: { $0.id == partner.id }) { return partner }
+        let row = tabs.filter { !gone.contains($0.id) && standsInRow($0) }
+        let back = tabSwitcher.lastLeft(among: Set(row.map(\.id)), other: tab.id)
+            .flatMap { id in row.first { $0.id == id } }
+        let alwaysBack = prefs.closeGoesBack || tab.pin != nil || tab.page != nil
+            || (prefs.usesTabGroups && group(of: tab) != nil)
+        if alwaysBack, let back { return back }
+        // A page a link just opened in front goes back to the page it came
+        // from, while that is still the tab you were on before it: it was
+        // opened at the end of the row, and its neighbour there is a tab
+        // you weren't reading.
+        if let back, back.id == tab.opener { return back }
+        return nearest(to: tab, among: row, pins: tab.pin == nil) ?? back
+    }
+
+    /// The nearest tab to `tab` in `row` that looks open, below it first.
+    private func nearest(to tab: Tab, among row: [Tab], pins: Bool) -> Tab? {
+        guard let at = tabs.firstIndex(where: { $0.id == tab.id }) else { return nil }
+        let ids = Set(row.map(\.id))
+        let open: (Tab) -> Bool = { [self] other in
+            guard ids.contains(other.id), pins || other.pin == nil else { return false }
+            let loose = other.pin == nil && !(prefs.usesTabGroups && group(of: other) != nil)
+            return loose || !other.asleep
         }
+        return tabs[(at + 1)...].first(where: open) ?? tabs[..<at].last(where: open)
+    }
+
+    /// To where `landing` said: that tab, woken if it sleeps, or nothing in
+    /// front.
+    private func land(on next: Tab?, floatPrevious: Bool = true) {
+        if let next { select(next, floatPrevious: floatPrevious) } else { showNothing() }
+    }
+
+    /// Nothing in front: the column as it is, with no row lit, and only the
+    /// window's ground where a page would be. No field stands there unless
+    /// ⌘T or ⌘L raises one, and no tab is made for it.
+    func showNothing() {
+        if assisting != nil { closeAssistant() }
+        cancelTabEdit()
+        suggesting = nil
+        activeID = nil
+        editing = false
+        typed = ""
+        rememberSession()
     }
 
     /// ⇧⌘W: the whole window, its tabs with it, as the red button closes it.
@@ -4598,8 +4825,9 @@ final class Browser: NSObject, ObservableObject {
         return true
     }
 
-    /// ⌘W, or the cross on the tab. Closing the last one leaves a blank tab
-    /// behind; closing that blank tab closes the window.
+    /// ⌘W, or the cross on the tab, and every close the browser makes. The
+    /// tab in front closed lands where `landing` says, and on nothing in
+    /// front when there is nowhere to go: the window stays open, empty.
     func close(_ tab: Tab) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         // Its peek, hidden or not, goes with it.
@@ -4622,106 +4850,52 @@ final class Browser: NSObject, ObservableObject {
             // Put down is also gone home, as Arc's pins are: the pin wakes on
             // the page it was pinned at, not wherever its links had taken it.
             tab.rest(at: tab.home)
-            leave(tab)
+            // Only the pin in front has anywhere to leave: one put down from
+            // its menu or its row while you read another page leaves you on
+            // that page, as putAway does.
+            if activeID == tab.id { land(on: landing(leaving: tab, partner: partner)) }
+            tabSwitcher.forget(tab.id)
             writeSession(now: true)
             return
         }
 
-        if tabs.count == 1 {
-            if tab.isBlank {
-                NSApp.keyWindow?.performClose(nil)
-            } else {
-                let fresh = Tab(configuration: Web.configuration(space: spaceID))
-                remember(tab, at: 0)
-                tab.close()
-                adopt(fresh)
-                tabs = [fresh]
-                activeID = fresh.id
-                typed = ""
-                removeEmptyGroup(tab.groupID)
-            }
-            return
-        }
-
-        // The last tab that isn't a pin, on screen, with only pins left
-        // beside it: with Settings › Tabs › Leave a new tab when the last
-        // tab closes, the same as the only tab. Landing on its neighbour
-        // takes you into a pin you had not asked for, and wakes it if it was
-        // asleep. The pins stay where they are; a new tab takes this one's
-        // place. Off, the neighbour is picked as before (#537).
-        //
-        // Tabs in groups are kept as pins are, as Arc keeps its folders: the
-        // last loose tab closed beside them leaves a new tab too, switch or
-        // no switch. Its neighbour was a page out of a folder, the folder
-        // opened for it, and ⌘T then floated its field over that page
-        // rather than giving a new tab. An empty tab closed
-        // there stays: it is already the new tab closing it would leave, and
-        // the window, holding the groups, stays open.
-        let kept: (Tab) -> Bool = { $0.pin != nil || self.group(of: $0) != nil }
-        let besideGroups = tabs.contains { $0.id != tab.id && $0.pin == nil && self.group(of: $0) != nil }
-        let onlyPins = prefs.newTabAfterLast && !tabs.contains { $0.id != tab.id && $0.pin == nil }
-        let onlyKept = besideGroups && !kept(tab) && !tabs.contains { $0.id != tab.id && !kept($0) }
-        if activeID == tab.id, onlyPins || onlyKept {
-            if tab.isBlank {
-                if besideGroups {
-                    typed = ""
-                    tab.draft = ""
-                    editing = false
-                    focusRequest += 1
-                } else {
-                    NSApp.keyWindow?.performClose(nil)
-                }
-                return
-            }
-            let fresh = Tab(configuration: Web.configuration(space: spaceID))
-            prepare(fresh)
-            remember(tab, at: index, partner: partner?.id, onLeft: pair?.isBefore(tab.id, partner?.id) ?? false)
-            tab.close()
-            tabs[index] = fresh
-            activeID = fresh.id
-            typed = ""
-            removeEmptyGroup(tab.groupID)
-            rememberSession()
-            return
-        }
-
+        // Where to go, worked out while the tab still has its place in the
+        // row to measure from.
+        let next = activeID == tab.id ? landing(leaving: tab, partner: partner) : nil
         remember(tab, at: index, partner: partner?.id, onLeft: pair?.isBefore(tab.id, partner?.id) ?? false)
         tab.close()
         tabs.remove(at: index)
         removeEmptyGroup(tab.groupID)
-        if activeID == tab.id {
-            // The neighbour on the right, or the last one if there is no
-            // right — through select(), same as everywhere else you land on
-            // a tab, so one that was never built yet actually wakes up
-            // instead of sitting there blank until a manual reload. Asked
-            // for, the tab viewed before this one comes first, as ⌃Tab
-            // would take you there. Eden's own pages go back whatever the
-            // switch says: History or Settings is called up over what you
-            // were doing, as their cards were before 1.0.7. Closing one
-            // shouldn't leave you on its neighbour, or on the last tab when
-            // ⌘Y brought forward a History tab kept at the end of the row.
-            // A page a link just opened in front goes back to the page it
-            // came from too, while that is still the tab you were on before
-            // it: it was opened at the end of the row, and its neighbour
-            // there is a tab you weren't reading.
-            let back = tabBefore(tab)
-            let before = prefs.closeGoesBack || tab.page != nil ? back
-                : back.flatMap { $0.id == tab.opener ? $0 : nil }
-            select(partner ?? before ?? tabs[min(index, tabs.count - 1)])
-        }
+        // Through select(), same as everywhere else you land on a tab, so one
+        // that was never built yet actually wakes up instead of sitting there
+        // blank until a manual reload.
+        if activeID == tab.id { land(on: next) }
+        tabSwitcher.forget(tab.id)
         rememberSession()
     }
 
-    /// Everything but this one. Pinned tabs are put down rather than removed —
-    /// they are not open pages so much as places kept.
+    /// What Close Other Tabs closes: the tabs Clear would, less this one and
+    /// the rest of its split. Pins stay, and so do tab groups, as Clear keeps
+    /// them: a place kept and a section named aren't "other tabs".
+    func othersToClose(but keep: Tab) -> [Tab] {
+        let kept = Set(split(for: keep)?.tabs ?? [keep.id])
+        return tabs.filter { !kept.contains($0.id) && $0.pin == nil && !$0.bench && group(of: $0) == nil }
+    }
+
+    /// Everything but this one, of the tabs that come and go, remembered as
+    /// one so a single ⇧⌘T brings them all back, as Clear and Close Tabs
+    /// Below are. You stay where you are unless that page is going.
     func closeOthers(but keep: Tab) {
-        select(keep)
         // The list is read once: closing walks the row and can add to it.
-        let kept = split(for: keep)?.tabs ?? [keep.id]
-        for tab in tabs.filter({ !kept.contains($0.id) }) {
-            close(tab)
+        let going = othersToClose(but: keep)
+        guard !going.isEmpty else { return }
+        closingTogether(.tabs) { _ in
+            // Off a page being closed first, so its neighbours do not wake
+            // only to be closed in turn.
+            if going.contains(where: { $0.id == activeID }) { select(keep) }
+            // From the bottom, so the undo brings them back in order.
+            for tab in going.reversed() { close(tab) }
         }
-        select(keep)
     }
 
     /// The row already follows the groups' order, including folded members.
@@ -4773,13 +4947,20 @@ final class Browser: NSObject, ObservableObject {
     /// them closed as ⌘W closes it, and all of it remembered as one, so a
     /// single ⇧⌘T puts every tab back. Pins stay, and so does a tab group:
     /// a section you named is one you are keeping. The page on screen goes
-    /// last, once an empty tab has taken its place: closed first, a
-    /// neighbour would wake only to be closed.
+    /// last, landing where ⌘W would (see landing), or on nothing in front:
+    /// closed first, a neighbour would wake only to be closed. No new tab
+    /// is made in its place.
     func clearTabs() {
-        let going = tabs.filter { $0.pin == nil && !$0.bench && group(of: $0) == nil }
+        let going = clearable
         guard !going.isEmpty else { return }
         closingTogether { batch in clear(going, batch: batch) }
     }
+
+    /// What Clear closes: the tabs in no group, pins aside.
+    private var clearable: [Tab] { tabs.filter { $0.pin == nil && !$0.bench && group(of: $0) == nil } }
+
+    /// Whether Clear has anything to do, for Tabs › Clear Tabs.
+    var canClearTabs: Bool { !clearable.isEmpty }
 
     /// Tabs closed as one act: remembered together, so
     /// that one ⇧⌘T brings every one of them back (see reopen(batch:)), and
@@ -4795,28 +4976,12 @@ final class Browser: NSObject, ObservableObject {
     }
 
     private func clear(_ going: [Tab], batch: UUID) {
-        lastClear = (batch, nil)
         for tab in going where !visibleTabIDs.contains(tab.id) { close(tab) }
         let onScreen = going.filter { visibleTabIDs.contains($0.id) }
-        // Already an empty tab in front: that is where Clear leaves you.
-        guard !onScreen.isEmpty, !(onScreen.count == 1 && onScreen[0].isBlank) else { return }
-        // After the others went, so it can't reuse an empty one among them.
-        // An empty one of yours in a group it never reuses (newTab, #1151);
-        // should it reuse one, that one is yours to keep, and only a tab
-        // Clear made is taken away again by the undo.
-        let had = Set(tabs.map(\.id))
-        newTab()
-        let made = activeID.flatMap { had.contains($0) ? nil : $0 }
-        lastClear = (batch, made)
-        // The tabs that went before it came were remembered at their places
-        // in a row without it, but the undo puts them back with it still
-        // there (it goes last): past it, each place is one further on. Put
-        // back where they were remembered, a tab that stood after a group
-        // came back before it, with new tabs going to the top.
-        if let made, let at = tabs.firstIndex(where: { $0.id == made }) {
-            for i in ghosts.indices where ghosts[i].batch == batch && ghosts[i].index >= at { ghosts[i].index += 1 }
-        }
+        // The other page of a pair first, so the one with the keys lands
+        // where it would alone rather than on a page about to go.
         for tab in onScreen where tab.id != activeID { close(tab) }
+        for tab in onScreen where tab.id == activeID { close(tab) }
     }
 
     /// A link let go of over the tabs becomes a tab among them.
@@ -4893,6 +5058,7 @@ final class Browser: NSObject, ObservableObject {
         ghosts.removeAll { $0.batch == batch }
         var back: [Tab.ID: Tab] = [:]
         var front: Tab?
+        var made: [Tab] = []
         var regrouped = false
         for ghost in members.reversed() {
             // One of Eden's own pages opened again since: it stays the one.
@@ -4907,6 +5073,7 @@ final class Browser: NSObject, ObservableObject {
             tab.muted = ghost.muted
             tab.restore(url: ghost.url, title: ghost.title, vouched: ghost.titleIsOwn, state: ghost.keepsake?.state)
             tabs.insert(tab, at: safeInsertionIndex(ghost.index))
+            made.append(tab)
             if let was = ghost.was { back[was] = tab }
             if ghost.front { front = tab }
             // A pair cleared together: its other half came back just before,
@@ -4926,14 +5093,15 @@ final class Browser: NSObject, ObservableObject {
             }
         }
         if regrouped { arrangeGroupedTabs() }
-        if let front { select(front) }
-        if let clear = lastClear, clear.batch == batch, let id = clear.blank,
-           let blank = tabs.first(where: { $0.id == id }), blank.isBlank, blank.draft.isEmpty, activeID != id {
-            close(blank)
+        // The tab that was in front, or, when that one can't come back (an
+        // empty pane has no address to be remembered by) and nothing is in
+        // front, the first of them in the row: pages brought back stay out
+        // of sight behind an empty window otherwise.
+        if let front {
+            select(front)
+        } else if activeID == nil, let first = tabs.first(where: { tab in made.contains { $0.id == tab.id } }) {
+            select(first)
         }
-        // Only this Clear's own undo lets its empty tab go: a Close Group
-        // made after it, undone first, leaves the Clear's still to undo.
-        if lastClear?.batch == batch { lastClear = nil }
         rememberSession()
     }
 
@@ -5062,16 +5230,6 @@ final class Browser: NSObject, ObservableObject {
         ghosts[ghosts.count - 1].space = spaceID
         // Your other devices offer it for a few minutes (Sync).
         NotificationCenter.default.post(name: Sync.tabsChanged, object: nil)
-        // ⌘Z's to undo, while it stays the last thing done. The row is read
-        // once the close is through: a tab in front still to be chosen, a
-        // bulk close's other tabs still to go.
-        if let id = ghosts.last?.id {
-            Browser.lastClose = LastClose(browser: self, ghost: id)
-            DispatchQueue.main.async { [weak self] in
-                guard let self, Browser.lastClose?.ghost == id else { return }
-                Browser.lastClose?.scene = self.closeScene
-            }
-        }
         // Twelve steps back, a Clear counting as one: its tabs come back
         // together or not at all, however many there were.
         var steps = Set<UUID>()
@@ -5099,8 +5257,7 @@ final class Browser: NSObject, ObservableObject {
     func move(_ tab: Tab, toSpace id: UUID, then: (() -> Void)? = nil) {
         guard prefs.usesSpaces, id != spaceID,
               spaces.contains(where: { $0.id == id }),
-              tabs.contains(where: { $0.id == tab.id }), !tab.bench,
-              tab.address.flatMap({ Browser.extensionHost(of: $0) }) == nil
+              !movableToSpace([tab]).isEmpty
         else { return }
 
         let complete: () -> Void = { [weak self, weak tab] in
@@ -5134,8 +5291,9 @@ final class Browser: NSObject, ObservableObject {
     /// into another space, where it is the same group — its name, folded or
     /// not — after that space's own groups. As Move to Space for one tab: a
     /// space with other sign-ins asks first only when a page has unsaved
-    /// form entries, once for the group.
-    func move(group id: UUID, toSpace target: UUID) {
+    /// form entries, once for the group. `then` once it is there, for New
+    /// Space… to go after it.
+    func move(group id: UUID, toSpace target: UUID, then: (() -> Void)? = nil) {
         guard prefs.usesSpaces, target != spaceID,
               let destination = spaces.first(where: { $0.id == target }),
               let group = tabGroups.first(where: { $0.id == id })
@@ -5147,6 +5305,7 @@ final class Browser: NSObject, ObservableObject {
         let complete: () -> Void = { [weak self] in
             guard let self, self.spaceID == from else { return }
             self.finishGroupMove(group, members.filter { tab in self.tabs.contains { $0.id == tab.id } }, to: destination)
+            then?()
         }
         let store = Spaces.store(for: target)
         guard members.contains(where: { !$0.shy && $0.store !== store }) else { return complete() }
@@ -5170,20 +5329,22 @@ final class Browser: NSObject, ObservableObject {
 
     private func finishGroupMove(_ group: TabGroup, _ members: [Tab], to destination: Space) {
         guard !members.isEmpty else { return }
-        // The tab on screen goes with the group: the one after the group
-        // comes to the front instead, or the one before it, not each of the
-        // group's tabs in turn on the way out.
-        if let activeID, members.contains(where: { $0.id == activeID }) {
-            let ids = Set(members.map(\.id))
-            let at = tabs.firstIndex { $0.id == activeID } ?? 0
-            let after = tabs[at...].first { !ids.contains($0.id) && standsInRow($0) }
-            let before = tabs[..<at].last { !ids.contains($0.id) && standsInRow($0) }
-            if let next = after ?? before { select(next, floatPrevious: false) }
-        }
+        stepAside(from: members)
         for tab in members { finishMove(tab, toSpace: destination.id, group: group, quietly: true) }
         writeSession(now: true)
         if let row = parked[destination.id] { writeSession(now: true, space: destination.id, row: row) }
         announce("Moved \(group.name) to \(destination.name)", look: .done)
+    }
+
+    /// The tab on screen going with `members` to another space or window:
+    /// where ⌘W would land, none of them, comes to the front instead (see
+    /// landing), or nothing does — not each of them in turn on the way out,
+    /// waking as it goes.
+    private func stepAside(from members: [Tab]) {
+        guard let here = active, members.contains(where: { $0.id == here.id }) else { return }
+        // The other page of its pair first, as ⌘W has it, when that one stays.
+        let partner = split(for: here).flatMap { pair in tabs.first { $0.id == pair.partner(of: here.id) } }
+        land(on: landing(leaving: here, partner: partner, gone: Set(members.map(\.id))), floatPrevious: false)
     }
 
     @discardableResult
@@ -5200,18 +5361,12 @@ final class Browser: NSObject, ObservableObject {
 
         if floating == tab.id { land() }
         if editingTab == tab.id { cancelTabEdit() }
-        if activeID == tab.id {
-            if let partner {
-                select(partner, floatPrevious: false)
-            } else if tabs.count > 1 {
-                select(tabs[index == tabs.count - 1 ? index - 1 : index + 1], floatPrevious: false)
-            } else {
-                activeID = nil
-            }
-        }
+        // The tab in front going: where ⌘W would land (see landing), or
+        // nothing in front. The window stays open and empty rather than
+        // making a tab to hold its place.
+        if activeID == tab.id { land(on: landing(leaving: tab, partner: partner), floatPrevious: false) }
         tabs.remove(at: index)
         removeEmptyGroup(tab.groupID)
-        if tabs.isEmpty { adopt(Tab(configuration: Web.configuration(space: spaceID))) }
 
         tab.rehome(in: id)
         // Its group stays behind: the space it goes to has groups of its own
@@ -5251,24 +5406,46 @@ final class Browser: NSObject, ObservableObject {
 
     // MARK: - a tab to another window
 
-    /// The tab's menu: Move to New Window, or to another window. The tab
-    /// goes as it is, page and all, into the other window's row after the
-    /// tab it's on, in front there; into a space with other sign-ins it
-    /// reopens with those, as Move to Space does. Not a pin: pins are
-    /// already in every window.
+    /// One tab to another window (move(_:toWindow:front:at:)).
     func moveToWindow(_ tab: Tab, _ target: Browser?, at point: NSPoint? = nil) {
-        guard target?.isPopup != true else { return }
-        guard tab.pin == nil, !tab.bench, target !== self, tabs.contains(where: { $0.id == tab.id }),
-              target != nil || tabs.count > 1 || !tab.isBlank,
+        move([tab], toWindow: target, at: point)
+    }
+
+    /// Move to Window, from the menu, and tabs dragged out of the column
+    /// (dragOut): the one way tabs go to another window. Each that can go,
+    /// in the order given, goes as it is, page and all, into the other
+    /// window's row where a new tab would, or into a new window: `front` —
+    /// the first, unless said — in front there and the only one woken; into
+    /// a space with other sign-ins they reopen with those, as Move to Space
+    /// does. A new window opens where they were let go (`point`), or where
+    /// new windows open. Not a pin: pins are already in every window. Not
+    /// every tab of this one into a new window, which would leave an empty
+    /// one behind for nothing, unless it is one tab with a page.
+    func move(_ tabs: [Tab], toWindow target: Browser?, front: Tab? = nil, at point: NSPoint? = nil) {
+        guard target?.isPopup != true, target !== self,
               // A window of another profile is another browser: never there.
-              target.map({ $0.profileID == profileID }) ?? true
-        else { return }
+              target.map({ $0.profileID == profileID }) ?? true else { return }
+        let going = tabs.filter { tab in tab.pin == nil && !tab.bench && self.tabs.contains { $0.id == tab.id } }
+        guard let first = going.first,
+              target != nil || going.count < self.tabs.count || (going.count == 1 && !first.isBlank) else { return }
         let destination = target ?? Browser(record: WindowRecord(space: spaceID))
-        detach(tab)
-        destination.receive(tab)
-        if target == nil {
-            // Dragged out: the new window where the tab was let go, its row
-            // under the hand.
+        // The tab in front, going too, hands over to one that stays first:
+        // left to each tab's leaving, it went to the next of them, which
+        // woke on the way out and stayed awake behind the one in front there.
+        // With none staying to go to, it leaves last, when there is no
+        // tab left to wake.
+        stepAside(from: going)
+        let inFront = going.filter { $0.id == activeID }
+        // Pairs among them come apart, as one tab moved leaves its pair.
+        for tab in going.filter({ $0.id != activeID }) + inFront { detach(tab) }
+        destination.receive(going, front: front.flatMap { front in going.first { $0 === front } } ?? first)
+        bringUp(destination, made: target == nil, at: point)
+    }
+
+    /// The window tabs were moved to, in front: a new one where they were
+    /// let go, its row under the hand, or else where new windows open.
+    private func bringUp(_ destination: Browser, made: Bool, at point: NSPoint?) {
+        if made {
             let frame = point.map { p -> NSRect in
                 let size = window?.frame.size ?? NSSize(width: 1180, height: 780)
                 return NSRect(x: p.x - 120, y: p.y - size.height + 20, width: size.width, height: size.height)
@@ -5286,9 +5463,12 @@ final class Browser: NSObject, ObservableObject {
     func dragOut(_ tab: Tab, at point: NSPoint = NSEvent.mouseLocation) -> Bool {
         guard tab.pin == nil, !tab.bench, isPastEdge(point) else { return false }
         let over = Browsers.all.first { $0 !== self && $0.isOpen && !$0.isPopup && $0.profileID == profileID && $0.window?.frame.contains(point) == true }
-        guard over != nil || tabs.count > 1 else { return false }
+        // Picked with others, they all go with it, as they move together
+        // along the column (carried(with:)).
+        let moving = isPickedAmongOthers(tab) ? carried(with: tab).filter { $0.pin == nil && !$0.bench } : [tab]
+        guard over != nil || tabs.count > moving.count else { return false }
         // After the drag has let go, not inside it.
-        DispatchQueue.main.async { [weak self] in self?.moveToWindow(tab, over, at: point) }
+        DispatchQueue.main.async { [weak self] in self?.move(moving, toWindow: over, front: tab, at: point) }
         return true
     }
 
@@ -5308,34 +5488,38 @@ final class Browser: NSObject, ObservableObject {
         leaveSplit(tab)
         if floating == tab.id { land() }
         if editingTab == tab.id { cancelTabEdit() }
-        if activeID == tab.id {
-            if let partner {
-                select(partner, floatPrevious: false)
-            } else if tabs.count > 1 {
-                select(tabs[index == tabs.count - 1 ? index - 1 : index + 1], floatPrevious: false)
-            } else {
-                activeID = nil
-            }
-        }
+        // As a tab moved to another space: where ⌘W would land, or nothing
+        // in front, the window left open and empty (see landing).
+        if activeID == tab.id { land(on: landing(leaving: tab, partner: partner), floatPrevious: false) }
         tabs.remove(at: index)
         removeEmptyGroup(tab.groupID)
         tab.groupID = nil
-        if tabs.isEmpty { adopt(Tab(configuration: Web.configuration(space: spaceID))) }
         writeSession(now: true)
     }
 
-    /// A tab from another window, in front here. The empty tab a new window
-    /// starts with makes way for it.
+    /// A tab from another window, in front here. An empty tab left alone
+    /// there makes way for it.
     func receive(_ tab: Tab) {
-        prepare(tab)
-        if !tab.shy { tab.rehome(in: spaceID) }
+        receive([tab], front: tab)
+    }
+
+    /// Tabs from another window, together where a new tab would go, in
+    /// their order, `front` in front: only that one woken, if it was
+    /// asleep. An empty tab left alone there makes way for them.
+    func receive(_ moved: [Tab], front: Tab) {
+        for tab in moved {
+            prepare(tab)
+            if !tab.shy { tab.rehome(in: spaceID) }
+        }
         let blanks = tabs.filter { $0.isBlank && !$0.bench && split(for: $0) == nil }
-        tabs.insert(tab, at: placeForNew())
-        select(tab, floatPrevious: false)
-        if tabs.count - blanks.count == 1 + pinnedCount {
+        var row = tabs
+        row.insert(contentsOf: moved, at: placeForNew())
+        tabs = row
+        select(front, floatPrevious: false)
+        if tabs.count - blanks.count == moved.count + pinnedCount {
             for blank in blanks { tabs.removeAll { $0 === blank }; blank.close() }
         }
-        if let active, active.id == tab.id, tab.asleep { _ = tab.wake() }
+        if let active, active.id == front.id, front.asleep { _ = front.wake() }
         writeSession(now: true)
     }
 
@@ -5455,8 +5639,7 @@ final class Browser: NSObject, ObservableObject {
     /// Addresses on the pasteboard, a line each, and said so.
     func copy(links: [String]) {
         guard !links.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
+        paste(links)
         announce(links.count == 1 ? "Link copied" : "\(links.count) links copied", look: .done)
     }
 
@@ -5778,7 +5961,7 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// A group lasts as long as its tabs: the last one gone, it goes too.
-    private func removeEmptyGroup(_ id: UUID?) {
+    func removeEmptyGroup(_ id: UUID?) {
         guard let id, !tabs.contains(where: { $0.groupID == id }) else { return }
         tabGroups.removeAll { $0.id == id }
         if editingGroupID == id { editingGroupID = nil }
@@ -5876,9 +6059,6 @@ final class Browser: NSObject, ObservableObject {
         selectableTabs.filter { selectedTabIDs.contains($0.id) }.count
     }
 
-    var selectedTabLinkCount: Int {
-        selectedTabLinks.count
-    }
 
     var selectedTabLinks: [String] {
         selectableTabs.compactMap { tab in
@@ -5886,18 +6066,17 @@ final class Browser: NSObject, ObservableObject {
         }
     }
 
-    func copySelectedTabLinks() {
-        let links = selectedTabLinks
-        guard !links.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
-        announce(links.count == 1 ? "1 address copied" : "\(links.count) addresses copied", look: .done)
-    }
-
     /// ⌃Tab, ⌃⇧Tab: the next tab on screen, round to the first again. It
     /// walks the whole row from the tab you are on, so it finds its way out
     /// even when that tab is one the row doesn't show.
     func step(_ direction: Int) {
+        // From nothing in front: the first tab the column shows, or going
+        // backwards the last.
+        guard activeID != nil else {
+            let shown = shownTabs
+            if let next = direction > 0 ? shown.first : shown.last { select(entry(next)) }
+            return
+        }
         let shown = Set(shownTabs.map(\.id))
         guard let anchor = activeSplit?.left ?? activeID,
               shown.count > 1 || (shown.count == 1 && !shown.contains(anchor)),
@@ -5941,7 +6120,8 @@ final class Browser: NSObject, ObservableObject {
     /// windows beside them. Nothing changes until ⌃ is let go of
     /// (`commitTabSwitch`).
     func switchTabs(backwards: Bool) {
-        guard let activeID else { return }
+        // With nothing in front, too: the gesture starts on the tab left
+        // last, with no card of its own (TabSwitcher.step).
         tabSwitcher.partners = switcherPartners
         tabSwitcher.step(row: switcherRow, current: activeSplit?.left ?? activeID,
                          backwards: backwards, moons: LittleWindow.stacked, behindFirst: prefs.switcherBehindFirst)
@@ -6238,14 +6418,10 @@ final class Browser: NSObject, ObservableObject {
         typed = ""
         editing = false
         focusRequest += 1
-        announce("A tab that keeps nothing")
     }
 
-    /// ⌘D. The same page, beside itself.
-    func duplicate() {
-        guard let url = active?.address else { return }
-        open(url, foreground: true, from: active)
-    }
+    /// Tabs › Duplicate Tab. The same page, beside itself (see duplicate(_:)).
+    func duplicate() { duplicate(frontTabs) }
 
     /// ⌘⇧V, when nothing is being typed. What is in the clipboard, if it is a
     /// place — or a search — in the tab you're on.
@@ -6256,7 +6432,8 @@ final class Browser: NSObject, ObservableObject {
             refusals += 1
             return
         }
-        (active ?? tabs.first)?.go(to: url)
+        // With nothing in front, a tab of its own, never a pin of the row.
+        if let active { active.go(to: url) } else { open(url, foreground: true, loose: true) }
         editing = false
         typed = ""
     }
@@ -6375,9 +6552,10 @@ final class Browser: NSObject, ObservableObject {
     func loadRow(_ space: UUID) -> Parked {
         let saved = readRow(space)
         var restored = restoreRow(saved, space: space, groups: saved.groups ?? [])
-        // As restoreSession has it: nothing in front after a fresh start, so
-        // the space opens on an empty tab beside its pins (see enter); and a
-        // tab whose place no longer reads falls to the first that isn't a pin.
+        // As restoreSession has it: nothing in front, left so or after a
+        // fresh start, stays so, and the space opens on nothing beside its
+        // pins (see enter); a tab whose place no longer reads falls to the
+        // first that isn't a pin.
         if saved.active < 0 {
             restored.active = nil
         } else if restored.active == nil {
@@ -6447,17 +6625,16 @@ final class Browser: NSObject, ObservableObject {
     }
 
     /// Another space's row put on screen in place of this one (see
-    /// Spaces.swift) — empty, for one that restores its own.
-    /// `blank`: with nothing in front, an empty tab is, rather than the
-    /// first of the row (see frontBlank).
-    func showRow(_ row: [Tab], active: Tab.ID?, splits restored: [TabSplit] = [], blank: Bool = false) {
+    /// Spaces.swift) — empty, for one that restores its own. With nothing
+    /// in front there, nothing is in front here: not the first of the row,
+    /// and no empty tab made for it.
+    func showRow(_ row: [Tab], active: Tab.ID?, splits restored: [TabSplit] = []) {
         // The pages on screen, kept as they were left (Tab.keepPicture): once
         // the row is replaced, the tab left is no longer in it to be found.
         for tab in tabs where visibleTabIDs.contains(tab.id) { tab.keepPicture() }
         splits = restored
         tabs = row
-        if active == nil, blank { return frontBlank() }
-        activeID = active ?? row.first?.id
+        activeID = active
     }
 
     private func replaceSplitMember(_ old: Tab.ID, with new: Tab.ID) {
@@ -7245,13 +7422,13 @@ final class Browser: NSObject, ObservableObject {
         }
         // First, not last: typing "settings" to reach Settings is the whole
         // point, and it would otherwise sit under a search for the word.
-        let command = prefs.commandBar ? AddressCommand.matching(typed, in: self) : nil
+        let command = AddressCommand.matching(typed, in: self)
         if let command { list.insert(.command(command), at: 0) }
         // A partial command goes last, so Return still does what it did.
-        if prefs.commandBar, let near = AddressCommand.near(typed, in: self) { list.append(.command(near)) }
+        if let near = AddressCommand.near(typed, in: self) { list.append(.command(near)) }
         // The menus' commands and Settings' pages, as Arc's Command Bar has
         // them: under the rest, never the row Return takes.
-        if prefs.commandBar, !list.isEmpty { list += AddressCommand.listed(typed, in: self).map(Suggestion.command) }
+        if !list.isEmpty { list += AddressCommand.listed(typed, in: self).map(Suggestion.command) }
         // Neither a page already open nor a command has an address to
         // complete towards. And with a command on top, Return runs it: a
         // grey ending in the field ("history" finishing as history.com)
@@ -7436,10 +7613,11 @@ final class Browser: NSObject, ObservableObject {
             } else {
                 select(tab)
             }
-        } else if launching {
+        } else if launching || active == nil {
+            // With nothing in front, a tab of its own, never a pin of the row.
             open(offer.url, foreground: true, from: active, loose: true)
         } else {
-            (active ?? tabs.first)?.go(to: offer.url)
+            active?.go(to: offer.url)
         }
         editing = false
         typed = ""
@@ -7484,6 +7662,12 @@ final class Browser: NSObject, ObservableObject {
     /// ⌘L. The current address comes up selected, so typing over it replaces it
     /// and Escape puts it back.
     func edit() {
+        // Nothing in front has no page for the field to send somewhere else:
+        // ⌘L raises ⌘T's, whose Return opens a tab, and again puts it away.
+        if active == nil, !websitePopup {
+            if launching { dismiss() } else { launch() }
+            return
+        }
         // Again while it is up over the page: put away, as Escape would.
         if editing, !launching, active?.isBlank == false {
             putAway()
@@ -7543,11 +7727,12 @@ final class Browser: NSObject, ObservableObject {
         }
         siteChip = nil
         picked = nil
-        if launching {
-            // The floating new tab, as Return: a tab of its own.
+        if launching || active == nil {
+            // The floating new tab, as Return: a tab of its own. So is
+            // anything sent with nothing in front, never a pin of the row.
             open(url, foreground: true, from: active, loose: true)
         } else {
-            (active ?? tabs.first)?.go(to: url)
+            active?.go(to: url)
         }
         editing = false
         typed = ""
@@ -7622,16 +7807,17 @@ final class Browser: NSObject, ObservableObject {
             picked = nil
             return
         }
-        if launching, !aside {
+        if launching || active == nil, !aside {
             // The floating new tab: what was typed gets a tab of its own, and
-            // the page the field was raised over stays as it was.
+            // the page the field was raised over stays as it was. With
+            // nothing in front, a tab of its own too, never a pin of the row.
             open(url, foreground: true, from: active, loose: true)
         } else if aside {
             // Opened behind the page by hand, as a ⌘-clicked link is: it may
             // wait to load (Settings › Tabs › Load background tabs…).
             open(url, foreground: front, from: active, mayWait: true)
         } else {
-            (active ?? tabs.first)?.go(to: url)
+            active?.go(to: url)
         }
         editing = false
         typed = ""
@@ -8888,7 +9074,6 @@ extension Browser: WKDownloadDelegate {
         // gave it: never from "report 2.pdf", whose own " 2" is not its name.
         if chosen == nil { fetches.entry(for: download)?.retryName = prefs.asksWhereToSave ? file.lastPathComponent : name }
         completionHandler(file)
-        announce("Downloading \(file.lastPathComponent)")
     }
 
     func downloadDidFinish(_ download: WKDownload) {

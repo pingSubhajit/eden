@@ -746,12 +746,28 @@ struct OtherTabsMenu: View {
     @ViewBuilder private func pages(_ pages: [DeviceTabs.Page], of device: DeviceTabs) -> some View {
         ForEach(Array(pages.enumerated()), id: \.offset) { _, page in
             if let url = URL(string: page.url) {
-                Button {
-                    browser.open(Elsewhere.Offer(device: device, page: page))
-                } label: {
-                    MenuLine(title: page.title.isEmpty ? Address.pretty(url) : page.title, url: url)
-                }
+                line(page, url: url, of: device)
             }
+        }
+    }
+
+    /// A page, brought here when chosen; with ⌥ held, the line turns into
+    /// closing it on its device instead, as the cross on its row in the
+    /// column does (Sync.askToClose), in the way a Mac menu offers the other
+    /// half of a pair.
+    @ViewBuilder private func line(_ page: DeviceTabs.Page, url: URL, of device: DeviceTabs) -> some View {
+        let title = page.title.isEmpty ? Address.pretty(url) : page.title
+        let open = Button {
+            browser.open(Elsewhere.Offer(device: device, page: page))
+        } label: {
+            MenuLine(title: title, url: url)
+        }
+        if #available(macOS 15.0, *) {
+            open.modifierKeyAlternate(.option) {
+                Button("Close “\(title)” on \(device.name)") { Sync.shared.askToClose(page, on: device.device) }
+            }
+        } else {
+            open
         }
     }
 }

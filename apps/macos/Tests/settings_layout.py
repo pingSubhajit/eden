@@ -11,7 +11,10 @@ Nothing here makes, shows or brings forward a window.
   find field, by words someone would type, or says it is always on now;
 - the merged controls write the keys the two switches did;
 - new defaults reach only keys nobody touched;
-- an explicit off on a switch that left Settings stays off.
+- an explicit off on a switch that left Settings stays off;
+- a switch that means nothing now (Leave a new tab when the last tab
+  closes: a close never makes a tab) is gone from Settings, and its key
+  is let go at launch.
 """
 import subprocess
 import sys
@@ -31,15 +34,15 @@ BEFORE = {
     "sidebar.position": "right", "sidebar.hides": "hide the column",
     "layout.cards": "card", "sidebar.roomy": "roomier",
     "glyph": "favicon", "tabs.reading": "how far", "tabs.give": "pressed",
-    "motion.light": "low power", "tabs.newPlace": "new tab position", "tabs.newAfterLast": "last tab",
+    "motion.light": "low power", "tabs.newPlace": "new tab position",
     "tabs.lazy": "background tabs", "tabs.popupWindows": "pop-ups", "tabs.sleep": "sleep",
     "tabs.sleep.pace": "sleep", "tabs.close.after": "close tabs", "tabs.shortcuts": "numbers",
     "search.engine": "search with", "search.custom": "engine",
-    "search.suggest": "suggestions", "search.keywords": "site shortcuts", "links.little": "small window",
+    "search.suggest": "suggestions", "search.keywords": "site shortcuts", "links.little.tabs": "small window",
     "reader.twins": "markdown", "reader.follows": "reading mode", "float.style": "picture in picture",
     "float.leave": "float", "float.away": "switch apps", "media.click": "autoplay",
     "fullscreen.escapeTwice": "esc", "fullscreen.keepsWindow": "desktop", "pageZoom": "zoom", "pages.120.mode": "120", "spaces": "spaces",
-    "commandbar": "commands", "start.fresh": "fresh window", "passwords.save": "save passwords",
+    "start.fresh": "fresh window", "passwords.save": "save passwords",
     "passwords.fill": "fill", "passkeys": "passkeys", "passwords.apple": "apple passwords",
     "shield": "ads", "sites.keep": "tracking", "notifications.ask": "notifications",
     "links.peek": "peek", "links.peekClick": "peek", "autoscroll": "middle button",
@@ -121,7 +124,8 @@ def case_explicit(t):
     """explicit choices stand: offs on removed switches, old 120 Hz; old pin switches go"""
     sv.setup(**{"links.show": False, "float.flicks": False, "pages.120": False, "swipe.history": False,
                 "splitView": False, "tabs.groups": False, "panel.sites": False,
-                "pins.list": False, "pins.folders": False, "pins.home": False, "pins.peek": False})
+                "pins.list": False, "pins.folders": False, "pins.home": False, "pins.peek": False,
+                "tabs.newAfterLast": True})
     sv.launch()
     v = settings()["values"]
     t.ok("show where links go stays off", v["links.show"] is False)
@@ -133,6 +137,13 @@ def case_explicit(t):
     # an old off is let go at launch, not kept.
     gone = {key: read(key) for key in ["pins.list", "pins.folders", "pins.home", "pins.peek"]}
     t.ok("old pin switches are removed at launch", all(value is None for value in gone.values()), gone)
+    # A close never makes a new tab: the switch for one after the last tab
+    # means nothing now, and goes, row and key.
+    t.ok("Leave a new tab when the last tab closes is removed at launch", read("tabs.newAfterLast") is None,
+         read("tabs.newAfterLast"))
+    found = settings(find="last tab")["found"]
+    t.ok("…and Settings has no row for it", not any("tabs.newAfterLast" in i["keys"] for i in found),
+         [i["id"] for i in found])
 
 
 def case_merged(t):
