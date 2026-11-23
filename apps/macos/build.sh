@@ -130,6 +130,9 @@ cp Eden.sdef "$APP/Contents/Resources/"
 # a public-domain landscape, kept small: 2000 pixels across at JPEG 60, as
 # it is mostly veiled.
 cp ../../brand/welcome.jpg "$APP/Contents/Resources/Welcome.jpg"
+# Astheric Extra Light, the face for headings (Typeface.swift registers it
+# at launch), so it is there on a Mac that doesn't have it installed.
+ditto ../../brand/Fonts "$APP/Contents/Resources/Fonts"
 
 # Symbols stay out of the app. The linker leaves every function's name and a
 # map back to the source in the binary — 15,000 entries, more than half of

@@ -66,9 +66,6 @@ build goes to anyone else. Each item names where it is in the code.
 
 ## Brand
 
-- [ ] **Eden's type** Astheric Extra Light for headings and larger text,
-  bundled in both apps once its licensed files are in the repository; SF
-  stays for the rest (#38).
 - [ ] **A site** `Brand.website`, the download link in README.md, and
   `Brand.aiCallback` (OpenRouter's sign-in, never loaded) move to Eden's
   own domain.

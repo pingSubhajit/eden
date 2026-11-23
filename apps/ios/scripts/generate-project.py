@@ -51,6 +51,11 @@ for source in sources:
 # Mac app's build.sh uses too.
 icon_ref = file('../../brand/AppIcon.icon', 'folder.iconcomposer.icon')
 icon_build = add('icon-build', isa='PBXBuildFile', fileRef=icon_ref)
+# Astheric Extra Light for headings, as a folder copied in whole, so the
+# app has it as Fonts/ the way the Mac app does (Typeface.swift in EdenCore
+# registers what is in it).
+fonts_ref = file('../../brand/Fonts', 'folder')
+fonts_build = add('fonts-build', isa='PBXBuildFile', fileRef=fonts_ref)
 privacy_ref = file('Resources/PrivacyInfo.xcprivacy', 'text.xml')
 privacy_build = add('privacy-build', isa='PBXBuildFile', fileRef=privacy_ref)
 config_ref = file('Configuration/Base.xcconfig', 'text.xcconfig')
@@ -86,10 +91,10 @@ product = add('product', isa='PBXFileReference', explicitFileType='wrapper.appli
 test_product = add('test-product', isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='EdenTests.xctest', sourceTree='BUILT_PRODUCTS_DIR')
 ui_product = add('ui-product', isa='PBXFileReference', explicitFileType='wrapper.cfbundle', path='EdenUITests.xctest', sourceTree='BUILT_PRODUCTS_DIR')
 products = add('products', isa='PBXGroup', name='Products', children=[product, test_product, ui_product], sourceTree='<group>')
-main = add('main', isa='PBXGroup', children=refs + test_refs + ui_refs + [icon_ref, privacy_ref, config_ref, plist_ref, entitlements_ref, products], sourceTree='<group>')
+main = add('main', isa='PBXGroup', children=refs + test_refs + ui_refs + [icon_ref, fonts_ref, privacy_ref, config_ref, plist_ref, entitlements_ref, products], sourceTree='<group>')
 
 sources_phase = add('sources-phase', isa='PBXSourcesBuildPhase', buildActionMask='2147483647', files=builds, runOnlyForDeploymentPostprocessing='0')
-resources_phase = add('resources-phase', isa='PBXResourcesBuildPhase', buildActionMask='2147483647', files=[icon_build, privacy_build], runOnlyForDeploymentPostprocessing='0')
+resources_phase = add('resources-phase', isa='PBXResourcesBuildPhase', buildActionMask='2147483647', files=[icon_build, fonts_build, privacy_build], runOnlyForDeploymentPostprocessing='0')
 frameworks_phase = add('frameworks-phase', isa='PBXFrameworksBuildPhase', buildActionMask='2147483647', files=[core_build], runOnlyForDeploymentPostprocessing='0')
 
 project_configs, target_configs = [], []
