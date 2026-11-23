@@ -196,6 +196,48 @@ final class PinCostTests: XCTestCase {
         print("PIN-COST ⌘1–9 among 750 folded folders, the hints: \(Self.ms(hints)) ms a time")
     }
 
+    /// 1,500 rows held in folded folders, as an extension with the tabs and
+    /// tab groups permissions asks of them: each tab's place, as WebKit asks
+    /// in answering chrome.tabs.query, then the shim's describe and groups
+    /// for every place of the answer.
+    func testMeasureAnExtensionAskingOfHeldRows() async throws {
+        guard #available(macOS 15.4, *) else { throw XCTSkip("extensions need macOS 15.4") }
+        let browser = makeBrowser()
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        browser.pinShelf.take(Self.folders(30, of: 50), into: nil)
+        for group in browser.keptGroups where !group.collapsed { browser.setGroupFolded(group.id, true) }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pin-cost-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let manifest: [String: Any] = ["manifest_version": 3, "name": "Pin cost", "version": "1",
+                                       "permissions": ["tabs", "tabGroups"]]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: folder.appendingPathComponent("manifest.json"))
+        let context = WKWebExtensionContext(for: try await WKWebExtension(resourceBaseURL: folder))
+        context.uniqueIdentifier = "pin-cost-\(UUID().uuidString)"
+        context.setPermissionStatus(.grantedExplicitly, for: .tabs)
+        let owner = Extensions.shared
+
+        var began = CACurrentMediaTime()
+        let rows = owner.visibleRows(of: browser, for: context)
+        let places = rows.map { $0.indexInWindow(for: context) }
+        let placing = CACurrentMediaTime() - began
+        XCTAssertEqual(places.count, 1_500)
+
+        began = CACurrentMediaTime()
+        let described = try await ExtensionShims.answer(["api": "tabs.describe", "args": [Array(rows.indices)]], from: context, owner: owner)
+        let describing = CACurrentMediaTime() - began
+        began = CACurrentMediaTime()
+        let grouped = try await ExtensionShims.answer(["api": "tabs.groups", "args": [Array(rows.indices)]], from: context, owner: owner)
+        let grouping = CACurrentMediaTime() - began
+        XCTAssertNotNil(described)
+        XCTAssertNotNil(grouped)
+
+        print("PIN-COST an extension's query of 1500 held rows, each one's place: \(Self.ms(placing)) ms")
+        print("PIN-COST tabs.describe of 1500 held rows: \(Self.ms(describing)) ms")
+        print("PIN-COST tabs.groups of 1500 held rows: \(Self.ms(grouping)) ms")
+    }
+
     /// The same 1,500 brought in from a bookmarks file, as Import does it.
     func testMeasureFifteenHundredPinsFromAFile() async throws {
         let first = makeBrowser()

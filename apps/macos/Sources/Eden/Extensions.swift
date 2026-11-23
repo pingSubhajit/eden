@@ -394,7 +394,39 @@ final class Extensions: NSObject, ObservableObject {
     /// held as data in their places among them (Browser.placesInRow), as
     /// adapters. WebKit's indices and the shim's places count in this list.
     func visibleRows(of browser: Browser, for context: WKWebExtensionContext? = nil) -> [ExtensionTab] {
-        browser.placesInRow.compactMap { place -> ExtensionTab? in
+        rows(of: browser, for: context).list
+    }
+
+    /// Where `adapter` stands in its window's row as `context` sees it.
+    func index(of adapter: ExtensionTab, in browser: Browser, for context: WKWebExtensionContext) -> Int? {
+        rows(of: browser, for: context).places[ObjectIdentifier(adapter)]
+    }
+
+    /// A window's row as extensions see it, and where each stands, by who
+    /// sees what: private tabs to an extension let into them or not, or to
+    /// every extension (no context).
+    private struct RowsKey: Hashable {
+        let browser: ObjectIdentifier
+        let privately: Bool?
+    }
+
+    private struct Rows {
+        let stamp: Int
+        let list: [ExtensionTab]
+        let places: [ObjectIdentifier: Int]
+    }
+
+    /// Each window's rows, worked out once while the row stays as it is
+    /// (Browser.rowStamp) and for a turn of the main queue at most: WebKit
+    /// asks each tab of an answer for its place, and the shim each place
+    /// for its tab, and worked out every time, fifteen hundred pinned rows
+    /// held as data made one chrome.tabs.query a walk of the row a tab.
+    private var rowsKept: [RowsKey: Rows] = [:]
+
+    private func rows(of browser: Browser, for context: WKWebExtensionContext?) -> Rows {
+        let key = RowsKey(browser: ObjectIdentifier(browser), privately: context.map(\.hasAccessToPrivateData))
+        if let kept = rowsKept[key], kept.stamp == browser.rowStamp { return kept }
+        let list = browser.placesInRow.compactMap { place -> ExtensionTab? in
             switch place {
             case .tab(let tab):
                 guard context.map({ seen(tab, for: $0) }) ?? seen(tab) else { return nil }
@@ -403,6 +435,11 @@ final class Extensions: NSObject, ObservableObject {
                 return adapter(held: pin, id: id, in: browser)
             }
         }
+        let made = Rows(stamp: browser.rowStamp, list: list,
+                        places: Dictionary(list.enumerated().map { (ObjectIdentifier($1), $0) }, uniquingKeysWith: { first, _ in first }))
+        if rowsKept.isEmpty { DispatchQueue.main.async { [weak self] in self?.rowsKept = [:] } }
+        rowsKept[key] = made
+        return made
     }
 
     /// Private tabs keep nothing and show nothing to an extension you haven't
@@ -463,10 +500,23 @@ final class Extensions: NSObject, ObservableObject {
         return same.count == 1 ? same[0] : nil
     }
 
-    /// The window a tab is in, when it is in one's row.
+    /// The window a tab is in, when it is in one's row: looked up in every
+    /// window's row, read once while none of them changes, for a turn of
+    /// the main queue at most (see rowsKept), as WebKit asks it of each tab
+    /// of an answer.
     func browser(of tab: Tab) -> Browser? {
-        Browsers.all.first { $0.tabs.contains { $0.id == tab.id } }
+        let stamps = Browsers.all.map { (ObjectIdentifier($0), $0.rowStamp) }
+        if windowsKept?.stamps.elementsEqual(stamps, by: { $0 == $1 }) != true {
+            var by: [Tab.ID: Browser] = [:]
+            for browser in Browsers.all.reversed() { for tab in browser.tabs { by[tab.id] = browser } }
+            if windowsKept == nil { DispatchQueue.main.async { [weak self] in self?.windowsKept = nil } }
+            windowsKept = (stamps, by)
+        }
+        return windowsKept?.by[tab.id]
     }
+
+    /// Every window's tabs, by id, and the rows they were read from.
+    private var windowsKept: (stamps: [(ObjectIdentifier, Int)], by: [Tab.ID: Browser])?
 
     func activeAdapter(for context: WKWebExtensionContext) -> ExtensionTab? {
         browser.flatMap { activeAdapter(of: $0, for: context) }
@@ -2212,7 +2262,7 @@ final class ExtensionTab: NSObject, WKWebExtensionTab {
 
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
         guard !aside, let browser else { return NSNotFound }
-        return owner.visibleRows(of: browser, for: context).firstIndex { $0 === self } ?? NSNotFound
+        return owner.index(of: self, in: browser, for: context) ?? NSNotFound
     }
 
     /// A tab showing another extension's page gives an extension nothing of

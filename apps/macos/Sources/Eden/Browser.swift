@@ -41,6 +41,7 @@ final class Browser: NSObject, ObservableObject {
     /// what is on screen never disagree.
     @Published private(set) var tabs: [Tab] = [] {
         didSet {
+            rowStamp &+= 1
             arrangeGroupedTabs()
             if !selectedTabIDs.isEmpty {
                 let valid = selectedTabIDs.intersection(Set(tabs.map(\.id)))
@@ -3549,8 +3550,15 @@ final class Browser: NSObject, ObservableObject {
     /// Published for the extensions, which list a held row as a tab at rest
     /// (Extensions.follow).
     @Published var heldPins: [UUID: [HeldGroup]] = [:] {
-        didSet { heldPageCache = [:] }
+        didSet {
+            heldPageCache = [:]
+            rowStamp &+= 1
+        }
     }
+
+    /// Counts each change to the row or its rows held as data, for what is
+    /// worked out from them both and kept meanwhile (Extensions.visibleRows).
+    private(set) var rowStamp = 0
 
     /// The held rows' pages, by space, worked out when first asked after
     /// they change (heldPages(in:)).
