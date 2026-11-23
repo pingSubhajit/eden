@@ -9,6 +9,15 @@ import XCTest
 /// hand (its page starting to load as the press selects it, its icon
 /// arriving); the carry has to end then too (CarryGuard). Windows far off
 /// every screen, never activated, as PinDragTests.
+///
+/// The square's drag is called off here by a press of the middle button
+/// where the hand is, which SwiftUI answers by taking the left button's drag
+/// away (`pressMiddle`). Waiting for an icon to arrive was no test:
+/// with each event delivered as a real one is (`send`), an icon arriving or a
+/// page starting to load under the hand calls no drag off on macOS 27.2,
+/// alone or after other suites. Where one did, it was the release an earlier
+/// test left as the app's current event, and the drag went with or without
+/// an icon.
 @MainActor
 final class PinStuckTests: XCTestCase {
     private var browsers: [Browser] = []
@@ -51,8 +60,9 @@ final class PinStuckTests: XCTestCase {
         try await super.tearDown()
     }
 
-    /// The square picked up, its icon arriving mid-carry: called off, and
-    /// put down at once rather than left held.
+    /// The square picked up and its drag called off by SwiftUI mid-carry:
+    /// put down at once rather than left held, and the release that follows
+    /// drops nothing.
     func testASquareCalledOffMidCarryIsPutDown() async throws {
         let browser = makeBrowser(count: 10)
         for tab in browser.tabs.prefix(6) { browser.pin(tab) }
@@ -65,17 +75,16 @@ final class PinStuckTests: XCTestCase {
             point(x: x + 10, y: y, in: window),
         ], in: window)
         XCTAssertEqual(CarryGuard.count, 1, "carried")
-        iconArrives(browser.tabs[0], in: browser)
-        // The square is drawn again with its icon, and the carry called off,
-        // a moment later: later still on a Mac busy with other suites (#16).
-        try await waitFor { CarryGuard.count == 0 }
+        try await pressMiddle(at: last, in: window)
         XCTAssertEqual(CarryGuard.count, 0, "put down as the drag was called off")
+        try await releaseMiddle(in: window)
         try await send(.leftMouseUp, at: last, in: window)
         try await settle()
         XCTAssertEqual(CarryGuard.count, 0)
         XCTAssertEqual(browser.squarePins.count, 6)
         // Picked up again, it goes where it is carried — once the page the
-        // first press selected has loaded, which would call it off too.
+        // first press selected has loaded, so its square isn't changing
+        // under the hand.
         let first = browser.tabs[0]
         try await waitFor(within: 10) { first.built != nil && !first.loading }
         try await settle()
@@ -87,15 +96,10 @@ final class PinStuckTests: XCTestCase {
         XCTAssertEqual(CarryGuard.count, 0)
     }
 
-    /// Called off out over the rows: the line it opened among them closes,
-    /// it stays a pin, and the rows take clicks where they are.
-    ///
-    /// Called off the way SwiftUI's call-off ends a carry (CarryGuard), not
-    /// by an icon arriving as above: out over the rows, the icon arriving
-    /// doesn't call the drag off (seen on macOS 27.2, every run), so the
-    /// release dropped the square among the rows, and the test failed on
-    /// when SwiftUI calls a drag off rather than on what the column does
-    /// once it has.
+    /// Called off by SwiftUI out over the rows: the line it opened among
+    /// them closes, it stays a pin, and the rows take clicks where they are.
+    /// The middle button goes down on the row under the hand, not the
+    /// square, and SwiftUI takes the square's drag away all the same.
     func testASquareCalledOffOverTheRowsLeavesNoLineOpen() async throws {
         let browser = makeBrowser(count: 6)
         let t = browser.tabs
@@ -111,8 +115,9 @@ final class PinStuckTests: XCTestCase {
             point(x: 80, y: top + 30 + 30 + 4, in: window),
         ], in: window)
         XCTAssertEqual(CarryGuard.count, 1, "carried")
-        CarryGuard.endAll()
-        try await settle()
+        try await pressMiddle(at: last, in: window)
+        XCTAssertEqual(CarryGuard.count, 0, "put down as the drag was called off")
+        try await releaseMiddle(in: window)
         try await send(.leftMouseUp, at: last, in: window)
         try await settle()
         XCTAssertEqual(CarryGuard.count, 0)
@@ -181,14 +186,21 @@ final class PinStuckTests: XCTestCase {
 
     // MARK: - helpers
 
-    /// What is carried changes under the hand: an icon arriving, shown.
-    private func iconArrives(_ tab: Eden.Tab, in browser: Browser) {
-        browser.prefs.glyph = .icons
-        tab.icon = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            NSColor.systemBlue.setFill()
-            rect.fill()
-            return true
-        }
+    /// The middle button pressed where the hand is, mid-carry: SwiftUI takes
+    /// the left button's drag away without onEnded and puts its state back,
+    /// which is all the square hears of it (PinCarried). Nothing else here
+    /// ends the carry: CarryGuard watches for the left button going down,
+    /// and the middle button's own views act only on its release. The
+    /// button stays down until `releaseMiddle`.
+    private func pressMiddle(at point: NSPoint, in window: NSWindow) async throws {
+        try await sendMiddle(.otherMouseDown, at: point, in: window)
+        try await waitFor(within: 1) { CarryGuard.count == 0 }
+    }
+
+    /// The middle button let go off the squares and rows, so it closes
+    /// nothing.
+    private func releaseMiddle(in window: NSWindow) async throws {
+        try await sendMiddle(.otherMouseUp, at: point(x: 100, y: 480, in: window), in: window)
     }
 
     private func makeBrowser(count: Int) -> Browser {
@@ -281,9 +293,33 @@ final class PinStuckTests: XCTestCase {
         ))
     }
 
-    /// Straight to the window, as PinDragTests does.
+    /// Through the app, as a real event comes (as RowCarryTests sends them):
+    /// taken off its queue, so NSApp.currentEvent is this event while it is
+    /// delivered. Sent straight to the window, the current event was
+    /// whatever last came through the app, a release `post` took off the
+    /// queue in an earlier test, and the square was put down half a second
+    /// into a carry, with nothing changed under the hand: the call-off test
+    /// passed only after another test, and failed alone.
     private func send(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) async throws {
-        window.sendEvent(try event(type, at: point, in: window))
+        try await deliver(try event(type, at: point, in: window))
+    }
+
+    /// The middle button's, numbered 2 as a real one is. An event made for a
+    /// window takes no button number, and the 0 it is left with is the left
+    /// button's: the middle button's views turned it away, and SwiftUI took
+    /// it for another left press, which called off a square's drag only
+    /// where it landed on the square, never out over the rows.
+    private func sendMiddle(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) async throws {
+        let made = try XCTUnwrap(try event(type, at: point, in: window).cgEvent)
+        made.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+        try await deliver(try XCTUnwrap(NSEvent(cgEvent: made)))
+    }
+
+    private func deliver(_ event: NSEvent) async throws {
+        NSApp.postEvent(event, atStart: true)
+        let queued = try XCTUnwrap(NSApp.nextEvent(matching: .any, until: .distantPast, inMode: .default,
+                                                   dequeue: true))
+        NSApp.sendEvent(queued)
         try await Task.sleep(for: .milliseconds(30))
     }
 
