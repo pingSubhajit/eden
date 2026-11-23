@@ -22,9 +22,9 @@ struct StartPage: View {
                 HStack {
                     Spacer()
                     Logomark()
-                        .fill(.primary, style: FillStyle(eoFill: true))
+                        .fill(.primary)
                         .aspectRatio(Logomark.canvas.width / Logomark.canvas.height, contentMode: .fit)
-                        .frame(height: 30)
+                        .frame(height: 40)
                         .accessibilityLabel("Eden")
                     Spacer()
                 }
@@ -48,7 +48,7 @@ struct StartPage: View {
                     let closed = Elsewhere.closed(on: browser.elsewhere, now: now, openHere: browser.openHere)
                     if !closed.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("Recently Closed on Your Other Devices").font(.headline)
+                            Text("Recently Closed on Your Other Devices").displayFont(26)
                             ForEach(Array(closed.enumerated()), id: \.offset) { _, offer in
                                 Button { browser.open(offer, in: tab) } label: {
                                     HStack(spacing: 12) {
@@ -73,7 +73,7 @@ struct StartPage: View {
                 // The space's pins, a tap away; never in a private tab.
                 if tab?.isPrivate != true, !browser.shownPins.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Pins").font(.headline)
+                        Text("Pins").displayFont(26)
                         PinStrip(browser: browser, container: "start")
                     }
                 }
@@ -121,7 +121,7 @@ struct StartPage: View {
 
     private func section(_ title: String, sites: [(String, URL)]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline)
+            Text(title).displayFont(26)
             ForEach(Array(sites.enumerated()), id: \.offset) { _, site in
                 Button {
                     if let tab { tab.load(site.1); browser.select(tab) } else { browser.newTab(url: site.1) }

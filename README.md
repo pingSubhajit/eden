@@ -81,7 +81,7 @@ You need Xcode 27. From `apps/macos/`:
 
 - `swift build` runs the app from SwiftPM.
 - `./build.sh` makes `build/Eden.app`. It signs with a Developer ID or development certificate from your keychain if it finds one, and ad hoc otherwise.
-- `EDEN_DEV=1 ./build.sh` makes a dev build with a yellow icon, named after its branch.
+- `EDEN_DEV=1 ./build.sh` makes a dev build with a sage icon, named after its branch.
 - `./build.sh release dmg` adds `Eden.dmg` and `Eden.zip`. `./build.sh release ship` also notarizes, which needs the owner's Apple credentials.
 
 An ad hoc build asks for a right-click › Open on first launch. Its passwords stay apart from a signed Eden's, since the keychain tells the two apps apart by signature.

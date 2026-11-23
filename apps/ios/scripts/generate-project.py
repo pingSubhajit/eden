@@ -47,9 +47,9 @@ for source in sources:
     refs.append(reference)
     builds.append(add('build:' + relative, isa='PBXBuildFile', fileRef=reference))
 
-# The icon is an Icon Composer document (scripts/make-icon.sh writes it from
-# the Mac app's icon script, so both draw the one mark).
-icon_ref = file('Resources/AppIcon.icon', 'folder.iconcomposer.icon')
+# The icon is an Icon Composer document, brand/AppIcon.icon, the one the
+# Mac app's build.sh uses too.
+icon_ref = file('../../brand/AppIcon.icon', 'folder.iconcomposer.icon')
 icon_build = add('icon-build', isa='PBXBuildFile', fileRef=icon_ref)
 privacy_ref = file('Resources/PrivacyInfo.xcprivacy', 'text.xml')
 privacy_build = add('privacy-build', isa='PBXBuildFile', fileRef=privacy_ref)

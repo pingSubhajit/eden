@@ -33,7 +33,7 @@ On the installed browser, only when they asked you to drive that window: `tabs`,
 
 ## Get a test world listening
 
-One process per world. Quit a process only after its executable path is this repo's `build/Eden.app` or a `.build/` binary, or its environment contains `EDEN_PROBE`. Leave `/Applications/Eden.app` alone. `killall`, quitting by the name Eden, and `osascript` quit hit the installed app too: same bundle id, same process name. A `EDEN_DEV=1 ./build.sh` build shows as `Eden-<branch>` on a yellow icon in the Dock and ⌘Tab (see build.sh), but that name is only what people see: its process is still `Eden`, so go by the executable path.
+One process per world. Quit a process only after its executable path is this repo's `build/Eden.app` or a `.build/` binary, or its environment contains `EDEN_PROBE`. Leave `/Applications/Eden.app` alone. `killall`, quitting by the name Eden, and `osascript` quit hit the installed app too: same bundle id, same process name. A `EDEN_DEV=1 ./build.sh` build shows as `Eden-<branch>` on a sage icon in the Dock and ⌘Tab (see build.sh), but that name is only what people see: its process is still `Eden`, so go by the executable path.
 
 1. `./bench --test tabs` (or `--world NAME`). A tab list means that world is listening. Do not launch another.
 2. If it prints `Eden isn't listening`:

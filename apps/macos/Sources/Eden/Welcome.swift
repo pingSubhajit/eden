@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 /// The first time. Four short pages over the window, in the app's own
@@ -33,6 +34,11 @@ struct WelcomePanel: View {
     var body: some View {
         ZStack {
             Palette.ground.ignoresSafeArea()
+            // The first page stands in front of a painting; the pages after
+            // it are plain, so it fades as you go on.
+            Painting()
+                .opacity(page == 0 ? 1 : 0)
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
@@ -66,7 +72,7 @@ struct WelcomePanel: View {
             Plate(size: 72)
             VStack(spacing: 10) {
                 Text("Eden")
-                    .font(.system(size: 34, weight: .medium))
+                    .displayFont(64)
                     .foregroundStyle(Palette.ink)
                 Text("A browser with nothing in the way. Four megabytes, the engine already in your Mac, and as little around the page as we could manage.")
                     .font(.system(size: 14.5))
@@ -302,7 +308,7 @@ struct WelcomePanel: View {
     private func heading(_ title: String, _ line: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 26, weight: .medium))
+                .displayFont(34)
                 .foregroundStyle(Palette.ink)
             Text(line)
                 .font(.system(size: 14))
@@ -314,15 +320,57 @@ struct WelcomePanel: View {
 
     // MARK: - pieces
 
+    /// A landscape at dusk behind the first page, the one place inside the
+    /// app with Eden's own colours: the painting brings them, and the app's
+    /// ground veils it in the middle so the name and the line under it read
+    /// as they do on the plain pages. Dimmed in dark mode, under the dark
+    /// ground. Nothing at all when the app has no painting, as when it runs
+    /// straight from SwiftPM rather than from build.sh's bundle.
+    private struct Painting: View {
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            if let image = Self.image {
+                let dark = scheme == .dark
+                Color.clear
+                    .overlay(
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .brightness(dark ? -0.18 : 0)
+                            .saturation(dark ? 0.9 : 1)
+                    )
+                    .overlay(
+                        EllipticalGradient(
+                            stops: [
+                                .init(color: Palette.ground.opacity(0.88), location: 0),
+                                .init(color: Palette.ground.opacity(0.6), location: 0.7),
+                                .init(color: Palette.ground.opacity(dark ? 0.25 : 0.15), location: 1),
+                            ],
+                            endRadiusFraction: 1.2
+                        )
+                    )
+                    .clipped()
+                    .accessibilityHidden(true)
+            }
+        }
+
+        /// Read once, from the app's Resources.
+        private static let image: NSImage? = Bundle.main
+            .url(forResource: "Welcome", withExtension: "jpg")
+            .flatMap(NSImage.init(contentsOf:))
+    }
+
     /// The mark alone, at whatever height the page wants — no plate behind
-    /// it, the same as everywhere else it's drawn.
+    /// it, the same as everywhere else it's drawn. The arch stands taller
+    /// than it is wide, so it takes most of that height.
     private struct Plate: View {
         let size: CGFloat
         var body: some View {
             Logomark()
-                .fill(Palette.ink, style: FillStyle(eoFill: true))
+                .fill(Palette.ink)
                 .aspectRatio(Logomark.canvas.width / Logomark.canvas.height, contentMode: .fit)
-                .frame(height: size * 0.56)
+                .frame(height: size * 0.72)
         }
     }
 

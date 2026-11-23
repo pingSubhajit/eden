@@ -1,3 +1,4 @@
+import EdenCore
 import SwiftUI
 
 // The pieces every panel is made of, so that Settings, History, Downloads
@@ -41,7 +42,7 @@ struct Plate<Content: View, Foot: View>: View {
     private var page: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.system(size: 22, weight: .semibold))
+                .displayFont(30)
                 .foregroundStyle(Palette.ink)
                 .padding(.top, 44)
                 .padding(.bottom, 20)

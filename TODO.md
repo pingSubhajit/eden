@@ -66,10 +66,9 @@ build goes to anyone else. Each item names where it is in the code.
 
 ## Brand
 
-- [ ] **A designed mark** The icon and the logomark are the pill Search
-  cut its S from, with an E (apps/macos/Icon/icon.swift, `Logomark` in
-  apps/macos/Sources/Eden/Design.swift and apps/ios/Sources/Logomark.swift).
-  `apps/ios/scripts/make-icon.sh` writes the iOS icon from the same script.
+- [ ] **Eden's type** Astheric Extra Light for headings and larger text,
+  bundled in both apps once its licensed files are in the repository; SF
+  stays for the rest (#38).
 - [ ] **A site** `Brand.website`, the download link in README.md, and
   `Brand.aiCallback` (OpenRouter's sign-in, never loaded) move to Eden's
   own domain.
