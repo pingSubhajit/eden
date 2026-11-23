@@ -41,12 +41,72 @@ final class SettingsIndexTests: XCTestCase {
         XCTAssertEqual(SettingsPanel.Page.named("privacy"), .privacy)
     }
 
+    /// Eden comes with the owner's own settings (23 Nov 2026): every one of
+    /// these is what a fresh install starts with, nothing written to read it.
+    func testEdenComesWithTheOwnersSettings() {
+        let keys = ["sidebar.player", "handoff", "float.minimize", "float.style", "reader.follows",
+                    "inspector.chrome", Motion.lightKey, Preferences.confirmQuitKey, "search.suggest",
+                    "sidebar.roomy", "glyph", "tabs.give", "tabs.popupWindows", "tabs.closeGoesBack",
+                    "tabs.frontBeside", "tabs.reading", SleepPace.key]
+        let saved = (keys + [Preferences.syncedBeforeKey]).map { ($0, Store.settings.object(forKey: $0)) }
+        defer { for (key, value) in saved { Store.settings.set(value, forKey: key) } }
+        keys.forEach(Store.settings.removeObject(forKey:))
+        // As a fresh install has it once its first launch is past.
+        Store.settings.set(true, forKey: Preferences.syncedBeforeKey)
+        let prefs = Preferences()
+        XCTAssertTrue(prefs.showsPlayer)
+        XCTAssertTrue(prefs.handsOff)
+        XCTAssertTrue(prefs.floatMinimizes)
+        XCTAssertEqual(prefs.floatStyle, .system)
+        XCTAssertTrue(prefs.readerFollowsLook)
+        XCTAssertTrue(prefs.inspectorChrome)
+        XCTAssertTrue(prefs.lightMotion)
+        XCTAssertTrue(prefs.confirmsQuit)
+        XCTAssertTrue(prefs.engineSuggests)
+        XCTAssertTrue(prefs.roomyTabs)
+        XCTAssertEqual(prefs.glyph, .icons)
+        XCTAssertTrue(prefs.tabsGive)
+        XCTAssertTrue(prefs.popupWindows)
+        XCTAssertTrue(prefs.closeGoesBack)
+        XCTAssertTrue(prefs.frontLinksBeside)
+        XCTAssertTrue(prefs.showsReading)
+        XCTAssertEqual(prefs.sleepPace, .sooner)
+        XCTAssertEqual(Reader.look, .system, "reading mode follows the window")
+        XCTAssertTrue(NativePiP.chosen)
+        for key in keys { XCTAssertNil(Store.settings.object(forKey: key), "nothing written for \(key)") }
+    }
+
+    /// A Mac in use before keeps the synced settings' old defaults, written
+    /// once where it never chose, so sync stamps nothing over another
+    /// device's choice; a fresh install writes nothing and gets the new ones.
+    func testSyncedSettingsKeepTheirOldDefaultsOnAMacInUse() {
+        let keys = Array(Preferences.syncedBefore.keys) + [Preferences.syncedBeforeKey, "welcomed"]
+        let saved = keys.map { ($0, Store.settings.object(forKey: $0)) }
+        defer { for (key, value) in saved { Store.settings.set(value, forKey: key) } }
+        let store = Store.settings
+
+        keys.forEach(store.removeObject(forKey:))
+        Preferences.keepSyncedBefore(in: store)
+        XCTAssertNil(store.object(forKey: "search.suggest"), "a fresh install writes nothing")
+        store.set(true, forKey: "welcomed")
+        Preferences.keepSyncedBefore(in: store)
+        XCTAssertNil(store.object(forKey: "quit.confirm"), "once only: not after the welcome either")
+
+        keys.forEach(store.removeObject(forKey:))
+        store.set(true, forKey: "welcomed")
+        store.set(true, forKey: "search.suggest")
+        Preferences.keepSyncedBefore(in: store)
+        XCTAssertEqual(store.string(forKey: "glyph"), "letters")
+        XCTAssertEqual(store.object(forKey: "quit.confirm") as? Bool, false)
+        XCTAssertEqual(store.object(forKey: "search.suggest") as? Bool, true, "a choice made stays")
+    }
+
     func testDefaultsForUntouchedKeys() {
         fresh {
             let prefs = Preferences()
             XCTAssertEqual(prefs.fastPages, .onPower)
             XCTAssertTrue(prefs.holdsHistory)
-            XCTAssertEqual(prefs.sleepChoice, .normal)
+            XCTAssertEqual(prefs.sleepChoice, .sooner)
             XCTAssertEqual(prefs.floatOwn, .tabs)
             XCTAssertEqual(prefs.peekChoice, .shift)
             // Nothing written just for reading them.

@@ -22,10 +22,14 @@ final class QuitConfirmationTests: XCTestCase {
         Store.settings.set(previous, forKey: Preferences.confirmQuitKey)
     }
 
-    func testOffByDefaultAndPreferencePersists() {
+    /// On as Eden comes (23 Nov 2026), and a choice made is kept. Off, Quit
+    /// goes straight through, with nothing asked.
+    func testOnByDefaultAndPreferencePersists() {
         Store.settings.removeObject(forKey: Preferences.confirmQuitKey)
         let prefs = Preferences()
-        XCTAssertFalse(prefs.confirmsQuit)
+        XCTAssertTrue(prefs.confirmsQuit)
+        prefs.confirmsQuit = false
+        XCTAssertFalse(Preferences().confirmsQuit)
         XCTAssertTrue(Links.shouldQuit())
         prefs.confirmsQuit = true
         XCTAssertTrue(Preferences().confirmsQuit)

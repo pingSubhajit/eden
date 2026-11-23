@@ -33,7 +33,7 @@ final class Links: NSObject, NSApplicationDelegate {
     /// still go straight through the existing cleanup below.
     @MainActor static func shouldQuit() -> Bool {
         guard !askingToQuit else { return false }
-        guard Store.settings.bool(forKey: Preferences.confirmQuitKey) else { return true }
+        guard Store.settings.object(forKey: Preferences.confirmQuitKey) as? Bool ?? true else { return true }
         askingToQuit = true
         defer { askingToQuit = false }
         let alert = NSAlert()

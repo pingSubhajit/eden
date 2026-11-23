@@ -453,6 +453,11 @@ final class TabActionsTests: XCTestCase {
     func testMoveToWindowWakesOnlyTheOneInFront() {
         let browser = makeBrowser(count: 6)
         let tabs = browser.tabs
+        // Landing on the neighbour, the rule this reads from: going back
+        // to the tab before is NothingInFrontTests'.
+        let goesBack = browser.prefs.closeGoesBack
+        browser.prefs.closeGoesBack = false
+        addTeardownBlock { @MainActor in browser.prefs.closeGoesBack = goesBack }
         let other = Browser(record: WindowRecord(space: browser.spaceID))
         addTeardownBlock { @MainActor in other.closeAll() }
         browser.select(tabs[0])

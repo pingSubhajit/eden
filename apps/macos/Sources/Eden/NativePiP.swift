@@ -27,7 +27,7 @@ enum FloatStyle: String, CaseIterable, Identifiable {
 
 enum NativePiP {
     /// Whether picture in picture is the choice (Prefs.floatStyle).
-    static var chosen: Bool { Store.settings.string(forKey: "float.style") == FloatStyle.system.rawValue }
+    static var chosen: Bool { (Store.settings.string(forKey: "float.style") ?? FloatStyle.system.rawValue) == FloatStyle.system.rawValue }
 
     /// WebKit lets a page into picture in picture on macOS only with a
     /// preference outside the public framework, off by default there (Safari

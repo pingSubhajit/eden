@@ -203,7 +203,7 @@ struct WelcomePanel: View {
                 Key("⌃1", "Spaces: separate tabs and sign-ins. Turn them on in Settings › Spaces & Pins, or Set Up Like Arc there.")
                 Key("⌥⌘N", "Split a page in two, ⌥-click a tab to put it beside the page, or drag a tab onto a page; ⌃⌘← and ⌃⌘→ go from one page to the other, and ⌥⌘N again puts them apart.")
                 Key("⌘O", "Links from other apps open in a small window; ⌘O keeps one as a tab. Settings › Browsing.")
-                Key("⌘L", "Suggestions from your search engine as you type — off until you turn them on in Settings › Browsing.")
+                Key("⌘L", "Suggestions from your search engine as you type: what you type goes to the engine. Turn them off in Settings › Browsing.")
                 Key("⌘", "Held, it can show each tab's number for ⌘1–9. Settings › Tabs.")
                 Key("⌘1", "Pressed again on its pin, back to where you were.")
                 Key("⇧⌘P", "Float a video in Eden's window, or in macOS's picture in picture. Settings › Browsing.")

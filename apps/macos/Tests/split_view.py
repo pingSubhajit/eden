@@ -134,11 +134,25 @@ def main_checkout():
 # from here. Run the tests from a worktree of your own instead.
 if main_checkout() and any(not probe(p) for p in running()):
     sys.exit(f"{APP} is in use by an Eden that isn't a probe. Run the tests from a worktree (git worktree add).")
+BEFORE = {
+    "sidebar.player": False, "handoff": False, "float.minimize": False, "float.style": "search",
+    "reader.follows": False, "inspector.chrome": False, "motion.light": False, "quit.confirm": False,
+    "search.suggest": False, "sidebar.roomy": False, "glyph": "letters", "tabs.give": False,
+    "tabs.popupWindows": False, "tabs.closeGoesBack": False, "tabs.frontBeside": False,
+    "tabs.reading": False, "tabs.sleep.pace": "normal",
+}
 def setup(**prefs):
     for p in pids(): subprocess.run(["kill", p])
     started.clear()
     time.sleep(1); wipe()
     for k in ["bench", "welcomed"]: subprocess.run(["defaults", "write", SUITE, k, "-bool", "true"])
+    # The settings as they came before 23 Nov 2026, when Eden took on the
+    # owner's own as its defaults: the scripts were written against these,
+    # and a world of its own shouldn't ask before quitting, send what is
+    # typed to a search engine, or offer pages to other devices. A script
+    # that wants another asks for it, below.
+    for k, v in BEFORE.items():
+        if k not in prefs: prefs = {k: v, **prefs}
     for k, v in prefs.items():
         if isinstance(v, str): subprocess.run(["defaults", "write", SUITE, k, v])
         else: subprocess.run(["defaults", "write", SUITE, k, "-bool", "true" if v else "false"])

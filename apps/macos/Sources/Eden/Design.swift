@@ -267,7 +267,7 @@ enum Motion {
     /// Read at the moment something moves, so it follows the switch at once.
     /// Only once it is turned on in Settings › General (Preferences.lightMotion).
     static var light: Bool {
-        guard Store.settings.bool(forKey: lightKey) else { return false }
+        guard Store.settings.object(forKey: lightKey) as? Bool ?? true else { return false }
         return lowPowerMode || ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
     }
 
@@ -276,7 +276,7 @@ enum Motion {
     /// since what a sleeping tab gives back is mostly memory, and a hot Mac
     /// has enough of that.
     static var savingPower: Bool {
-        Store.settings.bool(forKey: lightKey) && lowPowerMode
+        (Store.settings.object(forKey: lightKey) as? Bool ?? true) && lowPowerMode
     }
 
     nonisolated static let lightKey = "motion.light"

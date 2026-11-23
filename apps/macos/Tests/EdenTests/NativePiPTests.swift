@@ -12,16 +12,20 @@ final class NativePiPTests: XCTestCase {
         super.setUp()
     }
 
-    func testSearchsWindowUnlessChosen() {
+    /// Picture in picture as Eden comes (23 Nov 2026), Eden's own window
+    /// once chosen.
+    func testPictureInPictureUnlessEdensWindowIsChosen() {
         let saved = Store.settings.object(forKey: "float.style")
         defer { Store.settings.set(saved, forKey: "float.style") }
         Store.settings.removeObject(forKey: "float.style")
-        XCTAssertEqual(Preferences().floatStyle, .search)
-        let prefs = Preferences()
-        prefs.floatStyle = .system
         XCTAssertEqual(Preferences().floatStyle, .system)
-        Store.settings.set("nonsense", forKey: "float.style")
+        XCTAssertTrue(NativePiP.chosen)
+        let prefs = Preferences()
+        prefs.floatStyle = .search
         XCTAssertEqual(Preferences().floatStyle, .search)
+        XCTAssertFalse(NativePiP.chosen)
+        Store.settings.set("nonsense", forKey: "float.style")
+        XCTAssertEqual(Preferences().floatStyle, .system)
     }
 
     func testScriptsAskOnlyForPictureInPicture() {

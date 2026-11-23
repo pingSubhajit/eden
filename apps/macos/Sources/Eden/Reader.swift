@@ -11,7 +11,7 @@ extension Reader {
     /// the next one. Light whenever reading mode doesn't follow the window.
     static var look: Look {
         get {
-            guard Store.settings.bool(forKey: "reader.follows") else { return .light }
+            guard Store.settings.object(forKey: "reader.follows") as? Bool ?? true else { return .light }
             return Store.settings.string(forKey: "reader.look").flatMap(Look.init) ?? .system
         }
         set { Store.settings.set(newValue.rawValue, forKey: "reader.look") }

@@ -143,14 +143,14 @@ final class Preferences: ObservableObject {
         didSet { store.set(sideHides, forKey: "sidebar.hides") }
     }
     /// Taller lines and larger titles in the column, for anyone who finds
-    /// the default hard to read (#570). Off unless asked for.
+    /// smaller ones hard to read (#570). On unless turned off, as Eden comes (23 Nov 2026).
     @Published var roomyTabs: Bool {
         didSet { store.set(roomyTabs, forKey: "sidebar.roomy") }
     }
     /// The column's width as drawn: as its edge was last pulled.
     var columnWidth: CGFloat { sideWidth }
     /// A tab playing sound out of sight shows at the foot of the sidebar,
-    /// with its pause (see Player.swift). Off unless asked for.
+    /// with its pause (see Player.swift). On unless turned off, as Eden comes (23 Nov 2026).
     @Published var showsPlayer: Bool {
         didSet { store.set(showsPlayer, forKey: "sidebar.player") }
     }
@@ -203,7 +203,7 @@ final class Preferences: ObservableObject {
     /// code that asks and the tests that turn it off; never written.
     @Published var keepsSitesAwake = true
     /// A tab gives a little under the pointer while it is pressed, as Arc's
-    /// do (see Give). Off unless turned on.
+    /// do (see Give). On unless turned off, as Eden comes (23 Nov 2026).
     @Published var tabsGive: Bool {
         didSet { store.set(tabsGive, forKey: "tabs.give") }
     }
@@ -211,6 +211,7 @@ final class Preferences: ObservableObject {
         didSet { store.set(Array(awakeSites).sorted(), forKey: "tabs.awakeSites") }
     }
     /// Sized website pop-ups may use small windows instead of tabs (#552).
+    /// On unless turned off, as Eden comes (23 Nov 2026).
     @Published var popupWindows: Bool {
         didSet { store.set(popupWindows, forKey: "tabs.popupWindows") }
     }
@@ -247,13 +248,13 @@ final class Preferences: ObservableObject {
         didSet { store.set(lazyTabs, forKey: "tabs.lazy") }
     }
     /// Closing the tab on screen goes back to the one viewed before it
-    /// rather than the neighbour (see Browser.close). Off unless asked for.
+    /// rather than the neighbour (see Browser.close). On unless turned off, as Eden comes (23 Nov 2026).
     @Published var closeGoesBack: Bool {
         didSet { store.set(closeGoesBack, forKey: "tabs.closeGoesBack") }
     }
     /// The page in front offered to your other devices with Handoff (see
-    /// Handoff.swift). Off unless asked for: the address and title of that
-    /// page then go to them, through Apple.
+    /// Handoff.swift). On unless turned off, as Eden comes (23 Nov 2026): the address and title of that
+    /// page go to them, through Apple.
     @Published var handsOff: Bool {
         didSet { store.set(handsOff, forKey: "handoff") }
     }
@@ -275,7 +276,7 @@ final class Preferences: ObservableObject {
     }
     /// With After current, a page a link opens in front goes right after
     /// the page it came from, as a ⌘-click's does, rather than to the end
-    /// of the row (see Browser.frontLinksBeside). Off unless asked for.
+    /// of the row (see Browser.frontLinksBeside). On unless turned off, as Eden comes (23 Nov 2026).
     @Published var frontLinksBeside: Bool {
         didSet { store.set(frontLinksBeside, forKey: "tabs.frontBeside") }
     }
@@ -286,7 +287,7 @@ final class Preferences: ObservableObject {
         didSet { store.set(startsFresh, forKey: Preferences.freshKey) }
     }
     nonisolated static let freshKey = "start.fresh"
-    /// Ask before the Quit menu or ⌘Q closes the app. Off unless asked for.
+    /// Ask before the Quit menu or ⌘Q closes the app. On unless turned off, as Eden comes (23 Nov 2026).
     @Published var confirmsQuit: Bool {
         didSet { store.set(confirmsQuit, forKey: Preferences.confirmQuitKey) }
     }
@@ -298,7 +299,7 @@ final class Preferences: ObservableObject {
     /// code that asks and the tests that turn it off; never written.
     @Published var searchesSites = true
     /// Suggestions from the search engine under the address field, as you
-    /// type (see EngineSuggest.swift). Off unless asked for: what is typed
+    /// type (see EngineSuggest.swift). On unless turned off, as Eden comes (23 Nov 2026): what is typed
     /// is sent to the engine while it is typed.
     @Published var engineSuggests: Bool {
         didSet { store.set(engineSuggests, forKey: "search.suggest") }
@@ -424,8 +425,7 @@ final class Preferences: ObservableObject {
         didSet { store.set(capturesPages, forKey: "pages.capture") }
     }
 
-    /// Chrome's colors on the Web Inspector (see Inspector.swift). Off
-    /// unless asked for, so the inspector stays as it comes.
+    /// Chrome's colors on the Web Inspector (see Inspector.swift). On unless turned off, as Eden comes (23 Nov 2026).
     @Published var inspectorChrome: Bool {
         didSet {
             store.set(inspectorChrome, forKey: "inspector.chrome")
@@ -462,8 +462,8 @@ final class Preferences: ObservableObject {
     }
     /// Springs become a short ease-out in Low Power Mode (see Motion.light),
     /// and idle tabs sleep after Sooner's ten minutes at most (see
-    /// Motion.savingPower). Off unless turned on, and even then nothing
-    /// changes until the Mac is asked to save power.
+    /// Motion.savingPower). On unless turned off, as Eden comes (23 Nov 2026), and nothing changes until
+    /// the Mac is asked to save power.
     @Published var lightMotion: Bool {
         didSet { store.set(lightMotion, forKey: Motion.lightKey) }
     }
@@ -497,8 +497,8 @@ final class Preferences: ObservableObject {
         didSet { store.set(readsTwins, forKey: "reader.twins") }
     }
     /// Reading mode goes dark with the window, with a light/dark/window
-    /// switch in its corner (see ReaderLook). Off unless asked for: the
-    /// article is white, as it always was.
+    /// switch in its corner (see ReaderLook). On unless turned off, as Eden comes (23 Nov 2026); off,
+    /// the article is always white.
     @Published var readerFollowsLook: Bool {
         didSet { store.set(readerFollowsLook, forKey: "reader.follows") }
     }
@@ -552,7 +552,7 @@ final class Preferences: ObservableObject {
         }
     }
     /// A button on the floating video tucks it into a corner (see Float.swift).
-    /// Off unless asked for.
+    /// On unless turned off, as Eden comes (23 Nov 2026).
     @Published var floatMinimizes: Bool {
         didSet {
             store.set(floatMinimizes, forKey: "float.minimize")
@@ -600,8 +600,9 @@ final class Preferences: ObservableObject {
     @Published var panelSite: String {
         didSet { store.set(panelSite, forKey: "panel.site") }
     }
-    /// Which window a floating video goes into: Eden's own, as it always
-    /// was, or macOS's picture in picture (see NativePiP.swift).
+    /// Which window a floating video goes into: macOS's picture in picture
+    /// unless Eden's own is chosen, as Eden comes (23 Nov 2026; see
+    /// NativePiP.swift).
     @Published var floatStyle: FloatStyle {
         didSet {
             store.set(floatStyle.rawValue, forKey: "float.style")
@@ -735,7 +736,25 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Three settings that sync took new defaults on 23 Nov 2026, when Eden
+    /// took on the owner's own (SettingsIndexTests). A Mac already in use
+    /// writes the old ones down, once, where it never chose: each reads as
+    /// it did, so sync finds nothing changed here and stamps no edit over a
+    /// choice another device made (SyncMerge.stamp). A fresh install writes
+    /// nothing, and starts with the new ones.
+    nonisolated static let syncedBefore: [String: Any] = ["glyph": "letters", "search.suggest": false, "quit.confirm": false]
+    nonisolated static let syncedBeforeKey = "defaults.syncedBefore"
+
+    nonisolated static func keepSyncedBefore(in store: UserDefaults) {
+        guard !store.bool(forKey: syncedBeforeKey) else { return }
+        store.set(true, forKey: syncedBeforeKey)
+        // In use before: past the welcome, or there before the welcome was.
+        guard store.bool(forKey: "welcomed") || store.object(forKey: "glyph") != nil else { return }
+        for (key, value) in syncedBefore where store.object(forKey: key) == nil { store.set(value, forKey: key) }
+    }
+
     init() {
+        Preferences.keepSyncedBefore(in: store)
         // Carried over from when there were four ways of holding the browser
         // and this was one of them.
         // The Mac's own unless asked otherwise — a Mac in dark mode expects
@@ -758,38 +777,38 @@ final class Preferences: ObservableObject {
                                  Preferences.sidePanelWidths.lowerBound), Preferences.sidePanelWidths.upperBound)
         sidePosition = store.string(forKey: "sidebar.position").flatMap(SidebarPosition.init) ?? .left
         sideHides = store.bool(forKey: "sidebar.hides")
-        roomyTabs = store.bool(forKey: "sidebar.roomy")
-        showsPlayer = store.bool(forKey: "sidebar.player")
+        roomyTabs = store.object(forKey: "sidebar.roomy") as? Bool ?? true
+        showsPlayer = store.object(forKey: "sidebar.player") as? Bool ?? true
         let width = store.object(forKey: "sidebar.width") as? Double ?? Double(Metrics.side)
         sideWidth = min(Metrics.sideMax, max(Metrics.sideMin, CGFloat(width)))
         cards = store.object(forKey: "layout.cards") as? Bool ?? true
-        glyph = store.string(forKey: "glyph").flatMap(Glyph.init) ?? .letters
+        glyph = store.string(forKey: "glyph").flatMap(Glyph.init) ?? .icons
         engine = store.string(forKey: "search.engine").flatMap(Engine.init) ?? .standard
         customEngine = store.string(forKey: "search.custom") ?? ""
         shiftEngine = store.string(forKey: "search.shift").flatMap(Engine.init)
         shiftCustom = store.string(forKey: "search.shiftCustom") ?? ""
         keywords = store.data(forKey: "search.keywords")
             .flatMap { try? JSONDecoder().decode([Keyword].self, from: $0) } ?? []
-        tabsGive = store.bool(forKey: "tabs.give")
+        tabsGive = store.object(forKey: "tabs.give") as? Bool ?? true
         awakeSites = Set(store.stringArray(forKey: "tabs.awakeSites") ?? [])
-        popupWindows = store.bool(forKey: "tabs.popupWindows")
+        popupWindows = store.object(forKey: "tabs.popupWindows") as? Bool ?? true
         popupSites = Set(store.stringArray(forKey: "privacy.popupSites") ?? [])
         sleepsTabs = store.object(forKey: "tabs.sleep") as? Bool ?? true
         tabLife = TabLife(rawValue: store.integer(forKey: "tabs.close.after")) ?? .never
         sleepPace = SleepPace.chosen
         lazyTabs = store.bool(forKey: "tabs.lazy")
-        closeGoesBack = store.bool(forKey: "tabs.closeGoesBack")
-        handsOff = store.bool(forKey: "handoff")
+        closeGoesBack = store.object(forKey: "tabs.closeGoesBack") as? Bool ?? true
+        handsOff = store.object(forKey: "handoff") as? Bool ?? true
         switcherBehindFirst = store.bool(forKey: "tabs.switcherBehindFirst")
         switcherLeavesOutPins = store.bool(forKey: "tabs.switcherLeavesOutPins")
-        frontLinksBeside = store.bool(forKey: "tabs.frontBeside")
+        frontLinksBeside = store.object(forKey: "tabs.frontBeside") as? Bool ?? true
         newTabPlace = store.string(forKey: "tabs.newPlace").flatMap(NewTabPlace.init(rawValue:)) ?? .top
         startsFresh = store.bool(forKey: Preferences.freshKey)
-        confirmsQuit = store.bool(forKey: Preferences.confirmQuitKey)
-        engineSuggests = store.bool(forKey: "search.suggest")
+        confirmsQuit = store.object(forKey: Preferences.confirmQuitKey) as? Bool ?? true
+        engineSuggests = store.object(forKey: "search.suggest") as? Bool ?? true
         siteNotifications = store.object(forKey: "notifications.ask") as? Bool ?? true
         showsTabShortcuts = store.bool(forKey: "tabs.shortcuts")
-        showsReading = store.bool(forKey: "tabs.reading")
+        showsReading = store.object(forKey: "tabs.reading") as? Bool ?? true
         shielded = store.object(forKey: "shield") as? Bool ?? true
         let keeps = store.bool(forKey: "sites.keep")
         keepsSignIns = keeps
@@ -873,13 +892,13 @@ final class Preferences: ObservableObject {
         let flicks = store.object(forKey: "float.flicks") as? Bool ?? true
         floatFlicks = flicks
         Float.flicks = flicks
-        let minimizes = store.bool(forKey: "float.minimize")
+        let minimizes = store.object(forKey: "float.minimize") as? Bool ?? true
         floatMinimizes = minimizes
         Float.minimizes = minimizes
         floatsAway = store.bool(forKey: "float.away")
         floatsOnLeave = store.object(forKey: "float.leave") as? Bool ?? true
         panelSite = store.string(forKey: "panel.site") ?? ""
-        floatStyle = store.string(forKey: "float.style").flatMap(FloatStyle.init(rawValue:)) ?? .search
+        floatStyle = store.string(forKey: "float.style").flatMap(FloatStyle.init(rawValue:)) ?? .system
         escapeTwice = store.bool(forKey: "fullscreen.escapeTwice")
         keepsWindow = store.bool(forKey: "fullscreen.keepsWindow")
         waitsForPlay = store.bool(forKey: Preferences.waitsKey)
@@ -890,7 +909,7 @@ final class Preferences: ObservableObject {
         peekClick = store.string(forKey: "links.peekClick").flatMap(PeekClick.init(rawValue:)) ?? .shift
         peekStays = store.bool(forKey: "links.peek.stays")
         readsTwins = store.bool(forKey: "reader.twins")
-        readerFollowsLook = store.bool(forKey: "reader.follows")
+        readerFollowsLook = store.object(forKey: "reader.follows") as? Bool ?? true
         littleFindsTabs = store.bool(forKey: "links.little.tabs")
         sendsLinksToSpaces = store.bool(forKey: SpaceRoutes.key)
         spaceRoutes = (store.array(forKey: SpaceRoutes.rulesKey) ?? []).compactMap(SpaceRoute.init(plist:))
@@ -907,7 +926,7 @@ final class Preferences: ObservableObject {
         darkensPages = dusk
         Dusk.shared.on = dusk
         capturesPages = store.bool(forKey: "pages.capture")
-        inspectorChrome = store.bool(forKey: "inspector.chrome")
+        inspectorChrome = store.object(forKey: "inspector.chrome") as? Bool ?? true
         inspectorDark = store.bool(forKey: "inspector.dark")
         let scrolls = store.bool(forKey: "autoscroll")
         autoScroll = scrolls
@@ -920,7 +939,7 @@ final class Preferences: ObservableObject {
             ?? .onPower
         fastPages = fast
         FrameRate.mode = fast
-        lightMotion = store.bool(forKey: Motion.lightKey)
+        lightMotion = store.object(forKey: Motion.lightKey) as? Bool ?? true
         let instant = store.bool(forKey: Motion.instantKey)
         instantMotion = instant
         Motion.instant = instant
@@ -1000,14 +1019,14 @@ final class Preferences: ObservableObject {
         take(\.sidePosition, "sidebar.position", store.string(forKey: "sidebar.position").flatMap(SidebarPosition.init),
              or: .left)
         take(\.sideHides, store.bool(forKey: "sidebar.hides"))
-        take(\.roomyTabs, store.bool(forKey: "sidebar.roomy"))
+        take(\.roomyTabs, "sidebar.roomy", store.object(forKey: "sidebar.roomy") as? Bool, or: true)
         take(\.sideWidth, "sidebar.width", (store.object(forKey: "sidebar.width") as? Double).map { CGFloat($0) }
             .flatMap { (Metrics.sideMin...Metrics.sideMax).contains($0) ? $0 : nil }, or: Metrics.side)
         take(\.sidePanelWidth, "sidepanel.width", (store.object(forKey: "sidepanel.width") as? Double).map { CGFloat($0) }
             .flatMap { Preferences.sidePanelWidths.contains($0) ? $0 : nil }, or: 380)
         take(\.cards, "layout.cards", store.object(forKey: "layout.cards") as? Bool, or: true)
-        take(\.glyph, "glyph", store.string(forKey: "glyph").flatMap(Glyph.init), or: .letters)
-        take(\.tabsGive, store.bool(forKey: "tabs.give"))
+        take(\.glyph, "glyph", store.string(forKey: "glyph").flatMap(Glyph.init), or: .icons)
+        take(\.tabsGive, "tabs.give", store.object(forKey: "tabs.give") as? Bool, or: true)
         take(\.instantMotion, store.bool(forKey: Motion.instantKey))
         take(\.showsTabShortcuts, store.bool(forKey: "tabs.shortcuts"))
         take(\.alwaysShowsDownloads, store.bool(forKey: "downloads.button"))
