@@ -214,6 +214,42 @@ enum HeldPins {
         return out
     }
 
+    /// A folded folder's rows in their places, in one pass: its members
+    /// (the rows it has tabs for) in their order, `member` making each, and
+    /// each row of `held.rows` held as data, as `held` makes it (nil: left
+    /// out), right after the row it followed there, or first, as it did.
+    /// The members' order is the window's own, so a move among them, or a
+    /// row moved in among them, stands; walking `held.rows` for the members
+    /// too put them back in the order the folder had, and undid it. Members
+    /// are found by id, never looked for along the others, which for a
+    /// folder half held and half tabs cost a walk a row.
+    static func block<Member, Out>(_ folder: HeldGroup, among members: [Member], pin: (Member) -> UUID?,
+                                   held: (UUID) -> Out?, member: (Member) -> Out) -> [Out] {
+        let present = Set(members.compactMap(pin))
+        // Each run of held rows under the row before it that is still a
+        // member (nil: none, the head of the folder).
+        var after: [UUID?: [UUID]] = [:]
+        var last: UUID?
+        for id in folder.rows {
+            if present.contains(id) {
+                last = id
+            } else if folder.held.contains(id) {
+                after[last, default: []].append(id)
+            }
+        }
+        var out: [Out] = []
+        func run(_ id: UUID?) { for row in after.removeValue(forKey: id) ?? [] { if let made = held(row) { out.append(made) } } }
+        run(nil)
+        var placed = Set<UUID>()
+        for row in members {
+            guard let id = pin(row) else { out.append(member(row)); continue }
+            guard placed.insert(id).inserted else { continue }
+            out.append(member(row))
+            run(id)
+        }
+        return out
+    }
+
     /// The space's own pins as a window writes them (Browser.writeSession):
     /// `own` those it has tabs for, squares and rows, in its order, and the
     /// rows it holds as data back in their groups, as the pins store has
@@ -230,32 +266,8 @@ enum HeldPins {
                             groups: groups, stored: { stored })
         let kept = Dictionary(stored.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let written = Set(rows.map(\.id))
-        // The folder's tabs in the window's order, so a move among them, or
-        // a row moved in among them, stands, and each run of its held rows
-        // right after the row it followed (nil: the head of the folder):
-        // walking the folder's old rows for its tabs too put them back in
-        // the order the folder had, and undid the move.
         func block(_ held: HeldGroup, among members: [PinDef]) -> [PinDef] {
-            let present = Set(members.map(\.id))
-            var after: [UUID?: [UUID]] = [:]
-            var last: UUID?
-            for id in held.rows {
-                if present.contains(id) {
-                    last = id
-                } else if held.held.contains(id) {
-                    after[last, default: []].append(id)
-                }
-            }
-            var out: [PinDef] = []
-            func run(_ id: UUID?) {
-                for row in after.removeValue(forKey: id) ?? [] where !written.contains(row) { if let def = kept[row] { out.append(def) } }
-            }
-            run(nil)
-            for member in members {
-                out.append(member)
-                run(member.id)
-            }
-            return out
+            HeldPins.block(held, among: members, pin: \.id, held: { written.contains($0) ? nil : kept[$0] }, member: { $0 })
         }
         var out = squares
         for item in slots(rows, pin: \.id, group: \.group, groups: groups, held: held) {
@@ -543,27 +555,8 @@ extension Browser {
                                          folders: HeldPins.folders(own, pin: \.pinID, group: \.keptGroupID), groups: keptGroups) {
             Pins.defs(spaceID)
         }
-        // As merged writes the folder: its tabs in the row's order, each
-        // run of its held rows after the row it followed.
         func rows(of held: HeldGroup, among members: [Tab]) -> [RowPlace] {
-            let present = Set(members.compactMap(\.pinID))
-            var after: [UUID?: [UUID]] = [:]
-            var last: UUID?
-            for pin in held.rows {
-                if present.contains(pin) {
-                    last = pin
-                } else if held.held.contains(pin) {
-                    after[last, default: []].append(pin)
-                }
-            }
-            var out: [RowPlace] = []
-            func run(_ pin: UUID?) { out += (after.removeValue(forKey: pin) ?? []).map { .held(pin: $0, id: pinTabID($0)) } }
-            run(nil)
-            for tab in members {
-                out.append(.tab(tab))
-                run(tab.pinID)
-            }
-            return out
+            HeldPins.block(held, among: members, pin: \.pinID, held: { .held(pin: $0, id: pinTabID($0)) }, member: RowPlace.tab)
         }
         var ownPlaces: [RowPlace] = []
         for item in HeldPins.slots(own, pin: \.pinID, group: \.keptGroupID, groups: keptGroups, held: resolved) {

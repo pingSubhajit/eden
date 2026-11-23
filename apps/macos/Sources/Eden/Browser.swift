@@ -5891,16 +5891,7 @@ final class Browser: NSObject, ObservableObject {
         guard let held = heldPins[spaceID]?.first(where: { $0.id == id }) else { return members.compactMap(link) }
         // A folded folder's rows held as data (HeldPins.swift) by their
         // pages, in their places among those that are tabs.
-        var left = members
-        var out: [String] = []
-        for row in held.rows {
-            if held.held.contains(row) {
-                if let home = Pins.def(row)?.home { out.append(home) }
-            } else if let at = left.firstIndex(where: { $0.pinID == row }) {
-                if let address = link(left.remove(at: at)) { out.append(address) }
-            }
-        }
-        return out + left.compactMap(link)
+        return HeldPins.block(held, among: members, pin: \.pinID, held: { Pins.def($0)?.home }, member: link).compactMap { $0 }
     }
 
     /// A group folded or opened, in either area: a kept one in every window.

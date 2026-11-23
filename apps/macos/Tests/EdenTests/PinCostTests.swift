@@ -196,6 +196,35 @@ final class PinCostTests: XCTestCase {
         print("PIN-COST ⌘1–9 among 750 folded folders, the hints: \(Self.ms(hints)) ms a time")
     }
 
+    /// One folded folder of 1,500 rows, half of them kept as tabs (their
+    /// sound turned off, which a row held as data can't keep) and half
+    /// held: what writing the pins, reading the row as extensions see it
+    /// and Copy All Links cost, each putting the two halves together.
+    func testMeasureOneFolderHalfHeld() async throws {
+        let browser = makeBrowser()
+        browser.pinShelf.take(Self.folders(1, of: 1_500), into: nil)
+        let folder = try XCTUnwrap(browser.keptGroups.first)
+        browser.setGroupFolded(folder.id, false)
+        for (n, tab) in browser.tabs.filter({ $0.pin != nil }).enumerated() where n.isMultiple(of: 2) { tab.muted = true }
+        browser.setGroupFolded(folder.id, true)
+        XCTAssertEqual(browser.tabs.filter { $0.pin != nil }.count, 750)
+
+        var began = CACurrentMediaTime()
+        for _ in 0..<10 { browser.writeSession(now: false) }
+        let writing = (CACurrentMediaTime() - began) / 10
+        began = CACurrentMediaTime()
+        for _ in 0..<10 { _ = browser.placesInRow }
+        let reading = (CACurrentMediaTime() - began) / 10
+        began = CACurrentMediaTime()
+        let links = browser.links(of: folder.id)
+        let linking = CACurrentMediaTime() - began
+        XCTAssertEqual(links.count, 1_500)
+
+        print("PIN-COST one folder half held, the pins written: \(Self.ms(writing)) ms a time")
+        print("PIN-COST one folder half held, the row as extensions see it: \(Self.ms(reading)) ms a time")
+        print("PIN-COST one folder half held, Copy All Links: \(Self.ms(linking)) ms")
+    }
+
     /// 1,500 rows held in folded folders, as an extension with the tabs and
     /// tab groups permissions asks of them: each tab's place, as WebKit asks
     /// in answering chrome.tabs.query, then the shim's describe and groups
