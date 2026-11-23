@@ -44,7 +44,13 @@ try:
     t.ok("closed windows are freed: NSApp.windows stays flat", max(counts[-5:]) <= max(counts[:5]), counts)
     t.ok("every new window's lights where the first's are", first and not misplaced, (first, misplaced))
     # The closed windows' key monitors are gone; a window's own still answers.
-    windows("new"); windows("front", n=1)
+    # A new window comes up with its address field (6534966), where ⌘L would
+    # put the field away: Escape puts it away first, so ⌘L has one to open.
+    windows("new"); time.sleep(0.4)
+    t.ok("a new window comes up with its field", sv.cmd({"do": "probe", "window": 2}).get("field") is True)
+    sv.cmd({"do": "press", "window": 2, "code": 53, "chars": "\x1b"}); time.sleep(0.4)
+    t.ok("…which Escape puts away", sv.cmd({"do": "probe", "window": 2}).get("field") is False)
+    windows("front", n=1)
     sv.cmd({"do": "press", "window": 2, "code": 37, "chars": "l", "mods": ["cmd"]}); time.sleep(0.6)
     fields = [sv.cmd({"do": "probe", "window": n}).get("field") for n in (1, 2)]
     t.ok("⌘L in the window behind opens its own field, not the front one's", fields == [False, True], fields)
