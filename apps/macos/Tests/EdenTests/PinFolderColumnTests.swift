@@ -85,9 +85,13 @@ final class PinFolderColumnTests: XCTestCase {
         browser.setGroupFolded(work, true)
         XCTAssertEqual(described(browser), ["folder 0 Work", "folder 0 Docs", "pin 1 four", "pin 0 one"])
         // Folded, the row in front still shows, as a folded group's tab does.
-        browser.select(two)
+        // Its rows are data while it is folded (HeldPins.swift): the one gone
+        // to is made a tab again.
+        let shown = try XCTUnwrap(two.pinID.flatMap(browser.showHeld))
+        browser.select(shown)
         XCTAssertEqual(described(browser), ["folder 0 Work", "pin 1 two", "folder 0 Docs", "pin 1 four", "pin 0 one"])
         browser.setGroupFolded(work, false)
+        let twoAgain = try XCTUnwrap(browser.listedPins.first { $0.title == "two" })
 
         // Separate Tabs (Delete Folder): its rows stay pinned, where it stood.
         browser.removeTabGroup(docs)
@@ -97,8 +101,8 @@ final class PinFolderColumnTests: XCTestCase {
         XCTAssertEqual(described(browser), ["folder 0 Work", "pin 1 three", "pin 1 two", "pin 0 four", "pin 0 one"])
 
         // A square is in no group.
-        browser.setListed(two, false)
-        XCTAssertNil(two.keptGroupID)
+        browser.setListed(twoAgain, false)
+        XCTAssertNil(twoAgain.keptGroupID)
         _ = one
     }
 
@@ -174,6 +178,10 @@ final class PinFolderColumnTests: XCTestCase {
         XCTAssertEqual(browser.keptGroups.first { $0.id == work }?.collapsed, true)
         try pick("Expand Folder")
         XCTAssertEqual(browser.keptGroups.first { $0.id == work }?.collapsed, false)
+        // Folded, its rows were data (HeldPins.swift): unfolded, they are
+        // tabs made anew.
+        let unfolded = [try XCTUnwrap(browser.listedPins.first { $0.title == "two" }),
+                        try XCTUnwrap(browser.listedPins.first { $0.title == "three" })]
 
         try pick("Copy All Links")
         XCTAssertEqual(NSPasteboard.general.string(forType: .string), "https://two.example/\nhttps://three.example/")
@@ -187,8 +195,8 @@ final class PinFolderColumnTests: XCTestCase {
 
         try pick("Delete Folder")
         XCTAssertEqual(browser.keptGroups.map(\.id), [made.id])
-        XCTAssertEqual([two, three].map(\.keptGroupID), [nil, nil])
-        XCTAssertEqual([two, three].map { $0.pin != nil }, [true, true], "its pins stay pinned")
+        XCTAssertEqual(unfolded.map(\.keptGroupID), [nil, nil])
+        XCTAssertEqual(unfolded.map { $0.pin != nil }, [true, true], "its pins stay pinned")
     }
 
     // MARK: - pin-folders.json, taken in once

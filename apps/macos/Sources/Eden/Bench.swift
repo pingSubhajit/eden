@@ -743,6 +743,9 @@ final class Bench {
                         "shown": b.window?.isVisible ?? false, "files": b.usesFiles,
                         "away": Browsers.isAway(b.window),
                         "space": b.space.name, "tabs": b.tabs.map { $0.address?.absoluteString ?? "" },
+                        // The tab in front, and those with a page loaded.
+                        "active": b.active?.address?.absoluteString ?? "",
+                        "awake": b.tabs.filter { $0.built != nil }.map { $0.address?.absoluteString ?? "" },
                         "profile": Profiles.shared.profile(b.profileID).name,
                         "spaces": b.spaces.map(\.name),
                         "stores": b.tabs.map { $0.store.identifier?.uuidString ?? "default" },
@@ -3340,6 +3343,11 @@ final class Bench {
                     // The rows in the order the row (and pins.json) keeps them.
                     "order": browser.listedPins.map { [Bench.short($0), $0.name ?? $0.title, name($0.keptGroupID)] },
                     "saved": Pins.defs(browser.spaceID).filter { $0.listed == true }.map { [$0.title, name($0.group)] },
+                    // The rows of folded folders held as data, not tabs
+                    // (HeldPins.swift), which the order above leaves out.
+                    "held": (browser.heldPins[browser.spaceID] ?? []).flatMap { group in
+                        browser.heldRows(ofGroup: group.id).map { [$0.name ?? $0.title, name(group.id)] }
+                    },
                 ]
                 for (key, value) in extra { out[key] = value }
                 return out
@@ -3376,6 +3384,12 @@ final class Bench {
                 let index = pinned("anchor").flatMap { anchor in others.firstIndex(of: anchor.id) }
                     .map { $0 + (request["after"] as? Bool == true ? 1 : 0) }
                 browser.move(tab, to: ColumnPlace(area: .kept, group: into, index: index))
+            case "place":
+                // The folder carried to "index" among the kept area's items,
+                // as a drag of it lets go (Browser.move(group:to:)).
+                guard let folder = named("name"), let index = request["index"] as? Int
+                else { answer(["error": "place needs NAME and an index"]); return }
+                browser.move(group: folder.id, to: ColumnPlace(area: .kept, index: index))
             case "fold", "open":
                 guard let folder = named("name") else { answer(["error": "no folder “\(request["name"] as? String ?? "")”"]); return }
                 browser.setGroupFolded(folder.id, request["action"] as? String == "fold")

@@ -50,6 +50,10 @@ enum Session {
         /// Indices in `tabs`, so restored tabs can have new live identities.
         /// Written whether or not Split View is on, as groups are.
         var splits: [Split] = []
+        /// When each pinned row held as data, not a tab, was last looked
+        /// at, by its pin's id (Browser.heldLooks). Nil in sessions written
+        /// before rows were held, and with none looked at.
+        var looked: [String: Date]? = nil
     }
 
     /// A split (see TabSplit), its pages by their place in `tabs`.
@@ -106,7 +110,7 @@ enum Session {
             kept.focused = pair.focused.flatMap { places[$0] }
             return kept
         }
-        return Shape(tabs: tabs, active: -1, groups: keptGroups.isEmpty ? nil : keptGroups, splits: splits)
+        return Shape(tabs: tabs, active: -1, groups: keptGroups.isEmpty ? nil : keptGroups, splits: splits, looked: shape.looked)
     }
 
     static func erase(space: UUID) {
@@ -164,7 +168,7 @@ extension Session.Entry {
 }
 
 extension Session.Shape {
-    private enum Keys: String, CodingKey { case tabs, active, groups, splits }
+    private enum Keys: String, CodingKey { case tabs, active, groups, splits, looked }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -172,6 +176,7 @@ extension Session.Shape {
         active = try c.decode(Int.self, forKey: .active)
         groups = try? c.decodeIfPresent([TabGroup].self, forKey: .groups)
         splits = (try? c.decodeIfPresent([Session.Split].self, forKey: .splits)) ?? []
+        looked = try? c.decodeIfPresent([String: Date].self, forKey: .looked)
     }
 }
 

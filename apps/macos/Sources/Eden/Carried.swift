@@ -177,7 +177,7 @@ struct Carried: ViewModifier {
                             origin = nil
                             backTo = back?.before()
                             kept = keep?()
-                            CarryGuard.open(ticket, end: callOff, escape: escape)
+                            CarryGuard.open(ticket, tab: tab?.id, end: callOff, escape: escape)
                         }
                         travel = value.translation.height
                         // Asked every move, so the block it left lets go
@@ -486,6 +486,7 @@ enum CarryGuard {
     private struct Carry {
         let end: () -> Void
         let escape: () -> Void
+        let tab: Tab.ID?
     }
 
     private static var carries: [UUID: Carry] = [:]
@@ -495,9 +496,15 @@ enum CarryGuard {
     /// Carries under way, for the tests.
     static var count: Int { carries.count }
 
-    /// `escape`: what Escape does to it, its end if nothing is said.
-    static func open(_ id: UUID, end: @escaping () -> Void, escape: (() -> Void)? = nil) {
-        carries[id] = Carry(end: end, escape: escape ?? end)
+    /// The tabs in hand: a pinned row's tab is never let go to data while it
+    /// is carried, though another window fold its folder meanwhile
+    /// (Browser.inUse), so the carry can be put back or let go as it was.
+    static var tabs: Set<Tab.ID> { Set(carries.values.compactMap(\.tab)) }
+
+    /// `escape`: what Escape does to it, its end if nothing is said. `tab`:
+    /// the tab carried, if it is one.
+    static func open(_ id: UUID, tab: Tab.ID? = nil, end: @escaping () -> Void, escape: (() -> Void)? = nil) {
+        carries[id] = Carry(end: end, escape: escape ?? end, tab: tab)
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
             MainActor.assumeIsolated { CarryGuard.endAll() }

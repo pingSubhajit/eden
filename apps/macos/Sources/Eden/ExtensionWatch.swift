@@ -45,7 +45,9 @@ final class ExtensionEar {
 }
 
 /// Says "changed" to every listening context when the groups an extension is
-/// shown are not what they were.
+/// shown are not what they were, or the tabs in them: a tab put in a group
+/// or taken out is told in tabs.onUpdated (the shim compares each tab's
+/// group), as the API tells it, and the groups alone left that unsaid.
 @MainActor
 final class GroupWatch {
     /// A group as an extension sees it change: its title, whether it is
@@ -57,14 +59,24 @@ final class GroupWatch {
         var colour: GroupColour = .stone
     }
 
+    /// A tab in a group, by their ids.
+    struct Member: Hashable {
+        let tab: UUID
+        let group: UUID
+    }
+
     private let read: () -> Set<Shape>
+    private let members: () -> Set<Member>
     private let soon: (@escaping () -> Void) -> Void
     private var ears: [ExtensionEar] = []
     private var last: Set<Shape> = []
+    private var lastMembers: Set<Member> = []
     private var settling = false
 
-    init(read: @escaping () -> Set<Shape>, soon: @escaping (@escaping () -> Void) -> Void) {
+    init(read: @escaping () -> Set<Shape>, members: @escaping () -> Set<Member> = { [] },
+         soon: @escaping (@escaping () -> Void) -> Void) {
         self.read = read
+        self.members = members
         self.soon = soon
     }
 
@@ -73,7 +85,7 @@ final class GroupWatch {
     func add(_ ear: ExtensionEar) {
         ears.removeAll { !$0.hears() }
         guard !ears.contains(where: { $0 === ear }) else { return }
-        if ears.isEmpty { last = read() }
+        if ears.isEmpty { (last, lastMembers) = (read(), members()) }
         ears.append(ear)
     }
 
@@ -96,9 +108,9 @@ final class GroupWatch {
         settling = false
         ears.removeAll { !$0.hears() }
         guard !ears.isEmpty else { return }
-        let now = read()
-        guard now != last else { return }
-        last = now
+        let now = read(), joined = members()
+        guard now != last || joined != lastMembers else { return }
+        (last, lastMembers) = (now, joined)
         for ear in ears { ear.say(["changed": true]) }
     }
 }
@@ -204,6 +216,11 @@ enum ExtensionWatch {
     // here and in query alike.
     static let groups = GroupWatch(
         read: { Set(Browsers.all.flatMap(ExtensionShims.listedGroups).map { GroupWatch.Shape(id: $0.id, name: $0.name, collapsed: $0.collapsed, colour: $0.colour) }) },
+        members: {
+            Set(Browsers.all.flatMap { browser in
+                browser.tabs.compactMap { tab in browser.group(of: tab).map { GroupWatch.Member(tab: tab.id, group: $0) } }
+            })
+        },
         soon: { work in DispatchQueue.main.async { MainActor.assumeIsolated { work() } } })
 
     static let idle = IdleWatch(

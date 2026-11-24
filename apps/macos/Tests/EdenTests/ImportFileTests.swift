@@ -270,6 +270,9 @@ final class ImportFileTests: XCTestCase {
     /// A large bookmarks file merged into the pins: the window keeps
     /// drawing — the main actor runs other work between the merge's
     /// batches — and the longest it is held at once is printed, as measured.
+    /// Into an open folder of its name, whose rows are tabs, made a batch
+    /// at a time: a folder the import makes comes in folded, its rows data
+    /// that make no tab (HeldPinsTests).
     @MainActor
     func testALargeBookmarksFileKeepsTheWindowResponsive() async throws {
         let browser = makeImportTestBrowser()
@@ -280,6 +283,7 @@ final class ImportFileTests: XCTestCase {
             browser.closeAll()
             Disk.drain()
         }
+        XCTAssertNotNil(browser.newKeptGroup(named: name, rename: false))
         let history = try await historyWithOneOfTheFilesPages(browser)
         let beats = MainBeats()
         var merging = 0

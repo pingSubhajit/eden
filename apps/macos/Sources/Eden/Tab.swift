@@ -287,7 +287,9 @@ struct ReadingFill: View {
 
 @MainActor
 final class Tab: ObservableObject, Identifiable {
-    let id = UUID()
+    /// Its own, or, for a pinned row's tab made again after it was held as
+    /// data, the one it had before (Browser.pinTabID).
+    let id: UUID
 
     /// The page. Built the first time anyone asks for it, not when the tab
     /// is — a session of twenty tabs coming back is twenty objects, not
@@ -879,6 +881,10 @@ final class Tab: ObservableObject, Identifiable {
 
     private var watch: [NSKeyValueObservation] = []
 
+    /// What its window watches it for (Browser.prepare): its sound, its
+    /// address and its title. Kept here, so the watching ends with the tab.
+    var wiring = Set<AnyCancellable>()
+
     /// A tab that has never been anywhere shows the address field instead of a
     /// page. It still owns a web view — built now, warm by the time it's needed.
     var isBlank: Bool { address == nil && page == nil }
@@ -996,7 +1002,8 @@ final class Tab: ObservableObject, Identifiable {
     /// session or a copied tab passes on as its own.
     var titleIsOwn: Bool { titleVouched && !wasTranslated }
 
-    init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil) {
+    init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil, id: UUID? = nil) {
+        self.id = id ?? UUID()
         self.shy = shy
         self.bench = bench
         self.configuration = configuration ?? Web.configuration(shy: shy)
@@ -1613,6 +1620,16 @@ final class Tab: ObservableObject, Identifiable {
     /// brought back from the last session, or put down with ⌘W while pinned.
     var asleep: Bool { pending != nil }
 
+    /// A pin's tab holding nothing its pin doesn't: asleep at its home,
+    /// never woken since it was made or put down there, with no history,
+    /// picture or sound setting of its own. Made again from its pin, it
+    /// would be the same tab, so one in a folded folder is let go to data
+    /// (HeldPins.swift).
+    var holdsNothing: Bool {
+        pin != nil && built == nil && page == nil && pending != nil && pending == home && memory == nil
+            && picture == nil && !muted && awakeSites.isEmpty && translateOnWake == nil && arrival == nil && held == nil
+    }
+
     /// ⌘W on a pinned tab. The letter keeps its place in the row and the
     /// address is remembered; everything the page was holding is let go, so a
     /// pin you are not reading costs a line in a file and nothing else.
@@ -2041,7 +2058,16 @@ final class Tab: ObservableObject, Identifiable {
         icon = nil
     }
 
-    func touch(at when: Date = Date()) { touched = when }
+    func touch(at when: Date = Date()) {
+        touched = when
+        lookedAt = when
+    }
+
+    /// When it was last looked at, as `touched`, but nil for a tab never
+    /// looked at since it was made: a pinned row's tab made only because
+    /// its folder was unfolded hasn't been, and keeps no time when it is
+    /// held as data again (Browser.heldLooks).
+    private(set) var lookedAt: Date?
 
     /// True when the web view holds nothing — never loaded, or emptied —
     /// while the tab still names a page. The white page, in other words.
