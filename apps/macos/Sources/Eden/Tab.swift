@@ -855,7 +855,23 @@ final class Tab: ObservableObject, Identifiable {
     /// has a name and an address in the row, and costs nothing until you go to
     /// it — which is the difference between a browser that starts in half a
     /// second with twenty tabs and one that doesn't.
-    private(set) var pending: URL?
+    private(set) var pending: URL? {
+        didSet { if pending == nil { rested = false } }
+    }
+
+    /// Put away or put down by hand (rest), and holding no page since: its
+    /// row in a group or folder is dimmed, so the minus is seen to have done
+    /// something. A tab only not opened yet, or put to sleep, looks as a
+    /// loose one does. Kept through a folded folder's rows being held as
+    /// data (Browser.heldRested), but in memory only: after a relaunch
+    /// every tab is one not opened yet.
+    private(set) var rested = false
+
+    /// Made again for a pin put down before it was held as data
+    /// (Browser.heldRested): dimmed as it was, while it still holds no page.
+    func restedAgain() {
+        if pending != nil { rested = true }
+    }
 
     /// For a tab put to sleep for not being looked at: the page's own history
     /// — the back list, the page, where it was scrolled to — handed to the
@@ -1650,6 +1666,7 @@ final class Tab: ObservableObject, Identifiable {
             else if moved || !titleIsOwn { title = home.host ?? "" }
         }
         pending = url
+        rested = true
         memory = nil
         picture = nil
         reading = 0

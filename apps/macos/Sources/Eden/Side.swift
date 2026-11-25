@@ -1631,13 +1631,13 @@ private struct SideRow: View, Equatable {
     /// included: fixed, so the speaker laid over the row knows where to sit.
     private static let slashWidth: CGFloat = 4
     private static let slashPlace: CGFloat = 11
-    /// A grouped tab holding no page, above the line or under it — put away
-    /// or put down with its minus (Browser.putAway, Browser.close), put to
-    /// sleep, or not opened since launch: the row stays, dimmed, so the
-    /// minus is seen to have done something, the same in both areas.
-    /// Read from the tab here, not when the column made the row: the column
-    /// isn't drawn again when one of its tabs lets its page go.
-    private var putAway: Bool { grouped && tab.asleep && !live }
+    /// A grouped tab put away or put down by hand, above the line or under
+    /// it (Tab.rested): the row stays, dimmed, so the minus is seen to have
+    /// done something, the same in both areas. One only not opened since
+    /// launch, or put to sleep, holds no page either, but looks as a loose
+    /// tab does. Read from the tab here, not when the column made the row:
+    /// the column isn't drawn again when one of its tabs lets its page go.
+    private var putAway: Bool { grouped && tab.rested && !live }
 
     var body: some View {
         let _ = Bench.count("row")

@@ -3388,6 +3388,7 @@ final class Browser: NSObject, ObservableObject {
                     // made for it again (HeldPins.swift).
                     keepTabID(found.id, forPin: def.id)
                     if let looked = found.lookedAt { heldLooks[def.id] = looked }
+                    if found.rested { heldRested.insert(def.id) }
                     found.close()
                 }
                 continue
@@ -3408,6 +3409,7 @@ final class Browser: NSObject, ObservableObject {
             if let looked = heldLooks.removeValue(forKey: def.id), tab.lookedAt.map({ $0 < looked }) ?? true {
                 tab.touch(at: looked)
             }
+            if heldRested.remove(def.id) != nil { tab.restedAgain() }
             if !sharedIDs.contains(def.id) { keepTabID(tab.id, forPin: def.id) }
             shown.insert(def.id)
             tab.pinID = def.id
@@ -3424,6 +3426,12 @@ final class Browser: NSObject, ObservableObject {
         for gone in tabsFor.left { gone.close() }
         let held = HeldPins.hold(own, groups: groups) { shown.contains($0.id) }
         heldPins[space] = held.isEmpty ? nil : held
+        // A row put down and then taken away while held, here or from
+        // another window, is never made a tab again to take its mark back.
+        if !heldRested.isEmpty {
+            let still = Set(heldPins.keys.flatMap(heldPinIDs(in:)))
+            heldRested.formIntersection(still)
+        }
         if space == spaceID, !standIns.isEmpty {
             for tab in standIns.values { tab.close() }
             standIns = [:]
@@ -3512,6 +3520,12 @@ final class Browser: NSObject, ObservableObject {
     /// back to the tab made for it again. What ⌘1–9 on a folded folder, its
     /// card and the address field go by, as they go by a tab's.
     var heldLooks: [UUID: Date] = [:]
+
+    /// The rows now held as data that were put down by hand before they
+    /// were let go (Tab.rested), by pin: given back to the tab made for each
+    /// again, so unfolding its folder shows it dimmed as it was. In memory
+    /// only, as the tab's own mark is.
+    var heldRested: Set<UUID> = []
 
     /// The id each of the spaces' own pinned rows has for its tab in this
     /// window, by pin, kept while the row is held as data so its tab is made
