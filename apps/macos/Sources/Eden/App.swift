@@ -1504,6 +1504,13 @@ struct ContentView: View {
                 browser.cancelTabEdit()
                 return true
             }
+            // A folder's or a group's name, the same: taken by what is open
+            // behind it, Find say, the field would lose its focus and keep
+            // what was typed, as a click elsewhere does.
+            if browser.editingGroupID != nil {
+                browser.editingGroupID = nil
+                return true
+            }
             if browser.peekInFront {
                 browser.closePeek()
                 return true

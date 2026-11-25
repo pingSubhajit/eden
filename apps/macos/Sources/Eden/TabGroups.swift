@@ -72,9 +72,10 @@ struct GroupHeading: View {
     /// card comes up for it, and its name is never typed there.
     var interactive = true
 
-    @State private var draft = ""
+    /// What has been typed into its name, while it is: nil until then,
+    /// so the field opens on the name it has.
+    @State private var draft: String?
     @State private var hovering = false
-    @FocusState private var focused: Bool
 
     private var editing: Bool { interactive && browser.editingGroupID == group.id }
 
@@ -122,13 +123,13 @@ struct GroupHeading: View {
             GroupIconView(icon: group.icon, colour: group.colour, size: prefs.sideMark) { standIn }
         } title: {
             if editing {
-                TextField(placeholder, text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: prefs.sideTitle, weight: .semibold))
-                    .foregroundStyle(group.colour.ink)
-                    .focused($focused)
-                    .onSubmit(commit)
-                    .onExitCommand { stopRenaming() }
+                NameField(text: Binding(get: { draft ?? group.name }, set: { draft = $0 }),
+                          size: prefs.sideTitle, weight: .semibold, ink: group.colour.ink,
+                          placeholder: placeholder, label: placeholder,
+                          commit: commit, cancel: stopRenaming)
+                // Its line's height, as a row's field has it: given the
+                // heading's, it would set the name at the top of it.
+                .frame(height: 16)
             } else {
                 GroupName(name: group.name, ink: group.colour.ink, collapsed: group.collapsed, size: prefs.sideTitle)
             }
@@ -161,21 +162,16 @@ struct GroupHeading: View {
         .groupAccessibility(name: group.name, collapsed: group.collapsed, toggle: toggle)
         .accessibilityAction(named: "Show Menu") { GroupMenu.show(for: group, in: browser) }
         .onChange(of: editing) { _, now in
-            if now {
-                draft = group.name
-                DispatchQueue.main.async { focused = true }
-            }
-        }
-        .onAppear {
-            if editing {
-                draft = group.name
-                DispatchQueue.main.async { focused = true }
-            }
+            if !now { draft = nil }
         }
     }
 
+    /// Return, or a click anywhere else. Only while this group's name is
+    /// still the one being typed: the field calls it again as it goes, and
+    /// after Escape.
     private func commit() {
-        browser.renameTabGroup(group.id, to: draft)
+        guard editing else { return }
+        if let draft { browser.renameTabGroup(group.id, to: draft) }
         stopRenaming()
     }
 }

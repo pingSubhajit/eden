@@ -1676,7 +1676,7 @@ private struct SideRow: View, Equatable {
                     }
                 }
                 if editing {
-                    TabNameField(browser: browser, size: prefs.sideTitle)
+                    TabNameField(browser: browser, tab: tab.id, size: prefs.sideTitle)
                         .frame(height: 16)
                 } else {
                     // The speaker's place: it is laid over it below, outside

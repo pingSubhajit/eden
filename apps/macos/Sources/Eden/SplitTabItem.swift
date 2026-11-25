@@ -276,7 +276,7 @@ private struct SplitTabHalf: View {
                     .frame(width: mark, height: mark)
             }
             if editing {
-                TabNameField(browser: browser, size: prefs.sideTitle)
+                TabNameField(browser: browser, tab: tab.id, size: prefs.sideTitle)
                     .frame(height: 16)
             } else {
                 // As a tab's line has it: just after the icon. Its place: the
