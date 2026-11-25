@@ -36,7 +36,7 @@ enum Palette {
     static let sideTile = Color(nsColor: NS.sideTile)
     static let sidePinLive = Color(nsColor: NS.sidePinLive)
     /// The only two that aren't grey: a connection nobody can read on the
-    /// way, and one anybody can (see SiteCard.swift).
+    /// way, and one anybody can (see SiteControls.swift).
     static let safe = Color(nsColor: NS.safe)           // green-700 · green-400
     static let unsafe = Color(nsColor: NS.unsafe)       // amber-700 · amber-400
 
@@ -152,6 +152,13 @@ enum Metrics {
     /// grown to match it, so the lights come down level with the doors
     /// rather than sitting above them.
     static let strip: CGFloat = 52
+    /// The address bar under that band (AddressBar), and the air under it
+    /// before the pins: as tall as Roomy Tabs' rows, whichever the rows are,
+    /// as the band is the same whatever they are.
+    static let bar: CGFloat = 36
+    static let barGap: CGFloat = 8
+    /// Where the column's pins and rows begin, under the band and the bar.
+    static let columnTop: CGFloat = strip + bar + barGap
     /// With the tabs down the side the page is a card: this far from the
     /// window's edges (and from the column, folded away), and its corners
     /// this round.

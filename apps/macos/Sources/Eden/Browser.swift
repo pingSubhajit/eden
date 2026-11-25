@@ -81,6 +81,12 @@ final class Browser: NSObject, ObservableObject {
                 DispatchQueue.main.async { held.forEach { $0.present() } }
             }
             guard oldValue != activeID else { return }
+            // The site's controls were about the page just left. Put away
+            // here, before whoever chose the new tab can ask for its own
+            // (TabMenu's Site Controls…); and so is the field raised over
+            // the bar for a blank tab.
+            siteControlsShown = false
+            fieldAnchor = nil
             // The pages as they were left, for their hover cards at the next
             // launch: both halves of a pair left together.
             if let left = tabs.first(where: { $0.id == oldValue }) {
@@ -349,8 +355,25 @@ final class Browser: NSObject, ObservableObject {
         didSet {
             if !editing, siteChip != nil { siteChip = nil }
             if !editing, launching { launching = false }
+            if !editing, fieldAnchor != nil { fieldAnchor = nil }
         }
     }
+    /// Where the column's address bar is in the window, while the field
+    /// was raised by a click on it: the field then comes up over the bar
+    /// and reaches out over the page from there, rather than standing in
+    /// the middle of the page as ⌘L and ⌘T put it (see AddressBar).
+    @Published private(set) var fieldAnchor: CGRect?
+    /// That frame while the field is up: a blank tab's anchor outlives its
+    /// field once a page loads in it, and means nothing then.
+    var barField: CGRect? { fieldShowing ? fieldAnchor : nil }
+    /// The site's controls, hanging from the address bar (SiteControls).
+    @Published var siteControlsShown = false {
+        didSet { if !siteControlsShown, siteMenuOpen { siteMenuOpen = false } }
+    }
+    /// The menu behind the controls' “…”, grown out of its button: here,
+    /// not in the controls, so Escape folds it before anything behind it
+    /// hears the key (ContentView's keys).
+    @Published var siteMenuOpen = false
     /// True while ⌘T's field is up over a page for a tab that doesn't exist
     /// yet: Return opens what was typed in a new tab, and putting the field
     /// away leaves the page you were on as it was.
@@ -2309,74 +2332,13 @@ final class Browser: NSObject, ObservableObject {
         return true
     }
 
-    // MARK: - the address, in the tab itself
+    // MARK: - naming a tab, in the tab itself
 
-    /// Clicking the tab you are already on turns it into the address, short
-    /// form, ready to be changed.
+    /// The tab being named, in a field in its own row: double-click a
+    /// tab, or Rename… on its menu. The address is the column's address
+    /// bar's (AddressBar), never the row's.
     @Published private(set) var editingTab: Tab.ID?
     @Published var tabDraft = ""
-    /// Set while that field is being used to name the tab rather than to go
-    /// somewhere: the same field, the same keys, a different thing at the end.
-    @Published private(set) var renamingTab = false
-    /// What the field in the tab offers as you type, as ⌘L's does (#534),
-    /// and the row the arrow keys are on.
-    @Published private(set) var tabOffers: [Suggestion] = []
-    @Published private(set) var tabPicked: Int?
-    /// The address the edit began with: nothing is offered for that.
-    private var tabOriginal = ""
-
-    func beginTabEdit(_ tab: Tab) {
-        // A tab with no address to show: the field over the page, as ⌘L
-        // brings it.
-        guard let url = tab.shownURL else {
-            edit()
-            return
-        }
-        renamingTab = false
-        tabDraft = Address.editable(url)
-        tabOriginal = tabDraft
-        tabOffers = []
-        tabPicked = nil
-        editingTab = tab.id
-    }
-
-    /// Typed into the field in the tab: its list, and the rest of the
-    /// address the field completes to, if any.
-    func tabTyped(_ text: String) -> String? {
-        tabPicked = nil
-        let words = text.trimmingCharacters(in: .whitespaces)
-        guard editingTab != nil, !renamingTab, !words.isEmpty, text != tabOriginal else {
-            tabOffers = []
-            return nil
-        }
-        let (offers, ending) = placeOffers(for: text)
-        tabOffers = offers
-        return ending
-    }
-
-    /// ↓ and ↑ in the tab's field, off either end and back to what was typed.
-    func walkTab(_ step: Int) {
-        guard !tabOffers.isEmpty else { return }
-        switch tabPicked {
-        case nil: tabPicked = step > 0 ? 0 : tabOffers.count - 1
-        case let here?:
-            let next = here + step
-            tabPicked = (next < 0 || next >= tabOffers.count) ? nil : next
-        }
-    }
-
-    /// A row of the tab's list, clicked or walked to and Return pressed.
-    func takeTabOffer(_ offer: Suggestion) {
-        guard let id = editingTab, let tab = tabs.first(where: { $0.id == id }) else { return }
-        cancelTabEdit()
-        if let command = offer.command {
-            command.run(on: self)
-        } else if let open = offer.tab, let other = openTab(open) {
-            select(other)
-        } else {
-            tab.go(to: offer.url)
-        }
-    }
 
     /// Rename. The name the tab is wearing arrives selected, so typing
     /// replaces it; emptying the field gives the page its own title back.
@@ -2385,60 +2347,21 @@ final class Browser: NSObject, ObservableObject {
     /// square, left looking as if nothing happened.
     func beginTabRename(_ tab: Tab) {
         if tab.pin != nil, !tab.listed { return editLetter(tab) }
-        renamingTab = true
         tabDraft = tab.label
         editingTab = tab.id
     }
 
     func commitTabEdit() {
         guard let id = editingTab, let tab = tabs.first(where: { $0.id == id }) else { return }
-        if renamingTab {
-            let typed = tabDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            tab.name = typed.isEmpty ? nil : typed
-            cancelTabEdit()
-            writeSession(now: true)
-            return
-        }
-        if let picked = tabPicked, tabOffers.indices.contains(picked) {
-            takeTabOffer(tabOffers[picked])
-            return
-        }
-        guard let url = destination(for: tabDraft) else {
-            // Stay put and say so, rather than quietly throwing the edit away.
-            refusals += 1
-            return
-        }
-        editingTab = nil
-        tabOffers = []
-        tabPicked = nil
-        tab.go(to: url)
+        let typed = tabDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        tab.name = typed.isEmpty ? nil : typed
+        cancelTabEdit()
+        writeSession(now: true)
     }
 
     func cancelTabEdit() {
         editingTab = nil
-        renamingTab = false
         tabDraft = ""
-        tabOffers = []
-        tabPicked = nil
-    }
-
-    /// A click somewhere else — the page, the column below, the rest of the
-    /// strip — while a tab's address or name is being edited in the tab: what
-    /// was typed is kept, as Return keeps it. An address left as it was loads
-    /// nothing again, and a field left empty is let go.
-    func finishTabEdit() {
-        guard let id = editingTab, let tab = tabs.first(where: { $0.id == id }) else { return }
-        if renamingTab {
-            commitTabEdit()
-            return
-        }
-        let draft = tabDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        if draft.isEmpty || tab.address.map({ Address.editable($0) == draft }) == true
-            || destination(for: draft) == nil {
-            cancelTabEdit()
-            return
-        }
-        commitTabEdit()
     }
 
     // MARK: - saying so
@@ -4667,7 +4590,9 @@ final class Browser: NSObject, ObservableObject {
     /// still to be asked about, whose page needs a tab to show in, is it
     /// the tab. From a private tab the field still comes up for one to be
     /// asked about: a private new tab never asks.
-    func launch() {
+    /// `bar`: raised by a click on the column's address bar, standing over
+    /// it (see fieldAnchor).
+    func launch(over bar: CGRect? = nil) {
         // Again while it is up: put away, as the key that raised it, the way
         // Spotlight's does. What was typed waits for the next ⌘T (see
         // dismiss()). It used to stay up with what was typed cleared.
@@ -4683,13 +4608,13 @@ final class Browser: NSObject, ObservableObject {
             newTab()
             return
         }
-        raiseLaunchField()
+        raiseLaunchField(over: bar)
     }
 
     /// ⌘T's field, up over whatever is in front, or over nothing: no tab is
     /// made until Return opens one. ⌘N's new window comes up with it, so
     /// typing goes straight into it (Browsers.newWindow).
-    func raiseLaunchField() {
+    func raiseLaunchField(over bar: CGRect? = nil) {
         // A peek is over the page, and the field would come up under it:
         // put away first, as a click outside it would.
         if peekInFront { closePeek() }
@@ -4701,6 +4626,9 @@ final class Browser: NSObject, ObservableObject {
         reviewing = false
         cancelTabEdit()
         siteChip = nil
+        // Where it stands before it is up: never a moment in the middle of
+        // the page on its way to the bar.
+        fieldAnchor = bar
         editing = true
         launching = true
         // After launching, so the list it works out is ⌘T's (see guess()).
@@ -8074,11 +8002,11 @@ final class Browser: NSObject, ObservableObject {
 
     /// ⌘L. The current address comes up selected, so typing over it replaces it
     /// and Escape puts it back.
-    func edit() {
+    func edit(over bar: CGRect? = nil) {
         // Nothing in front has no page for the field to send somewhere else:
         // ⌘L raises ⌘T's, whose Return opens a tab, and again puts it away.
         if active == nil, !websitePopup {
-            if launching { dismiss() } else { launch() }
+            if launching { dismiss() } else { launch(over: bar) }
             return
         }
         // Again while it is up over the page: put away, as Escape would.
@@ -8089,11 +8017,34 @@ final class Browser: NSObject, ObservableObject {
         // From ⌘T, what was typed stays, for this page now.
         let words = wordsToCarry
         launching = false
+        // Where it stands before it is up: never a moment in the middle of
+        // the page on its way to the bar.
+        fieldAnchor = bar
         // Up before its words: the list they bring is worked out as ⌘L's,
         // which lists for the page's own address what ⌘T's empty field does.
         editing = true
         typed = words ?? shownAddress
         focusRequest += 1
+    }
+
+    /// A click on the column's address bar, at `frame` in the window: ⌘L's
+    /// field over the bar, or ⌘T's with nothing in front. A blank tab's
+    /// field is up already: it moves over the bar, and takes the keys.
+    func editFromBar(at frame: CGRect) {
+        if active?.isBlank == true {
+            fieldAnchor = frame
+            focusRequest += 1
+            return
+        }
+        if editing { return putAway() }
+        if active == nil { launch(over: frame) } else { edit(over: frame) }
+    }
+
+    /// The bar moved while the field stands over it: the window resized,
+    /// or the column's edge pulled. The field goes with it.
+    func barMoved(to frame: CGRect) {
+        guard fieldAnchor != nil, fieldAnchor != frame else { return }
+        fieldAnchor = frame
     }
 
     func dismiss() {
@@ -8110,6 +8061,12 @@ final class Browser: NSObject, ObservableObject {
         // Esc with a site in the field: the site goes, the field stays.
         if siteChip != nil {
             siteChip = nil
+            return
+        }
+        // A blank tab's field raised over the bar goes back to the middle
+        // of its page, where it stands without being asked.
+        if active?.isBlank == true, fieldAnchor != nil {
+            fieldAnchor = nil
             return
         }
         // Esc on the empty page of a pair: the page isn't wanted after all.

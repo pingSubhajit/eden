@@ -782,13 +782,21 @@ struct ContentView: View {
         // leaves two offset address fields on a blank tab. With nothing in
         // front there is no SplitStage, and the field ⌘T raises is this one,
         // over the empty ground: a click beside it puts it away.
-        if !browser.prefs.splitView || browser.active == nil {
-            Omnibox(browser: browser, over: browser.active?.isBlank != true)
+        //
+        // Raised from the column's address bar, it is this one whatever the
+        // split: it stands over the bar, and a click anywhere but on it,
+        // the column included, puts it away. Without Split View it is one
+        // field either way, never one taken away as another comes: a field
+        // taken away goes on a fade, and showed itself in the middle of the
+        // page for a moment.
+        let barred = browser.barField != nil
+        if barred || !browser.prefs.splitView || browser.active == nil {
+            Omnibox(browser: browser, over: barred || browser.active?.isBlank != true)
                 // Centred on the page, not on the window. The column of tabs
                 // is not what the field is standing over, and dimming it along
-                // with the page says otherwise.
-                .padding(.leading, sidebar && !sideOnRight ? sideWidth : 0)
-                .padding(.trailing, sidebar && sideOnRight ? sideWidth : 0)
+                // with the page says otherwise. Over the bar, it places itself.
+                .padding(.leading, !barred && sidebar && !sideOnRight ? sideWidth : 0)
+                .padding(.trailing, !barred && sidebar && sideOnRight ? sideWidth : 0)
         }
     }
 
@@ -1398,14 +1406,6 @@ struct ContentView: View {
         return (editor.delegate as? NSTextField)?.delegate is AddressField.Coordinator
     }
 
-    /// Whether the caret is in the field a row opens for its address
-    /// (TabAddressField), which takes ⌘Return and ⇧Return as the window's
-    /// address field does.
-    private static func inTabField(_ window: NSWindow) -> Bool {
-        guard let editor = window.firstResponder as? NSTextView else { return false }
-        return (editor.delegate as? NSTextField)?.delegate is TabAddressField.Coordinator
-    }
-
     /// Whether the tab switcher can come up: in this window, with nothing
     /// over the page it would have to cover. The find bar isn't one: it sits
     /// in a corner, stays open, and looks again on the tab picked (#553).
@@ -1489,6 +1489,17 @@ struct ContentView: View {
         // Escape puts the page back. On a blank tab there is no page to put
         // back, so it belongs to whatever else wants it.
         if event.keyCode == 53 {
+            // The site's controls are over everything else: their menu folds
+            // first, then they go, and nothing behind them hears the key (a
+            // blank tab would otherwise be closed under them).
+            if browser.siteMenuOpen {
+                withAnimation(Motion.settle) { browser.siteMenuOpen = false }
+                return true
+            }
+            if browser.siteControlsShown {
+                browser.siteControlsShown = false
+                return true
+            }
             if browser.editingTab != nil {
                 browser.cancelTabEdit()
                 return true
@@ -1531,6 +1542,13 @@ struct ContentView: View {
             // One step at a time: the list first, then the field.
             if browser.picked != nil {
                 browser.picked = nil
+                return true
+            }
+            // A blank page's field raised over the column's bar goes back to
+            // the middle of its page, before anything below takes what is
+            // typed, or the page itself, away.
+            if browser.barField != nil, browser.active?.isBlank == true {
+                browser.dismiss()
                 return true
             }
             // Something typed into a new tab: Escape clears it first, the
@@ -1640,13 +1658,6 @@ struct ContentView: View {
            let window, event.window === window, ContentView.inAddressField(window) {
             return browser.submitToShiftEngine()
         }
-        // The same in a row's own field (TabAddressField).
-        if event.keyCode == 36 || event.keyCode == 76,
-           flags.intersection([.command, .shift, .option, .control]) == .shift,
-           browser.prefs.shiftEngine != nil, browser.editingTab != nil,
-           let window, event.window === window, ContentView.inTabField(window) {
-            return browser.commitTabEditToShiftEngine()
-        }
 
         // Space keys are taken here, ahead of the Spaces menu, whose lines
         // for spaces made since launch wouldn't take theirs; other commands
@@ -1719,13 +1730,6 @@ struct ContentView: View {
            browser.editingTab == nil, let window, event.window === window,
            ContentView.inAddressField(window) {
             browser.submit(aside: true, front: shifted)
-            return true
-        }
-        // The same in a row's own field (TabAddressField): the row's tab
-        // left as it was.
-        if event.keyCode == 36 || event.keyCode == 76, browser.editingTab != nil,
-           let window, event.window === window, ContentView.inTabField(window) {
-            browser.commitTabEditAside(front: shifted)
             return true
         }
 

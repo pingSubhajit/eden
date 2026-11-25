@@ -152,7 +152,7 @@ final class RowCarryTests: XCTestCase {
         try await ready(browser)
         // "two", 30–58: its icon, then the speaker's square.
         let x = 10 + Metrics.rowInset + browser.prefs.sideMark + Metrics.rowSpacing + RowCross.size / 2
-        let at = NSPoint(x: x, y: window.frame.height - Metrics.strip - 44)
+        let at = NSPoint(x: x, y: window.frame.height - Metrics.columnTop - 44)
         try await send(.leftMouseDown, at: at, in: window)
         try await send(.leftMouseUp, at: at, in: window)
         try await settle()
@@ -519,7 +519,7 @@ final class RowCarryTests: XCTestCase {
         SideBar.shownGap = nil
         // The grid, 34 and 10 under it; then two 0–28, the line 30–48.
         let room = browser.prefs.sideWidth - 20
-        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y) }
         try await send(.leftMouseDown, at: at(10 + room / 6, 17), in: window)
         for y in stride(from: CGFloat(19), through: 44 + 50, by: 2) {
             try await send(.leftMouseDragged, at: at(10 + room / 6 + (y - 17) / 2, y), in: window)
@@ -572,7 +572,7 @@ final class RowCarryTests: XCTestCase {
         SideBar.shownGap = nil
         // The grid, 34 and 10 under it; then two 0–28, the line 30–48.
         let room = browser.prefs.sideWidth - 20
-        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y) }
         try await send(.leftMouseDown, at: at(10 + room / 6, 17), in: window)
         for y in stride(from: CGFloat(19), through: 44 + 20, by: 2) {
             try await send(.leftMouseDragged, at: at(10 + room / 6 + (y - 17) / 2, y), in: window)
@@ -756,7 +756,7 @@ final class RowCarryTests: XCTestCase {
         // The grid, 34 and 10 under it; then the phone's group 0–28, the
         // line 30–48.
         let room = browser.prefs.sideWidth - 20
-        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y) }
         try await send(.leftMouseDown, at: at(10 + room / 6, 17), in: window)
         for y in stride(from: CGFloat(19), through: 44 + 14, by: 2) {
             try await send(.leftMouseDragged, at: at(10 + room / 6 + (y - 17) / 2, y), in: window)
@@ -978,7 +978,7 @@ final class RowCarryTests: XCTestCase {
         SideBar.shownGap = nil
         // The grid, 34 and 10 under it; then the phone's group 0–28.
         let room = browser.prefs.sideWidth - 20
-        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y) }
         try await send(.leftMouseDown, at: at(10 + room / 6, 17), in: window)
         for y in stride(from: CGFloat(19), through: 44 + 14, by: 2) {
             try await send(.leftMouseDragged, at: at(10 + room / 6 + (y - 17) / 2, y), in: window)
@@ -1025,7 +1025,7 @@ final class RowCarryTests: XCTestCase {
         // tall with 4 between: 0–34 and 38–72; 10 under them the phone's
         // group, 82–110.
         let room = browser.prefs.sideWidth - 20
-        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y) }
         let x = 10 + room / 6
         try await send(.leftMouseDown, at: at(x, 17), in: window)
         for y in stride(from: CGFloat(19), through: 55, by: 2) {
@@ -1082,7 +1082,7 @@ final class RowCarryTests: XCTestCase {
         // 38–72, the phone's group 82–110. The third square, the one gone
         // on, carried down into the second row and on onto the phone.
         let room = browser.prefs.sideWidth - 20
-        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.strip - y) }
+        func at(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y) }
         let x = 10 + room * 5 / 6
         try await send(.leftMouseDown, at: at(x, 17), in: window)
         for y in stride(from: CGFloat(19), through: 55, by: 2) {
@@ -1390,8 +1390,8 @@ final class RowCarryTests: XCTestCase {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
             NSColor.systemRed.setFill()
-            NSRect(x: 0, y: view.bounds.height - Metrics.strip - y - 0.5, width: 8, height: 1).fill()
-            NSRect(x: view.bounds.width - 8, y: view.bounds.height - Metrics.strip - y - 0.5, width: 8, height: 1).fill()
+            NSRect(x: 0, y: view.bounds.height - Metrics.columnTop - y - 0.5, width: 8, height: 1).fill()
+            NSRect(x: view.bounds.width - 8, y: view.bounds.height - Metrics.columnTop - y - 0.5, width: 8, height: 1).fill()
             NSGraphicsContext.restoreGraphicsState()
             try rep.representation(using: .png, properties: [:])?
                 .write(to: URL(fileURLWithPath: String(format: "%@/%03d.png", folder, n)))
@@ -1535,7 +1535,7 @@ final class RowCarryTests: XCTestCase {
 
     /// A point down the rows, from their top, in the window's terms.
     private func point(y: CGFloat, in window: NSWindow) -> NSPoint {
-        NSPoint(x: 70, y: window.frame.height - Metrics.strip - runTop - y)
+        NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - runTop - y)
     }
 
     private func settle() async throws {

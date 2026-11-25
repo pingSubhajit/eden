@@ -78,39 +78,106 @@ struct Omnibox: View {
         static let listMost: CGFloat = Row.height * 7 + Row.pitch * 6 + 20
     }
 
+    /// Raised by a click on the column's address bar: over the bar, not in
+    /// the middle of the page. Only the window's own field, never a pane's.
+    private var anchor: CGRect? { fitted ? nil : browser.barField }
+
+    /// Over the column's address bar (see AddressBar): the panel's top
+    /// corner on the bar's, the field in a band little taller than the bar,
+    /// and the panel wider than the column, reaching out over the page.
+    enum Anchored {
+        static let header: CGFloat = 48
+        static let width: CGFloat = 440
+    }
+
+    private var headerHeight: CGFloat { anchor == nil ? Layout.header : Anchored.header }
+
+    /// Up, and this field's to show. A pane's is there for every pane,
+    /// drawing itself only on the one in front (SplitView), and draws
+    /// nothing while the window's own stands over the column's bar: taken
+    /// away instead, it went on a fade, showing itself in the middle of the
+    /// page for a moment as the one over the bar came.
+    private var showing: Bool {
+        guard browser.fieldShowing else { return false }
+        guard fitted else { return true }
+        return browser.barField == nil && tab == browser.activeID
+    }
+
     var body: some View {
         GeometryReader { geometry in
-            let top = Layout.top(in: geometry.size.height)
-            // The list's room: down to 16 points from the bottom, under the
-            // field and its hairline.
-            content(width: Layout.width(in: geometry.size.width), top: top,
-                    room: min(Layout.listMost, geometry.size.height - top - Layout.header - 1 - 16))
+            if let anchor {
+                anchored(anchor, in: geometry)
+            } else {
+                let top = Layout.top(in: geometry.size.height)
+                // The list's room: down to 16 points from the bottom, under the
+                // field and its hairline.
+                content(width: Layout.width(in: geometry.size.width), top: top,
+                        room: min(Layout.listMost, geometry.size.height - top - Layout.header - 1 - 16))
+            }
         }
-        .allowsHitTesting(browser.fieldShowing)
+        .allowsHitTesting(showing)
+    }
+
+    /// The panel over the bar at `anchor`, a frame in the window, from the
+    /// bar's own corner: out to the right from a column on the left, out
+    /// to the left from one on the right, and never past the window's edge.
+    private func anchored(_ anchor: CGRect, in geometry: GeometryProxy) -> some View {
+        let space = geometry.frame(in: .global)
+        let bar = anchor.offsetBy(dx: -space.minX, dy: -space.minY)
+        let leftward = bar.midX > space.width / 2
+        let width = min(max(bar.width, min(Anchored.width, leftward ? bar.maxX - 14 : space.width - bar.minX - 14)),
+                        max(0, space.width - 28))
+        // Kept inside the window however the bar stands: a window made
+        // narrower under it, or a column wider than the room left.
+        let x = min(max(14, leftward ? bar.maxX - width : bar.minX), max(14, space.width - width - 14))
+        let room = min(Layout.listMost, space.height - bar.minY - Anchored.header - 1 - 16)
+        return ZStack(alignment: .topLeading) {
+            if showing {
+                catcher
+                panel(room: room)
+                    .frame(width: width)
+                    .offset(x: x, y: bar.minY)
+                    // Out of the bar, as if the bar itself grew, on its own
+                    // timing: this branch comes and goes with the bar's
+                    // field, and has nothing standing to hang a timing on.
+                    .transition(.scale(scale: 0.96, anchor: leftward ? .topTrailing : .topLeading)
+                        .combined(with: .opacity)
+                        .animation(Motion.reduced ? nil : .easeOut(duration: 0.12)))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The page stays as it is, as under Zen's bar: nothing dims it. A click
+    /// on it puts the field away.
+    private var catcher: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .ignoresSafeArea(.all, edges: fitted ? [] : .all)
+            .onTapGesture { browser.dismiss() }
     }
 
     private func content(width: CGFloat, top: CGFloat, room: CGFloat) -> some View {
         ZStack(alignment: .top) {
-            if browser.fieldShowing {
-                if over {
-                    // The page stays as it is, as under Zen's bar: nothing
-                    // dims it. A click on it puts the field away.
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .ignoresSafeArea(.all, edges: fitted ? [] : .all)
-                        .onTapGesture { browser.dismiss() }
-                }
+            if showing {
+                if over { catcher }
                 panel(room: room)
                     .frame(width: width)
                     .padding(.top, top)
                     // There at once and gone at once, as Zen's is: a fade
                     // too short to wait for, whatever the window's own
-                    // animation for the field is.
-                    .transition(.opacity.animation(Motion.reduced ? nil : .easeOut(duration: 0.08)))
+                    // animation for the field is. Going, only as the field
+                    // is put away (below): a blank page's field moving over
+                    // the column's bar goes at once, and is never seen in
+                    // the middle of the page as the one over the bar comes.
+                    .transition(.asymmetric(insertion: .opacity.animation(Self.fade), removal: .opacity))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(Self.fade, value: browser.fieldShowing)
     }
+
+    private static var fade: Animation? { Motion.reduced ? nil : .easeOut(duration: 0.08) }
 
     private var listing: Bool {
         !browser.offers.isEmpty || browser.siteOffer != nil
@@ -224,7 +291,7 @@ struct Omnibox: View {
         }
         .padding(.leading, Row.listInset + Row.inset)
         .padding(.trailing, 22)
-        .frame(height: Layout.header)
+        .frame(height: headerHeight)
     }
 
     /// The row the arrow keys are on, for the list to keep in sight.

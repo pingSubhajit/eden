@@ -1491,7 +1491,7 @@ private struct NotificationSites: View {
         if !sites.isEmpty {
             ForEach(sites, id: \.self) { site in
                 Rule()
-                Line(URL(string: site).map(SiteCard.site) ?? site, "Can send notifications") {
+                Line(URL(string: site).map(SiteName.of) ?? site, "Can send notifications") {
                     Pill("Remove") { SiteNotifications.forget(site) }
                 }
             }

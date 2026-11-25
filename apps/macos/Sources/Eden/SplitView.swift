@@ -161,9 +161,12 @@ private struct PaneLayers: View {
             // the stage's.
             Page(tab: tab, holdsPage: false, corner: corner, browser: browser)
 
-            if focused {
-                Omnibox(browser: browser, over: !tab.isBlank, fitted: true, tab: tab.id)
-            }
+            // Every pane keeps its field, drawing it only while its page is
+            // the one in front (Omnibox.showing), so the field's own fade is
+            // there as it goes, whichever way it goes. Raised from the
+            // column's address bar, the window's own field stands over the
+            // bar instead, and this one draws nothing.
+            Omnibox(browser: browser, over: !tab.isBlank, fitted: true, tab: tab.id)
 
             // An empty page of a pair: the field, and the tabs already open,
             // to bring one in. Gone while something is typed, when the field's

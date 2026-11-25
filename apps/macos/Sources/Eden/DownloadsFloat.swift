@@ -4,7 +4,7 @@ import SwiftUI
 // Downloads by its button (Settings › Downloads › Open Downloads): the
 // side panel's card, as wide as the panel is and a quarter of the window's
 // height, floating beside the button instead of taking room from the page.
-// Its own small window, as the site card's is (SiteCard.swift): it never
+// Its own small window, as the site card's was: it never
 // takes the keys, so the page keeps them, and a click on the card is only a
 // click. It grows in from the button's corner and shrinks back into it,
 // fading; at once with Reduce Motion. It goes with a click anywhere else,

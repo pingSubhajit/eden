@@ -536,34 +536,6 @@ final class ColumnHandsTests: XCTestCase {
         XCTAssertEqual(browser.activeID, t[0].id)
     }
 
-    // MARK: - the field in a row
-
-    /// ⌘Return in the field a row opens: what is typed opens in a new tab
-    /// behind, the row's own tab left as it was; ⇧⌘Return in front.
-    func testCommandReturnInARowsFieldOpensANewTab() throws {
-        let browser = makeBrowser()
-        let t = browser.tabs
-        t[1].restore(url: URL(string: "https://example.invalid/two")!, title: "two")
-        browser.select(t[1])
-        let address = t[1].address
-        browser.beginTabEdit(t[1])
-        XCTAssertEqual(browser.editingTab, t[1].id)
-        browser.tabDraft = "https://example.invalid/behind"
-        browser.commitTabEditAside(front: false)
-        XCTAssertNil(browser.editingTab, "the field is done")
-        XCTAssertEqual(browser.activeID, t[1].id, "still on the row's tab")
-        XCTAssertEqual(t[1].address, address, "left as it was")
-        let behind = try XCTUnwrap(browser.tabs.first { $0.address?.absoluteString == "https://example.invalid/behind" })
-        XCTAssertNotEqual(behind.id, t[1].id)
-
-        browser.beginTabEdit(t[1])
-        browser.tabDraft = "https://example.invalid/front"
-        browser.commitTabEditAside(front: true)
-        let front = try XCTUnwrap(browser.tabs.first { $0.address?.absoluteString == "https://example.invalid/front" })
-        XCTAssertEqual(browser.activeID, front.id, "gone to it")
-        XCTAssertEqual(t[1].address, address)
-    }
-
     // MARK: - helpers
 
     private func makeBrowser() -> Browser {
@@ -624,12 +596,12 @@ final class ColumnHandsTests: XCTestCase {
 
     /// A point down the rows, from their top, in the window's terms.
     private func point(y: CGFloat, in window: NSWindow) -> NSPoint {
-        NSPoint(x: 70, y: window.frame.height - Metrics.strip - y)
+        NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - y)
     }
 
     /// A point from the top of the squares, or of the rows with none.
     private func pins(_ x: CGFloat, _ y: CGFloat, in window: NSWindow) -> NSPoint {
-        NSPoint(x: x, y: window.frame.height - Metrics.strip - y)
+        NSPoint(x: x, y: window.frame.height - Metrics.columnTop - y)
     }
 
     private func settle() async throws {

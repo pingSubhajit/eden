@@ -448,8 +448,8 @@ struct LittleView: View {
         }
         guard let url = arrived ?? opened else { return "" }
         switch url.scheme?.lowercased() {
-        case "https": return SiteCard.site(url)
-        case "http": return "Not secure — " + SiteCard.site(url)
+        case "https": return SiteName.of(url)
+        case "http": return "Not secure — " + SiteName.of(url)
         case "chrome-extension", "webkit-extension": return "Extension page"
         default: return url.absoluteString == "about:blank" ? "" : "Not a website"
         }

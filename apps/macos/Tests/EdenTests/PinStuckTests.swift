@@ -69,7 +69,7 @@ final class PinStuckTests: XCTestCase {
         let window = makeWindow(browser)
         try await settle()
         let room = browser.prefs.sideWidth - 20
-        let x = 10 + room / 6, y = Metrics.strip + 17
+        let x = 10 + room / 6, y = Metrics.columnTop + 17
         let last = try await carry(from: point(x: x, y: y, in: window), through: [
             point(x: x + 20, y: y, in: window),
             point(x: x + 10, y: y, in: window),
@@ -108,10 +108,10 @@ final class PinStuckTests: XCTestCase {
         let window = makeWindow(browser)
         try await settle()
         // The grid, then the line a pin keeps above the rest (#6).
-        let top = Metrics.strip + 44 + KeepLine.height + SideBar.gap
+        let top = Metrics.columnTop + 44 + KeepLine.height + SideBar.gap
         let room = browser.prefs.sideWidth - 20
-        let last = try await carry(from: point(x: 10 + room / 6, y: Metrics.strip + 17, in: window), through: [
-            point(x: 10 + room / 6, y: Metrics.strip + 40, in: window),
+        let last = try await carry(from: point(x: 10 + room / 6, y: Metrics.columnTop + 17, in: window), through: [
+            point(x: 10 + room / 6, y: Metrics.columnTop + 40, in: window),
             point(x: 80, y: top + 30 + 30 + 4, in: window),
         ], in: window)
         XCTAssertEqual(CarryGuard.count, 1, "carried")
@@ -141,11 +141,11 @@ final class PinStuckTests: XCTestCase {
         let window = makeWindow(browser)
         try await settle()
         // The grid, then the line a pin keeps above the rest (#6).
-        let top = Metrics.strip + 44 + KeepLine.height + SideBar.gap
+        let top = Metrics.columnTop + 44 + KeepLine.height + SideBar.gap
         let room = browser.prefs.sideWidth - 20
         let last = try await carry(from: point(x: 70, y: top + 14, in: window), through: [
-            point(x: 70, y: Metrics.strip + 30, in: window),
-            point(x: 10 + room / 2, y: Metrics.strip + 17, in: window),
+            point(x: 70, y: Metrics.columnTop + 30, in: window),
+            point(x: 10 + room / 2, y: Metrics.columnTop + 17, in: window),
         ], in: window)
         XCTAssertEqual(CarryGuard.count, 1, "carried")
         let empty = point(x: 100, y: 480, in: window)

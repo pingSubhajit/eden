@@ -245,15 +245,22 @@ struct Fold: View {
         .onChange(of: browser.editingTab) { _, editing in
             if editing == nil, !inside, browser.peeking { peek(false) }
         }
+        // The same for the field raised from the column's address bar, and
+        // for the site's controls hanging from it.
+        .onChange(of: browser.barField) { _, anchor in
+            if anchor == nil, !inside, !holding, browser.peeking { peek(false) }
+        }
+        .onChange(of: browser.siteControlsShown) { _, shown in
+            if !shown, !inside, !holding, browser.peeking { peek(false) }
+        }
     }
 
-    /// A popover opened from a button in the column, still open: the
-    /// extensions menu. Folding the column would take it along, so it holds
+    /// Something opened from the column, still open: the site's controls
+    /// or the field raised from the address bar. Folding the column would take it along, so it holds
     /// the column out wherever the pointer has gone, over the page included
     /// (#88).
     private var holding: Bool {
-        if #available(macOS 15.4, *), Extensions.shared.menuOpen { return true }
-        return false
+        browser.barField != nil || browser.siteControlsShown
     }
 
     /// Folded, and not taken over by a page filling the screen.

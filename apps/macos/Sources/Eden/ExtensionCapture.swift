@@ -400,7 +400,7 @@ final class ExtensionCapture: NSObject, WKScriptMessageHandlerWithReply, Observa
             let before = by[entry.id]
             let site = entry.extensionID == nil
             by[entry.id] = Recording(
-                id: entry.id, name: site ? (web.url.map(SiteCard.site) ?? "A page") : Browser.extensionName(entry.id),
+                id: entry.id, name: site ? (web.url.map(SiteName.of) ?? "A page") : Browser.extensionName(entry.id),
                 site: site,
                 screen: (before?.screen ?? false) || ExtensionCapture.screen(web),
                 camera: (before?.camera ?? false) || web.cameraCaptureState != .none,
