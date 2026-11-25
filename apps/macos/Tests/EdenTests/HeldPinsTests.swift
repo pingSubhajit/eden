@@ -88,6 +88,29 @@ final class HeldPinsTests: XCTestCase {
         XCTAssertEqual(saved(browser), ["A", "w1 Work", "w2 Work", "w3 Work", "B", "d1 Docs", "d2 Docs"])
     }
 
+    /// A row put down by hand is still dimmed after its folder is folded
+    /// and unfolded, though its tab was let go and made again in between
+    /// (Browser.heldRested); one never put down is not.
+    func testARowPutDownStaysDimmedThroughAFold() throws {
+        let browser = makeBrowser()
+        let kept = try keep(browser)
+        browser.setGroupFolded(kept.work, false)
+        let w2 = try XCTUnwrap(browser.tabs.first { $0.title == "w2" })
+        let a = try XCTUnwrap(browser.tabs.first { $0.title == "A" })
+        browser.select(w2)
+        browser.select(a)
+        browser.closeTab(w2)
+        XCTAssertTrue(w2.rested, "put down")
+
+        browser.setGroupFolded(kept.work, true)
+        XCTAssertEqual(rows(browser), ["A", "B", "d1", "d2"], "held as data")
+        browser.setGroupFolded(kept.work, false)
+        let again = try XCTUnwrap(browser.tabs.first { $0.title == "w2" })
+        XCTAssertFalse(again === w2, "made again")
+        XCTAssertTrue(again.rested, "still put down")
+        XCTAssertEqual(browser.tabs.filter { $0.keptGroupID == kept.work && $0.rested }.map(\.title), ["w2"])
+    }
+
     /// Bookmarks come in folded, in a folder named after the file they come
     /// from or the folder they were in, and make no tab, ahead or after.
     func testBookmarksComeInFoldedAsData() async throws {

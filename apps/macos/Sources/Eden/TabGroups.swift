@@ -95,6 +95,10 @@ struct GroupHeading: View {
 
     private func stopRenaming() { browser.editingGroupID = nil }
 
+    /// Its name, chevron and icon: a tab title's strength, up under the
+    /// pointer as a row's is.
+    private var ink: Color { hovering ? group.colour.lifted : group.colour.title }
+
     /// Pickers beside the column open away from the window's edge.
     private var besideColumn: Edge { browser.prefs.sidePosition == .right ? .leading : .trailing }
 
@@ -105,14 +109,14 @@ struct GroupHeading: View {
     private var standIn: some View {
         let prefs = browser.prefs
         if kept {
-            PinFolderIcon(open: !group.collapsed, ink: group.colour.ink, size: prefs.sideMark)
+            PinFolderIcon(open: !group.collapsed, ink: ink, size: prefs.sideMark)
         } else if let first = browser.tabs(in: group.id).first {
             // The tab's own mark, as its row draws it.
             Mark(icon: prefs.glyph != .icons ? nil : first.icon, letter: first.monogram, size: prefs.sideMark)
         } else {
             Image(systemName: "square.on.square.fill")
                 .font(.system(size: prefs.sideMark * 0.68, weight: .semibold))
-                .foregroundStyle(group.colour.ink)
+                .foregroundStyle(ink)
         }
     }
 
@@ -120,7 +124,7 @@ struct GroupHeading: View {
     private var column: some View {
         let prefs = browser.prefs
         return GroupLabel(row: prefs.sideRow, toggle: editing ? nil : toggle) {
-            GroupIconView(icon: group.icon, colour: group.colour, size: prefs.sideMark) { standIn }
+            GroupIconView(icon: group.icon, ink: ink, size: prefs.sideMark) { standIn }
         } title: {
             if editing {
                 NameField(text: Binding(get: { draft ?? group.name }, set: { draft = $0 }),
@@ -131,7 +135,7 @@ struct GroupHeading: View {
                 // heading's, it would set the name at the top of it.
                 .frame(height: 16)
             } else {
-                GroupName(name: group.name, ink: group.colour.ink, collapsed: group.collapsed, size: prefs.sideTitle)
+                GroupName(name: group.name, ink: ink, collapsed: group.collapsed, size: prefs.sideTitle)
             }
         } end: {
             // Folded, its place among ⌘1–⌘9, in either area.

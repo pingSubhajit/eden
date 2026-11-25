@@ -102,6 +102,30 @@ final class NothingInFrontTests: XCTestCase {
         XCTAssertFalse(browser.tabs.contains(where: \.isBlank))
     }
 
+    /// Only a tab put away or put down by hand is dimmed in its group or
+    /// folder (Tab.rested): one not opened since it was brought back looks
+    /// as a loose one does, and one gone to again is lit as before.
+    func testOnlyATabPutAwayByHandIsRested() {
+        let browser = makeBrowser()
+        let tabs = browser.tabs
+        browser.prefs.usesTabGroups = true
+        let group = browser.addTabGroup(containing: tabs[2])
+        browser.move(tabs[3], toGroup: group)
+        XCTAssertTrue(tabs[3].asleep, "not opened since it was brought back")
+        XCTAssertFalse(tabs[3].rested)
+
+        browser.select(tabs[2])
+        browser.closeTab(tabs[2])
+        XCTAssertTrue(tabs[2].asleep && tabs[2].rested, "put away")
+        browser.select(tabs[2])
+        XCTAssertFalse(tabs[2].asleep || tabs[2].rested, "gone to again")
+
+        browser.pin(tabs[0])
+        browser.select(tabs[0])
+        browser.closeTab(tabs[0])
+        XCTAssertTrue(tabs[0].rested, "a pin put down")
+    }
+
     /// The last loose tab closed beside groups goes back to the grouped tab
     /// you were on, and makes no new tab.
     func testLastLooseTabBesideGroupsGoesBack() {

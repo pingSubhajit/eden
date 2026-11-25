@@ -282,20 +282,28 @@ struct DeviceGroup: View {
     var gapFrame = RowGapFrame()
     let toggle: () -> Void
 
+    @State private var hovering = false
+
+    /// Its symbol, name and chevron: a tab title's strength, up under the
+    /// pointer, as a group's heading has them.
+    private var ink: Color { hovering ? GroupColour.stone.lifted : GroupColour.stone.title }
+
     var body: some View {
         SideGroup(colour: .stone, folded: !opened, lit: gap != nil,
                   showsRows: DeviceRows.shown(opened: opened, carried: gap != nil)) {
             GroupLabel(row: prefs.sideRow, toggle: toggle) {
                 Image(systemName: device.kind.symbol)
                     .font(.system(size: prefs.sideMark * 0.8, weight: .medium))
-                    .foregroundStyle(GroupColour.stone.ink)
+                    .foregroundStyle(ink)
                     .frame(width: prefs.sideMark, height: prefs.sideMark)
             } title: {
-                GroupName(name: device.name, ink: GroupColour.stone.ink, collapsed: !opened, size: prefs.sideTitle)
+                GroupName(name: device.name, ink: ink, collapsed: !opened, size: prefs.sideTitle)
             } end: {
                 EmptyView()
             }
             .help(opened ? "Hide the tabs open on \(device.name)" : "Show the tabs open on \(device.name)")
+            // At once, as a group's heading comes up.
+            .onHover { hovering = $0 }
             .groupAccessibility(name: device.name, collapsed: !opened, toggle: toggle)
             // As a group's heading has its menu: what can be done with all
             // of the device's pages here.
