@@ -382,6 +382,46 @@ final class ExtensionTabsMoveTests: XCTestCase {
         XCTAssertTrue(followed.movers.isEmpty, "the row followed, its movers let go")
     }
 
+    /// A browser followed and then freed without being let go, as the first
+    /// one a test run makes is (Extensions.start), leaves what extensions
+    /// kept of it under its address. A browser made later at that address
+    /// is a window of its own: followed when it registers, its own adapter
+    /// and its own rows, none of them taken for the gone one's.
+    func testABrowserMadeWhereAFreedOneWasIsFollowed() throws {
+        let browser = Browser(record: WindowRecord())
+        defer { browser.closeAll() }
+        // Not followed from the start, if it was the run's first.
+        Extensions.shared.detach(browser)
+        _ = try pages(["a"], in: browser)
+        autoreleasepool {
+            let gone = Browser(record: WindowRecord())
+            Extensions.shared.leaveBehind(gone, at: browser)
+            gone.closeAll()
+        }
+        XCTAssertFalse(browser.rowFollowed, "not followed before it registers")
+        Browsers.register(browser)
+        defer { Browsers.discard(browser) }
+        XCTAssertTrue(browser.rowFollowed, "followed once it registers")
+        XCTAssertTrue(Extensions.shared.window(of: browser).browser === browser, "its own window")
+        XCTAssertEqual(Extensions.shared.visibleRows(of: browser).compactMap(\.tab?.title).last, "a", "its own rows")
+    }
+
+    /// Asked for before it registers, such a browser's rows and window are
+    /// its own too, not the gone one's left under its address.
+    func testABrowserMadeWhereAFreedOneWasHasItsOwnRowsAndWindow() throws {
+        let browser = Browser(record: WindowRecord())
+        defer { browser.closeAll() }
+        _ = try pages(["a"], in: browser)
+        autoreleasepool {
+            let gone = Browser(record: WindowRecord())
+            Extensions.shared.leaveBehind(gone, at: browser)
+            gone.closeAll()
+        }
+        defer { Extensions.shared.detach(browser) }
+        XCTAssertEqual(Extensions.shared.visibleRows(of: browser).compactMap(\.tab?.title).last, "a", "its own rows")
+        XCTAssertTrue(Extensions.shared.window(of: browser).browser === browser, "its own window")
+    }
+
     /// A tab sent to another window by an extension goes as it is: the
     /// tab in front there stays in front, it isn't woken, and the window it
     /// left keeps its own tab in front.

@@ -91,7 +91,17 @@ final class Extensions: NSObject, ObservableObject {
     /// Each window's adapter, by browser.
     private var windows: [ObjectIdentifier: ExtensionWindow] = [:]
     /// Each window's subscriptions to its row and its tab in front.
-    private var following: [ObjectIdentifier: [AnyCancellable]] = [:]
+    private var following: [ObjectIdentifier: Followed] = [:]
+
+    /// A window followed, by its browser's identifier, which is the
+    /// browser's only while it lives: a browser freed without being let go
+    /// (detach) leaves this behind, and the next one made at its address
+    /// has the same identifier. So the browser itself, held weakly, says
+    /// whose it is.
+    private struct Followed {
+        weak var browser: Browser?
+        let subscriptions: [AnyCancellable]
+    }
     /// A tab gone from one window's row into another's, and where it was.
     private var inTransit: [Tab.ID: (window: ObjectIdentifier, orders: [String: [Tab.ID]])] = [:]
     /// Every extension switched on has loaded, at launch.
@@ -103,7 +113,11 @@ final class Extensions: NSObject, ObservableObject {
 
     func window(of browser: Browser) -> ExtensionWindow {
         let key = ObjectIdentifier(browser)
-        if let known = windows[key] { return known }
+        if let known = windows[key] {
+            if known.browser === browser { return known }
+            // Another's, freed, made where this one is (see Followed).
+            forget(key)
+        }
         let made = ExtensionWindow(owner: self, browser: browser)
         windows[key] = made
         return made
@@ -411,6 +425,9 @@ final class Extensions: NSObject, ObservableObject {
     }
 
     private struct Rows {
+        /// Whose they are: the key's identifier is the browser's only
+        /// while it lives (see Followed).
+        weak var browser: Browser?
         let stamp: Int
         let list: [ExtensionTab]
         let places: [ObjectIdentifier: Int]
@@ -425,7 +442,7 @@ final class Extensions: NSObject, ObservableObject {
 
     private func rows(of browser: Browser, for context: WKWebExtensionContext?) -> Rows {
         let key = RowsKey(browser: ObjectIdentifier(browser), privately: context.map(\.hasAccessToPrivateData))
-        if let kept = rowsKept[key], kept.stamp == browser.rowStamp { return kept }
+        if let kept = rowsKept[key], kept.browser === browser, kept.stamp == browser.rowStamp { return kept }
         let list = browser.placesInRow.compactMap { place -> ExtensionTab? in
             switch place {
             case .tab(let tab):
@@ -435,11 +452,16 @@ final class Extensions: NSObject, ObservableObject {
                 return adapter(held: pin, id: id, in: browser)
             }
         }
-        let made = Rows(stamp: browser.rowStamp, list: list,
+        let made = Rows(browser: browser, stamp: browser.rowStamp, list: list,
                         places: Dictionary(list.enumerated().map { (ObjectIdentifier($1), $0) }, uniquingKeysWith: { first, _ in first }))
-        if rowsKept.isEmpty { DispatchQueue.main.async { [weak self] in self?.rowsKept = [:] } }
-        rowsKept[key] = made
+        keep(made, under: key)
         return made
+    }
+
+    /// Rows kept until the main queue's turn is over.
+    private func keep(_ rows: Rows, under key: RowsKey) {
+        if rowsKept.isEmpty { DispatchQueue.main.async { [weak self] in self?.rowsKept = [:] } }
+        rowsKept[key] = rows
     }
 
     /// Private tabs keep nothing and show nothing to an extension you haven't
@@ -596,10 +618,19 @@ final class Extensions: NSObject, ObservableObject {
     /// tab in front.
     func attach(_ browser: Browser) {
         let key = ObjectIdentifier(browser)
-        guard following[key] == nil else { return }
+        if let followed = following[key] {
+            if followed.browser === browser { return }
+            // Another browser's, freed without being let go, at whose address
+            // this one was made: the first browser of a test run is followed
+            // from its start (start(for:)) but is no window's, so nothing lets
+            // it go. Nothing kept under the identifier is this one's; left as
+            // it was, this browser was never followed, and the tabs it moved
+            // never noted (#54).
+            forget(key)
+        }
         browser.rowFollowed = true
         controller.didOpenWindow(window(of: browser))
-        following[key] = [
+        following[key] = Followed(browser: browser, subscriptions: [
             browser.$tabs
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak browser] _ in
@@ -629,15 +660,22 @@ final class Extensions: NSObject, ObservableObject {
             browser.$tabGroups
                 .dropFirst()
                 .sink { _ in ExtensionWatch.groups.changed() },
-        ]
+        ])
     }
 
     /// Its window closed for good: its tabs, then the window, gone for WebKit.
     func detach(_ browser: Browser) {
-        let key = ObjectIdentifier(browser)
-        anchors.removeValue(forKey: key)
         browser.rowFollowed = false
         browser.movers = []
+        forget(ObjectIdentifier(browser))
+    }
+
+    /// What is kept of a window by its browser's identifier gone, and, if
+    /// it was followed, its tabs, then the window, gone for WebKit.
+    private func forget(_ key: ObjectIdentifier) {
+        anchors.removeValue(forKey: key)
+        rowsKept = rowsKept.filter { $0.key.browser != key }
+        inTransit = inTransit.filter { $0.value.window != key }
         guard following.removeValue(forKey: key) != nil else { return }
         for id in orders.removeValue(forKey: key) ?? [] {
             if let adapter = adapters[id] {
@@ -653,9 +691,20 @@ final class Extensions: NSObject, ObservableObject {
         ExtensionWatch.groups.changed()
     }
 
+    /// For tests: what a browser freed without being let go leaves behind,
+    /// its window followed, its adapter and its rows worked out, put under
+    /// `browser`'s identifier, as if `browser` had been made at the
+    /// address `gone` had, which a test can't arrange.
+    func leaveBehind(_ gone: Browser, at browser: Browser) {
+        let key = ObjectIdentifier(browser)
+        following[key] = Followed(browser: gone, subscriptions: [])
+        windows[key] = ExtensionWindow(owner: self, browser: gone)
+        keep(Rows(browser: gone, stamp: browser.rowStamp, list: [], places: [:]), under: RowsKey(browser: key, privately: nil))
+    }
+
     /// A window came to the front (windows.onFocusChanged).
     func focused(_ browser: Browser) {
-        guard following[ObjectIdentifier(browser)] != nil else { return }
+        guard following[ObjectIdentifier(browser)]?.browser === browser else { return }
         controller.didFocusWindow(window(of: browser))
     }
 
