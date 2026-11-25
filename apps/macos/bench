@@ -34,15 +34,14 @@
                                        of activity TYPE (Eden's own unless given), taken as the app takes one
     ./bench extensions                 installed extensions, loaded or not, with their warnings
     ./bench little URL|keep|close      a small window for a link (made unseen), kept into the row, or closed
-    ./bench site PATH [security]       the site card for the tab on screen, drawn to a PNG
+    ./bench site PATH [security]       the site's controls for the tab on screen, drawn to a PNG
     ./bench ext-add ID|LINK [--yes]    install from the Chrome Web Store (--yes only in a --test run)
     ./bench ext-folder PATH [--yes]    install an unpacked extension
     ./bench ext-press ID               press its button
     ./bench ext-page ID [PATH]         one of its pages in a bench tab → tab id, for eval
     ./bench ext-popup ID JS            run JavaScript in its popup while it is open
     ./bench ext-reload ID              take it up again (a folder one is copied in afresh)
-    ./bench ext-pin ID [on|off]        keep its button in the row beside the puzzle
-    ./bench ext-menu PATH              the puzzle button's list, drawn to a PNG
+    ./bench ext-pin ID [on|off]        keep its button on the address bar
     ./bench ext-shot ID PATH           a picture of its popup while it is open
     ./bench ext-answer yes|no|ask      test run: answer extensions' questions without asking; lists what was asked
     ./bench ext-enable ID on|off       switch an extension on or off
@@ -256,7 +255,7 @@ def main(argv):
         if len(args) != 2: sys.exit("usage: bench ui KEY VALUE")
         key, value = args
         if key == "side" and value not in ("left", "right"): sys.exit("usage: bench ui side left|right")
-        request[key] = value if key in ("look", "edittab", "peeklink", "import", "side", "pages120") else value in ("on", "true", "1", "yes")
+        request[key] = value if key in ("look", "renametab", "peeklink", "import", "side", "pages120") else value in ("on", "true", "1", "yes")
     elif verb in ("ext-add", "ext-press", "ext-remove", "ext-reload"):
         if len(args) != 1: sys.exit(f"usage: bench {verb} ID")
         request["id"] = args[0]
@@ -290,9 +289,6 @@ def main(argv):
         if len(args) != 2: sys.exit("usage: bench ext-shot ID PATH")
         request["id"] = args[0]
         request["path"] = os.path.abspath(args[1])
-    elif verb == "ext-menu":
-        if len(args) != 1: sys.exit("usage: bench ext-menu PATH")
-        request["path"] = os.path.abspath(args[0])
     elif verb == "ext-folder":
         if len(args) != 1: sys.exit("usage: bench ext-folder PATH")
         request["path"] = os.path.abspath(args[0])

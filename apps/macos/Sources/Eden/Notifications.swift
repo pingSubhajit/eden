@@ -155,7 +155,7 @@ final class SiteNotifications: NSObject {
         content.title = title
         content.body = body
         let url = URL(string: origin)
-        content.subtitle = url.map(SiteCard.site) ?? origin
+        content.subtitle = url.map(SiteName.of) ?? origin
         content.threadIdentifier = origin
         content.categoryIdentifier = "site"
         content.sound = .default

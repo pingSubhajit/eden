@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// The address, inside its own tab.
+/// A tab's name, typed in its own row (Browser.beginTabRename).
 ///
 /// A field of its own rather than SwiftUI's, for one reason: the system paints
 /// selected text as a solid block of accent colour, which over a pale grey pill
 /// this size is the loudest thing in the window. Here it is a tenth of the ink.
-struct TabAddressField: NSViewRepresentable {
+struct TabNameField: NSViewRepresentable {
     @ObservedObject var browser: Browser
+    /// The row's title size, so the name being typed is the name as it will
+    /// read.
+    let size: CGFloat
 
     func makeCoordinator() -> Coordinator { Coordinator(browser: browser) }
 
@@ -16,7 +19,7 @@ struct TabAddressField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 12.5)
+        field.font = .systemFont(ofSize: size)
         field.textColor = Palette.NS.ink
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
@@ -26,11 +29,8 @@ struct TabAddressField: NSViewRepresentable {
         field.cell?.isScrollable = true
         field.lineBreakMode = .byClipping
         field.stringValue = browser.tabDraft
+        field.setAccessibilityLabel("Tab name")
         context.coordinator.watch(field)
-        // The site card stands under whichever field the address is in, and
-        // the list of places once something is typed.
-        SiteCardPanel.follow(browser, anchor: field)
-        TabOffersPanel.follow(browser, anchor: field)
         return field
     }
 
@@ -38,10 +38,10 @@ struct TabAddressField: NSViewRepresentable {
         coordinator.unwatch()
     }
 
-    /// The width it is offered, never the address's own. Left to its own,
-    /// the field was as wide as the whole address and the row cut it off:
-    /// a field that never runs out of room never scrolls, so the caret went
-    /// on out of sight with ← and →, and so did what was typed at the end.
+    /// The width it is offered, never the name's own. Left to its own, the
+    /// field was as wide as the whole name and the row cut it off: a field
+    /// that never runs out of room never scrolls, so the caret went on out
+    /// of sight with ← and →, and so did what was typed at the end.
     func sizeThatFits(_ proposal: ProposedViewSize, nsView field: NSTextField, context: Context) -> CGSize? {
         let natural = field.intrinsicContentSize
         guard let width = proposal.width, width.isFinite else { return nil }
@@ -71,9 +71,6 @@ struct TabAddressField: NSViewRepresentable {
         var browser: Browser
         var claimed = false
         var typing = false
-        /// A key that takes letters off: the field mustn't put the same
-        /// letters straight back as a completion, or it can't be shortened.
-        private var deleting = false
 
         init(browser: Browser) { self.browser = browser }
 
@@ -81,15 +78,6 @@ struct TabAddressField: NSViewRepresentable {
             guard let field = note.object as? NSTextField else { return }
             typing = true
             defer { typing = false }
-            let text = field.stringValue
-            let ending = browser.tabTyped(text)
-            // The rest of a place you have been, typed in selected, as ⌘L's
-            // field does: the next key replaces it and Return takes it.
-            if !deleting, let ending, let editor = field.currentEditor() as? NSTextView {
-                field.stringValue = text + ending
-                editor.selectedRange = NSRange(location: (text as NSString).length, length: (ending as NSString).length)
-            }
-            deleting = false
             browser.tabDraft = field.stringValue
         }
 
@@ -100,26 +88,11 @@ struct TabAddressField: NSViewRepresentable {
         ) -> Bool {
             switch command {
             case #selector(NSResponder.insertNewline(_:)):
-                // Returning true keeps the field editing, which is what lets a
-                // refused address stay on screen instead of being thrown away.
                 browser.commitTabEdit()
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
                 browser.cancelTabEdit()
                 return true
-            case #selector(NSResponder.moveDown(_:)) where !browser.tabOffers.isEmpty:
-                browser.walkTab(1)
-                return true
-            case #selector(NSResponder.moveUp(_:)) where !browser.tabOffers.isEmpty:
-                browser.walkTab(-1)
-                return true
-            case #selector(NSResponder.deleteBackward(_:)),
-                 #selector(NSResponder.deleteForward(_:)),
-                 #selector(NSResponder.deleteWordBackward(_:)),
-                 #selector(NSResponder.deleteWordForward(_:)),
-                 #selector(NSResponder.deleteToBeginningOfLine(_:)):
-                deleting = true
-                return false
             default:
                 return false
             }
@@ -128,7 +101,7 @@ struct TabAddressField: NSViewRepresentable {
         /// Clicking anywhere else keeps what was typed, as Return does.
         func controlTextDidEndEditing(_ note: Notification) {
             let browser = browser
-            DispatchQueue.main.async { browser.finishTabEdit() }
+            DispatchQueue.main.async { browser.commitTabEdit() }
         }
 
         /// A press on something that takes no focus — the column below the
@@ -145,7 +118,7 @@ struct TabAddressField: NSViewRepresentable {
                       !field.bounds.contains(field.convert(event.locationInWindow, from: nil))
                 else { return event }
                 let browser = self.browser
-                DispatchQueue.main.async { browser.finishTabEdit() }
+                DispatchQueue.main.async { browser.commitTabEdit() }
                 return event
             }
         }
@@ -329,13 +302,13 @@ struct TabMenu: View {
         }
         Button("Duplicate") { browser.duplicate(tabs) }
             .disabled(!tab.isWeb)
-        // The card a click on the tab you are on shows under its address:
-        // going there is the point.
-        Button("Site Information…") {
+        // The site's controls hang from the address bar, which is the tab
+        // in front's: going there is the point.
+        Button("Site Controls…") {
             if browser.activeID != tab.id { browser.select(tab) }
-            browser.beginTabEdit(tab)
+            browser.siteControlsShown = true
         }
-        .disabled(tab.isBlank || tab.address == nil || tab.pin != nil)
+        .disabled(!tab.isWeb || browser.folded && !browser.peeking)
         let several = tabs.count > 1
         Button(several ? "Copy Addresses" : "Copy Address") { browser.copyAddresses(of: tabs) }
             .disabled(!tabs.contains(where: \.isWeb))
@@ -502,7 +475,7 @@ struct ModifiedTabClick: ViewModifier {
 /// Only a click just made counts (`fresh`); otherwise the keys held now.
 @MainActor
 enum TabClick {
-    private static var last: (flags: NSEvent.ModifierFlags, at: TimeInterval)?
+    private static var last: (flags: NSEvent.ModifierFlags, count: Int, at: TimeInterval)?
     /// How long a click's keys are its own: a press answers on the way down
     /// and a tap on the way up, well within this.
     static let fresh: TimeInterval = 0.5
@@ -510,13 +483,22 @@ enum TabClick {
     static let watching: Any? = NSEvent.addLocalMonitorForEvents(
         matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]
     ) { event in
-        MainActor.assumeIsolated { TabClick.last = (event.modifierFlags, event.timestamp) }
+        MainActor.assumeIsolated { TabClick.last = (event.modifierFlags, event.clickCount, event.timestamp) }
         return event
     }
 
     static var flags: NSEvent.ModifierFlags {
         if let last, ProcessInfo.processInfo.systemUptime - last.at < fresh { return last.flags }
         return NSEvent.modifierFlags
+    }
+
+    /// Which click of a run this one is: 2 for a double-click's second.
+    /// One tap that reads it, rather than a double tap beside the single,
+    /// which would hold every single click back until a second couldn't
+    /// come.
+    static var count: Int {
+        if let last, ProcessInfo.processInfo.systemUptime - last.at < fresh { return last.count }
+        return 1
     }
 
     /// For tests: no click remembered.

@@ -89,8 +89,9 @@ struct SideBar: View {
     private static let pinGap: CGFloat = 4
 
     private var onRight: Bool { prefs.sidePosition == .right }
-    /// What sits above the pins: the lights' band, the three doors in it.
-    private var top: CGFloat { Metrics.strip }
+    /// What sits above the pins: the lights' band, the three doors in it,
+    /// and the address bar under them.
+    private var top: CGFloat { Metrics.columnTop }
     private var innerEdge: Alignment { onRight ? .leading : .trailing }
 
     /// The window's buttons' corner: gone in full screen, where macOS takes
@@ -129,6 +130,10 @@ struct SideBar: View {
                     Spacer(minLength: 0)
                 }
                 .frame(height: Metrics.strip)
+
+                // Where the page you are on is, and what can be done to it.
+                AddressBar(browser: browser, prefs: prefs)
+                    .padding(.bottom, Metrics.barGap)
 
                 // The spaces side by side, as pages: two fingers sideways move
                 // the one on screen and the next one together, the next one
@@ -1311,46 +1316,28 @@ struct SideBar: View {
 
     /// One small door at the bottom: the settings.
     private var foot: some View {
-        SideFoot(browser: browser, prefs: prefs, fetches: browser.fetches, width: width)
+        SideFoot(browser: browser, prefs: prefs, fetches: browser.fetches)
     }
 
 }
 
-/// The row at the bottom of the column. Never wider than the column: wider,
-/// the column took its width, and centred in its own frame it slid half the
-/// overflow off each side (#535). The space's door, the puzzle and
-/// downloads stay put; the pinned extensions that don't fit give way, from
-/// the last, and are still in the puzzle's list.
+/// The row at the bottom of the column: the profile, the space's door and
+/// downloads. The extensions are the address bar's (AddressBar).
 private struct SideFoot: View {
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject var fetches: Fetches
-    /// The column's width, as it is drawn.
-    let width: CGFloat
 
     var body: some View {
         HStack(spacing: 2) {
             if Profiles.shared.several { ProfileBadge(browser: browser) }
             if prefs.usesSpaces { SpaceDot(browser: browser) }
-            ExtensionSlot(browser: browser, edge: .trailing, room: room)
             // Only while a download is running, and a moment after.
             FetchDoor(browser: browser, fetches: fetches, arrowEdge: prefs.sidePosition == .right ? .leading : .trailing)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 10)
-    }
-
-    /// How many pinned extensions fit beside the doors that stay. Every door
-    /// is 26 points, with 2 between them.
-    private var room: Int {
-        let door: CGFloat = 26 + 2
-        var kept = 1  // the puzzle
-        if prefs.usesSpaces { kept += 1 }
-        if Profiles.shared.several { kept += 1 }
-        if FetchDoor.shows(fetches, prefs, hanging: browser.downloadsHanging) { kept += 1 }
-        let free = width - 2 * 10 + 2 - CGFloat(kept) * door
-        return max(0, Int((free / door).rounded(.down)))
     }
 }
 
@@ -1575,8 +1562,6 @@ private struct SideRow: View, Equatable {
     private let pickedAmongOthers: Bool
     /// The peek opened from it, while it is up.
     private let peek: Tab?
-    /// Bumped when what was typed in a tab can't be gone to (see Shake).
-    private let refusals: Int
     /// Its cross is a minus: closing it puts its page away (Browser.putsAway).
     private let putsAway: Bool
     /// In a group, in either area — a kept group, or an open one with
@@ -1595,7 +1580,6 @@ private struct SideRow: View, Equatable {
         selected = browser.selectedTabIDs.contains(tab.id)
         pickedAmongOthers = browser.isPickedAmongOthers(tab)
         peek = browser.peekFrom == tab.id ? browser.peekTab : nil
-        refusals = browser.refusals
         putsAway = browser.putsAway(tab)
         grouped = browser.area(of: tab) == .kept
             ? browser.keptGroup(of: tab) != nil
@@ -1606,13 +1590,12 @@ private struct SideRow: View, Equatable {
     static func == (a: SideRow, b: SideRow) -> Bool {
         a.browser === b.browser && a.prefs === b.prefs && a.tab === b.tab && a.live == b.live && a.interactive == b.interactive && a.editing == b.editing
             && a.selected == b.selected && a.pickedAmongOthers == b.pickedAmongOthers
-            && a.peek === b.peek && a.refusals == b.refusals && a.putsAway == b.putsAway
+            && a.peek === b.peek && a.putsAway == b.putsAway
             && a.grouped == b.grouped
     }
 
     @State private var hovering = false
     @State private var selectedOnPress = false
-    @State private var shake: CGFloat = 0
     @State private var pressed = false
     /// The pointer on the home's icon of a pin away from it (HomeDoor).
     @State private var homeHovering = false
@@ -1675,11 +1658,6 @@ private struct SideRow: View, Equatable {
             }
             .animation(nil, value: hovering)
             .animation(Motion.glide, value: editing)
-            .onChange(of: refusals) { _, _ in
-                guard editing else { return }
-                shake = 0
-                withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
-            }
             .transition(.sideRow)
     }
 
@@ -1687,19 +1665,20 @@ private struct SideRow: View, Equatable {
     private var line: some View {
         HStack(spacing: Metrics.rowSpacing) {
             HStack(spacing: Metrics.rowSpacing) {
+                // The site's icon, or with Letters its letter: beside the
+                // title either way, as Settings says (#919). Away, the
+                // home's, then the slash. It stays while the tab is named,
+                // the name typed where the title was.
+                if !tab.isBlank {
+                    HStack(spacing: 0) {
+                        mark
+                        if tab.pin != nil { slash }
+                    }
+                }
                 if editing {
-                    TabAddressField(browser: browser)
+                    TabNameField(browser: browser, size: prefs.sideTitle)
                         .frame(height: 16)
                 } else {
-                    // The site's icon, or with Letters its letter: beside the
-                    // title either way, as Settings says (#919). Away, the
-                    // home's, then the slash.
-                    if !tab.isBlank {
-                        HStack(spacing: 0) {
-                            mark
-                            if tab.pin != nil { slash }
-                        }
-                    }
                     // The speaker's place: it is laid over it below, outside
                     // the row's press, so muting a tab doesn't also go to it.
                     if speaker { Color.clear.frame(width: RowCross.size, height: RowCross.size) }
@@ -1829,13 +1808,14 @@ private struct SideRow: View, Equatable {
                     .allowsHitTesting(false)
             }
         }
-        .modifier(Shake(travel: shake))
         .modifier(Give(pressed: pressed && prefs.tabsGive))
         .contentShape(RoundedRectangle(cornerRadius: Metrics.rowRadius, style: .continuous))
         .modifier(OneClick(double: false) {
             guard interactive, !selectedOnPress, TabClick.flags.intersection([.command, .shift, .option]).isEmpty else { return }
             browser.clearTabSelection()
-            if live { browser.beginTabEdit(tab) } else { browser.select(tab) }
+            // The second click of a double-click names it, in place; the
+            // address is the address bar's.
+            if !live { browser.select(tab) } else if TabClick.count >= 2 { browser.beginTabRename(tab) }
         })
         .modifier(ModifiedTabClick { if interactive && !editing { browser.extendTabSelection(to: tab, modifiers: $0) } })
         .modifier(OptionClick { if interactive && !editing { browser.optionClick(tab) } })

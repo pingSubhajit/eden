@@ -506,6 +506,79 @@ final class TabActionsTests: XCTestCase {
         browser.cancelTabEdit()
     }
 
+    /// A name typed in a row is the tab's; Escape leaves the one it had,
+    /// and an empty one gives the page its own title back.
+    func testNamingARowKeepsReturnsAndClears() {
+        let browser = makeBrowser()
+        let tab = browser.tabs[1]
+        browser.beginTabRename(tab)
+        XCTAssertEqual(browser.tabDraft, "two", "the name it wears, to type over")
+        browser.tabDraft = "Reading"
+        browser.commitTabEdit()
+        XCTAssertEqual(tab.label, "Reading")
+        XCTAssertNil(browser.editingTab)
+
+        browser.beginTabRename(tab)
+        browser.tabDraft = "Something else"
+        browser.cancelTabEdit()
+        XCTAssertEqual(tab.label, "Reading", "Escape keeps the name it had")
+
+        browser.beginTabRename(tab)
+        browser.tabDraft = "  "
+        browser.commitTabEdit()
+        XCTAssertNil(tab.name)
+        XCTAssertEqual(tab.label, "two", "the page's own title, back")
+    }
+
+    // MARK: - the address bar
+
+    /// A click on the column's address bar raises ⌘L's field over the bar,
+    /// the whole address in it; a click again, or Escape, puts it away and
+    /// lets go of the bar. ⌘L's own stays in the middle of the page.
+    func testTheBarRaisesTheFieldOverItself() {
+        let browser = makeBrowser()
+        browser.select(browser.tabs[2])
+        let bar = CGRect(x: 10, y: 52, width: 212, height: Metrics.bar)
+        browser.editFromBar(at: bar)
+        XCTAssertTrue(browser.editing)
+        XCTAssertEqual(browser.fieldAnchor, bar)
+        XCTAssertEqual(browser.typed, "https://three.example/", "the whole address, to type over")
+
+        browser.editFromBar(at: bar)
+        XCTAssertFalse(browser.editing, "a click again puts it away")
+        XCTAssertNil(browser.fieldAnchor)
+
+        browser.editFromBar(at: bar)
+        browser.dismiss()
+        XCTAssertFalse(browser.editing)
+        XCTAssertNil(browser.fieldAnchor, "Escape lets go of the bar")
+
+        browser.edit()
+        XCTAssertTrue(browser.editing)
+        XCTAssertNil(browser.fieldAnchor, "⌘L's field is the page's, not the bar's")
+        browser.dismiss()
+
+        browser.editFromBar(at: bar)
+        browser.launch()
+        XCTAssertTrue(browser.launching)
+        XCTAssertNil(browser.fieldAnchor, "⌘T's field is the page's too")
+        browser.dismiss()
+    }
+
+    /// With nothing in front, the bar raises ⌘T's field over itself: no
+    /// tab is made until Return opens one.
+    func testTheBarWithNothingInFrontRaisesTheNewTabField() {
+        let browser = makeBrowser(count: 1)
+        browser.closeAll()
+        XCTAssertNil(browser.active)
+        let bar = CGRect(x: 10, y: 52, width: 212, height: Metrics.bar)
+        browser.editFromBar(at: bar)
+        XCTAssertTrue(browser.launching)
+        XCTAssertEqual(browser.fieldAnchor, bar)
+        browser.dismiss()
+        XCTAssertNil(browser.fieldAnchor)
+    }
+
     // MARK: - the menu bar's keys
 
     /// ⌥⌘T and ⌃⌘N are menu lines' keys now, which the window's own key

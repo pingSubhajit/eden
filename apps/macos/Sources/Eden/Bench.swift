@@ -962,7 +962,10 @@ final class Bench {
             out["cards"] = ["switch": browser.prefs.cards, "fullScreen": browser.fullScreen, "on": browser.asCards,
                             "windowFullScreen": (browser.window ?? Links.window)?.styleMask.contains(.fullScreen) ?? false]
             out["lightsHidden"] = Fold.titlebar?.isHidden ?? false
-            out["siteCard"] = SiteCardPanel.isShown
+            // The site's controls hanging from the address bar, and the field
+            // raised over the bar rather than the page.
+            out["siteControls"] = browser.siteControlsShown
+            out["fieldAnchored"] = browser.barField != nil
             // "Press Esc again to leave full screen", up over a page filling
             // the screen (Settings › General › Press Esc twice to leave full
             // screen).
@@ -1108,7 +1111,7 @@ final class Bench {
             }
             let prefs = browser.prefs
             // The rows on screen, top to bottom.
-            let fit = Int((Double(window.frame.height) - Double(Metrics.strip) - 60) / (Double(prefs.sideRow) + 2))
+            let fit = Int((Double(window.frame.height) - Double(Metrics.columnTop) - 60) / (Double(prefs.sideRow) + 2))
             let order = browser.displayedTabs.map(\.id).filter { Bench.hoverRows[$0] != nil }
             let rows = max(1, min(request["rows"] as? Int ?? fit, fit, order.count))
             let interval = request["interval"] as? Double ?? 1.0 / 60
@@ -1299,7 +1302,11 @@ final class Bench {
             guard Store.testing else { answer(["error": "field only works on a --test run — it would type into your browser"]); return }
             guard let text = request["text"] as? String, !text.isEmpty else { answer(["error": "field needs some text"]); return }
             let pieces = request["type"] as? Bool == true ? text.map(String.init) : [text]
-            if browser.fieldShowing { browser.askFocus() } else { browser.edit() }
+            // "bar": raised as a click on the column's address bar raises it.
+            if browser.fieldShowing { browser.askFocus() }
+            else if request["bar"] as? Bool == true {
+                browser.editFromBar(at: CGRect(x: 10, y: Metrics.strip, width: Metrics.side - 20, height: Metrics.bar))
+            } else { browser.edit() }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 guard let field = Bench.addressField(in: (browser.window ?? Links.window)?.contentView),
                       let editor = field.currentEditor() as? NSTextView
@@ -1666,14 +1673,14 @@ final class Bench {
             browser.cancelFileImport()
             answer(["cancelling": browser.fileImport?.cancelling ?? false])
 
-        case "tab-type":
-            // The field in the tab, on the tab in front: the edit begun as a
-            // click on it does, what is given typed into it key by key as the
-            // keyboard would, then "keys" (down, up, return, delete) pressed.
-            // What the field and its list are left showing. Test runs only.
-            guard Store.testing else { answer(["error": "tab-type only works on a --test run"]); return }
+        case "tab-rename":
+            // The tab in front named in its own row, as a double-click on it
+            // begins: what is given typed into the field key by key as the
+            // keyboard would, then "keys" (return, escape, delete) pressed.
+            // What the field and the tab are left showing. Test runs only.
+            guard Store.testing else { answer(["error": "tab-rename only works on a --test run"]); return }
             guard let tab = browser.active else { answer(["error": "no tab"]); return }
-            if browser.editingTab != tab.id { browser.beginTabEdit(tab) }
+            if browser.editingTab != tab.id { browser.beginTabRename(tab) }
             let text = request["text"] as? String ?? ""
             let keys = request["keys"] as? [String] ?? []
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -1681,24 +1688,18 @@ final class Bench {
                       let field = editor.delegate as? NSTextField else { answer(["error": "the field isn't focused"]); return }
                 if request["clear"] as? Bool == true { editor.selectAll(nil); editor.deleteBackward(nil) }
                 for ch in text { editor.insertText(String(ch), replacementRange: editor.selectedRange()) }
+                let shown = field.stringValue
                 for key in keys {
                     switch key {
-                    case "down": editor.doCommand(by: #selector(NSResponder.moveDown(_:)))
-                    case "up": editor.doCommand(by: #selector(NSResponder.moveUp(_:)))
                     case "return": editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+                    case "escape": editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
                     case "delete": editor.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
                     default: break
                     }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    let selected = editor.selectedRange()
-                    var shot = ""
-                    if let path = request["picture"] as? String, TabOffersPanel.picture(to: path) { shot = path }
-                    answer(["field": field.stringValue, "selected": [selected.location, selected.length],
-                            "offers": browser.tabOffers.map { "\($0.key) | \($0.url.absoluteString)" },
-                            "picked": browser.tabPicked ?? -1, "listShown": TabOffersPanel.isShown,
-                            "editing": browser.editingTab != nil, "draft": browser.tabDraft,
-                            "active": browser.active?.address?.absoluteString ?? "", "picture": shot])
+                    answer(["field": shown, "editing": browser.editingTab != nil, "label": tab.label,
+                            "name": tab.name ?? ""])
                 }
             }
 
@@ -3293,14 +3294,14 @@ final class Bench {
             }
 
         case "site":
-            // The site card for the tab on screen, or one step in on its
-            // connection, drawn off screen (see SiteCard.swift).
+            // The site's controls for the tab on screen, or one step in on
+            // its connection, drawn off screen (see SiteControls.swift).
             guard Store.testing else { answer(["error": "site only works on a --test run — it would picture your tab"]); return }
             guard let path = request["path"] as? String else { answer(["error": "site needs a path"]); return }
             guard let tab = browser.active, !tab.isBlank else { answer(["error": "no page on screen"]); return }
             let deeper = request["security"] as? Bool == true
             // On the ground: off screen there is no glass to stand on.
-            let host = NSHostingView(rootView: AnyView(SiteCard(browser: browser, tab: tab, deeper: deeper) {}.fixedSize().background(Palette.ground)))
+            let host = NSHostingView(rootView: AnyView(SiteControls(browser: browser, tab: tab, page: deeper ? .connection : .front) {}.fixedSize().background(Palette.ground)))
             host.frame = NSRect(origin: .zero, size: host.fittingSize)
             let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
             window.appearance = NSApp.effectiveAppearance
@@ -3677,14 +3678,15 @@ final class Bench {
                 else if what == "beside" { browser.keepPeek(beside: true) }
                 else { browser.closePeek() }
             }
-            // The address of the tab on screen being edited in the tab, with
-            // this typed, and that edit let go of by a click elsewhere.
-            if let text = request["edittab"] as? String, let tab = browser.active {
-                browser.beginTabEdit(tab)
+            // The tab on screen being named in its row, with this typed, and
+            // that name kept as a click elsewhere keeps it.
+            if let text = request["renametab"] as? String, let tab = browser.active {
+                browser.beginTabRename(tab)
                 browser.tabDraft = text
             }
-            if request["finishedit"] as? Bool == true { browser.finishTabEdit() }
-            if #available(macOS 15.4, *), let on = request["extensions"] as? Bool { Extensions.shared.menuOpen = on }
+            if request["finishedit"] as? Bool == true { browser.commitTabEdit() }
+            // The site's controls, open from the address bar or not.
+            if let on = request["controls"] as? Bool { browser.siteControlsShown = on }
             answer(["ok": true])
 
         case "sidepanel":
@@ -3814,7 +3816,7 @@ final class Bench {
                 answer(["error": "popups state|open|allow|remove|sites"])
             }
 
-        case "extensions", "ext-add", "ext-crx", "ext-fetches", "ext-folder", "ext-press", "ext-remove", "ext-reload", "ext-page", "ext-popup", "ext-menu", "ext-pin", "ext-shot", "ext-answer", "ext-enable", "ext-private", "capture", "capture-stop":
+        case "extensions", "ext-add", "ext-crx", "ext-fetches", "ext-folder", "ext-press", "ext-remove", "ext-reload", "ext-page", "ext-popup", "ext-pin", "ext-shot", "ext-answer", "ext-enable", "ext-private", "capture", "capture-stop":
             guard #available(macOS 15.4, *) else {
                 answer(["error": "extensions need macOS 15.4"])
                 return
@@ -4395,14 +4397,6 @@ final class Bench {
                   let web = ExtensionPopup.shared.view, let path = request["path"] as? String
             else { answer(["error": "no popup open for that extension"]); return }
             shoot(web, to: URL(fileURLWithPath: path), width: nil, answer)
-        case "ext-menu":
-            // The list behind the puzzle button, as a picture.
-            guard let path = request["path"] as? String, let data = extensionMenuPicture()?.representation(using: .png, properties: [:]) else {
-                answer(["error": "ext-menu needs a path"])
-                return
-            }
-            do { try data.write(to: URL(fileURLWithPath: path)); answer(["saved": path]) }
-            catch { answer(["error": error.localizedDescription]) }
         case "ext-pin":
             guard let id = request["id"] as? String else { answer(["error": "ext-pin needs an id"]); return }
             extensions.setPinned(id, request["on"] as? Bool ?? true)

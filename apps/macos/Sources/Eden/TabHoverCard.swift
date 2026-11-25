@@ -802,7 +802,7 @@ private struct HoverCard: View {
     /// The site, for a web page; Eden's own pages have only their title.
     private var site: String? {
         guard tab.isWeb, let url = tab.pageAddress else { return nil }
-        return SiteCard.site(url)
+        return SiteName.of(url)
     }
 
     /// Pinned: it can be unpinned. Not pinned: only a web page that keeps

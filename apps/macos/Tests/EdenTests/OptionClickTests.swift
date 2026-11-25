@@ -97,7 +97,7 @@ final class OptionClickTests: XCTestCase {
         let window = makeColumn(browser)
         try await settle()
         // The pair is two lines, 0–28 and 28–56: its lower half is t[1].
-        try await click(NSPoint(x: 70, y: window.frame.height - Metrics.strip - 42), in: window, option: true)
+        try await click(NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - 42), in: window, option: true)
         XCTAssertTrue(browser.splits.isEmpty, "apart")
         XCTAssertEqual(browser.activeID, t[0].id, "the other page stays on screen")
         XCTAssertEqual(browser.tabs.map(\.id), t.map(\.id), "both stay, in place")
@@ -112,7 +112,7 @@ final class OptionClickTests: XCTestCase {
         let window = makeColumn(browser)
         try await settle()
         // Rows: t[0] 0–28, the pair 30–86 (t[1] 30–58, t[2] 58–86).
-        try await click(NSPoint(x: 70, y: window.frame.height - Metrics.strip - 72), in: window, option: true)
+        try await click(NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - 72), in: window, option: true)
         XCTAssertEqual(browser.split(for: t[2])?.tabs, [t[0].id, t[2].id], "out of its pair, beside the page")
         XCTAssertNil(browser.split(for: t[1]), "its old partner is a tab of its own")
     }
@@ -142,7 +142,7 @@ final class OptionClickTests: XCTestCase {
         try await settle()
         // The pin's square, which answers only a double click while it is on
         // screen (it goes home): ⌥-click is heard all the same.
-        try await click(NSPoint(x: 40, y: window.frame.height - Metrics.strip - 17), in: window, option: true)
+        try await click(NSPoint(x: 40, y: window.frame.height - Metrics.columnTop - 17), in: window, option: true)
         XCTAssertNotNil(browser.activeSplit, "its page split, as ⌥⌘N splits it")
         XCTAssertNil(browser.editingPin)
     }
@@ -190,7 +190,7 @@ final class OptionClickTests: XCTestCase {
     }
 
     private func rowPoint(_ index: Int, in window: NSWindow) -> NSPoint {
-        NSPoint(x: 70, y: window.frame.height - Metrics.strip - 14 - CGFloat(index) * 30)
+        NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - 14 - CGFloat(index) * 30)
     }
 
     private func settle() async throws {

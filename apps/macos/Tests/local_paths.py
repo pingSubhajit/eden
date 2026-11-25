@@ -47,9 +47,9 @@ def main():
             sv.cmd({"do": "press", "code": 123, "chars": "\uf702", "mods": ["cmd"]})
             sv.cmd({"do": "wait", "id": tab})
             t.ok("Back returns to the typed file", "Local fixture" in sv.cmd({"do": "text", "id": tab})["text"])
-            sv.cmd({"do": "ui", "edittab": str(folder / "next.html"), "finishedit": True})
+            sv.cmd({"do": "field", "text": str(folder / "next.html"), "go": True, "bar": True})
             sv.cmd({"do": "wait", "id": tab})
-            t.ok("inline address editing opens a local path", "Next local page" in sv.cmd({"do": "text", "id": tab})["text"])
+            t.ok("the address bar's field opens a local path", "Next local page" in sv.cmd({"do": "text", "id": tab})["text"])
             # A group with only a file must survive too, even after its page sleeps.
             web = sv.page("kept-web")
             grouped = sv.sp("open", url=file.as_uri())["resultID"]

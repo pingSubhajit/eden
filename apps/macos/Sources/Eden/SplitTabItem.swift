@@ -155,8 +155,9 @@ private struct SplitTabHalf: View {
             .modifier(OneClick(double: false) {
                 guard interactive, !selectedOnPress, TabClick.flags.intersection([.command, .shift, .option]).isEmpty else { return }
                 browser.clearTabSelection()
-                if focused { browser.beginTabEdit(tab) }
-                else { browser.focusPane(tab) }
+                // The second click of a double-click names it, in place, as
+                // a row's does.
+                if !focused { browser.focusPane(tab) } else if TabClick.count >= 2 { browser.beginTabRename(tab) }
             })
             .modifier(ModifiedTabClick {
                 if interactive && !editing { browser.extendTabSelection(to: tab, modifiers: $0) }
@@ -267,16 +268,17 @@ private struct SplitTabHalf: View {
 
     @ViewBuilder
     private var titleContent: some View {
-        if editing {
-            TabAddressField(browser: browser)
-                .frame(height: 16)
-        } else {
-            HStack(spacing: Metrics.rowSpacing) {
-                if prefs.glyph == .icons || !tab.isBlank {
-                    let mark = prefs.sideMark
-                    Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark, dim: tab.asleep)
-                        .frame(width: mark, height: mark)
-                }
+        HStack(spacing: Metrics.rowSpacing) {
+            // Kept while the tab is named, as a row keeps it.
+            if prefs.glyph == .icons || !tab.isBlank {
+                let mark = prefs.sideMark
+                Mark(icon: prefs.glyph == .icons ? tab.icon : nil, letter: tab.monogram, size: mark, dim: tab.asleep)
+                    .frame(width: mark, height: mark)
+            }
+            if editing {
+                TabNameField(browser: browser, size: prefs.sideTitle)
+                    .frame(height: 16)
+            } else {
                 // As a tab's line has it: just after the icon. Its place: the
                 // speaker is laid over it, outside the line's press (see
                 // `row`).

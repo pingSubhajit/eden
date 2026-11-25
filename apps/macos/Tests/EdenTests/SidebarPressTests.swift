@@ -50,26 +50,32 @@ final class SidebarPressTests: XCTestCase {
         XCTAssertEqual(browser.activeID, first.id, "The page must change while the button is held")
         XCTAssertNil(browser.editingTab)
         try await send(.leftMouseUp, at: point, in: window)
-        XCTAssertNil(browser.editingTab, "Releasing the selecting press must not edit the address")
+        XCTAssertNil(browser.editingTab, "Releasing the selecting press must not name the tab")
         try await send(.leftMouseDown, at: point, in: window)
         try await send(.leftMouseUp, at: point, in: window)
-        XCTAssertEqual(browser.editingTab, first.id, "A fresh click on the active row still edits")
+        XCTAssertNil(browser.editingTab, "A single click on the tab you're on does nothing: the address is the bar's")
+        XCTAssertFalse(browser.editing)
     }
 
-    func testEditedRowTakesTheKeys() async throws {
+    /// A double-click on a row names it, in place: its name selected, so
+    /// typing replaces it.
+    func testDoubleClickNamesTheRow() async throws {
         let browser = makeBrowser()
         let window = makeWindow(browser)
         try await settle()
         let point = rowPoint(0, in: window)
-        for _ in 0..<2 {
-            try await send(.leftMouseDown, at: point, in: window)
-            try await send(.leftMouseUp, at: point, in: window)
+        // Through the app, as a real click comes: TabClick hears its count
+        // there, never from an event handed straight to the window.
+        for clicks in 1...2 {
+            try await post(.leftMouseDown, at: point, in: window, clicks: clicks)
+            try await post(.leftMouseUp, at: point, in: window, clicks: clicks)
         }
         try await settle()
         XCTAssertEqual(browser.editingTab, browser.tabs[0].id)
+        XCTAssertFalse(browser.editing, "Not the address field")
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView, "The row's field must have the keys")
         XCTAssertEqual(editor.selectedRange().length, (editor.string as NSString).length)
-        XCTAssertFalse(editor.string.isEmpty)
+        XCTAssertEqual(editor.string, browser.tabs[0].label)
     }
 
     func testRowLeftPickedAloneSelectsOnPressAgain() async throws {
@@ -135,7 +141,7 @@ final class SidebarPressTests: XCTestCase {
         browser.pin(first)
         let window = makeWindow(browser)
         try await settle()
-        let point = NSPoint(x: 40, y: window.frame.height - Metrics.strip - 17)
+        let point = NSPoint(x: 40, y: window.frame.height - Metrics.columnTop - 17)
         try await send(.leftMouseDown, at: point, in: window)
         XCTAssertEqual(browser.activeID, first.id)
         try await send(.leftMouseUp, at: point, in: window)
@@ -156,7 +162,7 @@ final class SidebarPressTests: XCTestCase {
         let window = makeWindow(browser)
         try await settle()
         for index in [0, 1] {
-            let point = NSPoint(x: 70, y: window.frame.height - Metrics.strip - 14 - CGFloat(index) * 28)
+            let point = NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - 14 - CGFloat(index) * 28)
             try await send(.leftMouseDown, at: point, in: window)
             XCTAssertEqual(browser.activeID, tabs[index].id)
             try await send(.leftMouseUp, at: point, in: window)
@@ -265,7 +271,7 @@ final class SidebarPressTests: XCTestCase {
         try await settle()
         XCTAssertEqual(KeepLine.drawn, 1, "one line")
         // The grid, 34 and 10 under it, then the line: New tab.
-        let y = window.frame.height - Metrics.strip - 44 - KeepLine.height - SideBar.gap - 14
+        let y = window.frame.height - Metrics.columnTop - 44 - KeepLine.height - SideBar.gap - 14
         try await send(.leftMouseDown, at: NSPoint(x: 70, y: y), in: window)
         try await send(.leftMouseUp, at: NSPoint(x: 70, y: y), in: window)
         try await settle()
@@ -288,7 +294,6 @@ final class SidebarPressTests: XCTestCase {
         window.sendEvent(try event(.leftMouseDown, at: point, in: window))
         try await settle()
         XCTAssertEqual(browser.editingTab, first.id, "A click in the name field keeps the rename open")
-        XCTAssertTrue(browser.renamingTab)
         XCTAssertEqual(browser.activeID, first.id)
         browser.tabDraft = "Renamed"
         browser.commitTabEdit()
@@ -319,7 +324,7 @@ final class SidebarPressTests: XCTestCase {
         browser.pin(second)
         let window = makeWindow(browser)
         try await settle()
-        let start = NSPoint(x: 40, y: window.frame.height - Metrics.strip - 17)
+        let start = NSPoint(x: 40, y: window.frame.height - Metrics.columnTop - 17)
         try await send(.leftMouseDown, at: start, in: window)
         XCTAssertEqual(browser.activeID, first.id)
         for distance in [8.0, 20, 40, 60, 80] {
@@ -342,7 +347,7 @@ final class SidebarPressTests: XCTestCase {
             let window = makeWindow(browser)
             try await settle()
             let before = browser.tabs.map(\.id)
-            let start = kind == "pin" ? NSPoint(x: 40, y: window.frame.height - Metrics.strip - 17) : rowPoint(0, in: window)
+            let start = kind == "pin" ? NSPoint(x: 40, y: window.frame.height - Metrics.columnTop - 17) : rowPoint(0, in: window)
             try await send(.leftMouseDown, at: start, in: window)
             var last = start
             for distance in [8.0, 20, 40, 60, 80] {
@@ -404,7 +409,7 @@ final class SidebarPressTests: XCTestCase {
     }
 
     private func rowPoint(_ index: Int, in window: NSWindow) -> NSPoint {
-        NSPoint(x: 70, y: window.frame.height - Metrics.strip - 14 - CGFloat(index) * 30)
+        NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - 14 - CGFloat(index) * 30)
     }
 
     private func settle() async throws {
@@ -412,8 +417,8 @@ final class SidebarPressTests: XCTestCase {
     }
 
     /// As PinStuckTests posts: to this app alone, taken off the queue here.
-    private func post(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) async throws {
-        NSApp.postEvent(try event(type, at: point, in: window), atStart: false)
+    private func post(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, clicks: Int = 1) async throws {
+        NSApp.postEvent(try event(type, at: point, in: window, clicks: clicks), atStart: false)
         // Until this one is through, however many are queued before it:
         // what earlier tests left on the queue (their windows' AppKit events,
         // forty and more by this point of a full run) ran past a count of

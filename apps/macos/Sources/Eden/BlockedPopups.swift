@@ -77,7 +77,7 @@ enum BlockedPopups {
         var rest = url.path()
         if let query = url.query(), !query.isEmpty { rest += "?" + query }
         if rest == "/" { rest = "" }
-        return String((SiteCard.site(url) + rest).prefix(300))
+        return String((SiteName.of(url) + rest).prefix(300))
     }
 }
 

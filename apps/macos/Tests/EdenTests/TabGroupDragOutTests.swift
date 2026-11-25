@@ -188,7 +188,7 @@ final class TabGroupDragOutTests: XCTestCase {
     }
 
     private func point(y: CGFloat, in window: NSWindow) -> NSPoint {
-        NSPoint(x: 70, y: window.frame.height - Metrics.strip - y)
+        NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - y)
     }
 
     private func carry(from: CGFloat, to: CGFloat, in window: NSWindow) async throws {

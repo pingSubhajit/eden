@@ -179,7 +179,7 @@ final class PairSeparateTests: XCTestCase {
 
     /// `y` down the rows from their top.
     private func send(_ type: NSEvent.EventType, at y: CGFloat, in window: NSWindow) async throws {
-        let point = NSPoint(x: 70, y: window.frame.height - Metrics.strip - y)
+        let point = NSPoint(x: 70, y: window.frame.height - Metrics.columnTop - y)
         TabDrag.testPointer = window.convertToScreen(NSRect(origin: point, size: .zero)).origin
         let event = try XCTUnwrap(NSEvent.mouseEvent(
             with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
