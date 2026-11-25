@@ -223,6 +223,42 @@ final class TabActionsTests: XCTestCase {
         let browser = makeBrowser()
         let tabs = browser.tabs
         browser.select(tabs[0])
+        let (take, window) = try await keys(of: browser)
+
+        browser.extendTabSelection(to: tabs[2], modifiers: .command)
+        XCTAssertEqual(browser.visibleSelectedTabCount, 2)
+        XCTAssertNil(take(try escape(in: window)), "taken")
+        XCTAssertTrue(browser.selectedTabIDs.isEmpty)
+        let again = try escape(in: window)
+        XCTAssertTrue(take(again) === again, "nothing picked: the page's")
+        XCTAssertEqual(browser.tabs.count, 4)
+    }
+
+    /// Escape on a folder's or a group's name being typed leaves the name
+    /// as it was before it closes what is open behind it: taken by Find,
+    /// the field lost its focus and kept what was typed.
+    func testEscapeLeavesAGroupsNameBeforeFind() async throws {
+        let browser = makeBrowser()
+        browser.prefs.usesTabGroups = true
+        browser.select(browser.tabs[0])
+        let (take, window) = try await keys(of: browser)
+        let id = browser.addTabGroup(containing: browser.tabs[1])
+        browser.finding = true
+        try await Task.sleep(for: .milliseconds(300))
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView, "The heading's field must have the keys")
+        editor.insertText("Reading", replacementRange: editor.selectedRange())
+
+        XCTAssertNil(take(try escape(in: window)), "taken")
+        XCTAssertNil(browser.editingGroupID)
+        XCTAssertTrue(browser.finding, "Find stays, for the next Escape")
+        // The field goes, and ends its edit as it does.
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(browser.tabGroups.first { $0.id == id }?.name, "Group 1")
+    }
+
+    /// A window for the browser, and what its keys go through first
+    /// (ContentView's key monitor), with the address field put away.
+    private func keys(of browser: Browser) async throws -> (take: (NSEvent) -> NSEvent?, window: NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 900, height: 600),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -241,14 +277,7 @@ final class TabActionsTests: XCTestCase {
         }
         let take = try XCTUnwrap(hook)
         browser.editing = false
-
-        browser.extendTabSelection(to: tabs[2], modifiers: .command)
-        XCTAssertEqual(browser.visibleSelectedTabCount, 2)
-        XCTAssertNil(take(try escape(in: window)), "taken")
-        XCTAssertTrue(browser.selectedTabIDs.isEmpty)
-        let again = try escape(in: window)
-        XCTAssertTrue(take(again) === again, "nothing picked: the page's")
-        XCTAssertEqual(browser.tabs.count, 4)
+        return (take, window)
     }
 
     private func escape(in window: NSWindow) throws -> NSEvent {

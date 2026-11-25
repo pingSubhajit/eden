@@ -1,17 +1,48 @@
 import SwiftUI
 
 /// A tab's name, typed in its own row (Browser.beginTabRename).
-///
-/// A field of its own rather than SwiftUI's, for one reason: the system paints
-/// selected text as a solid block of accent colour, which over a pale grey pill
-/// this size is the loudest thing in the window. Here it is a tenth of the ink.
-struct TabNameField: NSViewRepresentable {
+struct TabNameField: View {
     @ObservedObject var browser: Browser
+    /// The tab being named. Its field's last calls can come after another
+    /// tab's naming has begun, and must leave that one be.
+    let tab: Tab.ID
     /// The row's title size, so the name being typed is the name as it will
     /// read.
     let size: CGFloat
 
-    func makeCoordinator() -> Coordinator { Coordinator(browser: browser) }
+    var body: some View {
+        NameField(text: $browser.tabDraft, size: size, label: "Tab name",
+                  commit: { [browser, tab] in if browser.editingTab == tab { browser.commitTabEdit() } },
+                  cancel: { [browser, tab] in if browser.editingTab == tab { browser.cancelTabEdit() } })
+    }
+}
+
+/// A name typed where it is shown: a tab's in its row (TabNameField), a
+/// folder's or a group's in its heading (GroupHeading). Return keeps what
+/// was typed, and so does a click anywhere else; Escape leaves the name as
+/// it was.
+///
+/// A field of its own rather than SwiftUI's, for two reasons. The system
+/// paints selected text as a solid block of accent colour, which over a pale
+/// grey pill this size is the loudest thing in the window; here it is a
+/// tenth of the ink. And SwiftUI's field goes on being typed in after a
+/// click elsewhere in the column, which takes no focus from it.
+struct NameField: NSViewRepresentable {
+    @Binding var text: String
+    let size: CGFloat
+    var weight: NSFont.Weight = .regular
+    var ink: Color = Palette.ink
+    /// What it says while empty.
+    var placeholder: String?
+    /// What VoiceOver calls it.
+    let label: String
+    /// Both may be called more than once for one edit, and after the other:
+    /// Return, then the field losing its focus as it goes. Each owner checks
+    /// that the edit it ends is still the one under way.
+    let commit: () -> Void
+    let cancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -19,8 +50,6 @@ struct TabNameField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: size)
-        field.textColor = Palette.NS.ink
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
         // Without this the field editor stays as wide as the field: the text
@@ -28,8 +57,7 @@ struct TabNameField: NSViewRepresentable {
         // reach it. Scrollable, the editor grows to the text and follows the caret.
         field.cell?.isScrollable = true
         field.lineBreakMode = .byClipping
-        field.stringValue = browser.tabDraft
-        field.setAccessibilityLabel("Tab name")
+        field.stringValue = text
         context.coordinator.watch(field)
         return field
     }
@@ -50,35 +78,42 @@ struct TabNameField: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         let coordinator = context.coordinator
-        coordinator.browser = browser
-        if !coordinator.typing, field.stringValue != browser.tabDraft {
-            field.stringValue = browser.tabDraft
+        coordinator.owner = self
+        // Set on every pass, as a group's colour can change while its name
+        // is typed.
+        field.font = .systemFont(ofSize: size, weight: weight)
+        field.textColor = NSColor(ink)
+        field.placeholderString = placeholder
+        field.setAccessibilityLabel(label)
+        if !coordinator.typing, field.stringValue != text {
+            field.stringValue = text
         }
         guard !coordinator.claimed else { return }
         coordinator.claimed = true
+        let ink = ink
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
             guard let editor = field.currentEditor() as? NSTextView else { return }
             editor.selectedTextAttributes = [
-                .backgroundColor: NSColor(Palette.ink.opacity(0.11)),
-                .foregroundColor: Palette.NS.ink,
+                .backgroundColor: NSColor(ink.opacity(0.11)),
+                .foregroundColor: NSColor(ink),
             ]
             editor.selectAll(nil)
         }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
-        var browser: Browser
+        var owner: NameField
         var claimed = false
         var typing = false
 
-        init(browser: Browser) { self.browser = browser }
+        init(_ owner: NameField) { self.owner = owner }
 
         func controlTextDidChange(_ note: Notification) {
             guard let field = note.object as? NSTextField else { return }
             typing = true
             defer { typing = false }
-            browser.tabDraft = field.stringValue
+            owner.text = field.stringValue
         }
 
         func control(
@@ -88,10 +123,10 @@ struct TabNameField: NSViewRepresentable {
         ) -> Bool {
             switch command {
             case #selector(NSResponder.insertNewline(_:)):
-                browser.commitTabEdit()
+                owner.commit()
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
-                browser.cancelTabEdit()
+                owner.cancel()
                 return true
             default:
                 return false
@@ -100,8 +135,8 @@ struct TabNameField: NSViewRepresentable {
 
         /// Clicking anywhere else keeps what was typed, as Return does.
         func controlTextDidEndEditing(_ note: Notification) {
-            let browser = browser
-            DispatchQueue.main.async { browser.commitTabEdit() }
+            let commit = owner.commit
+            DispatchQueue.main.async { commit() }
         }
 
         /// A press on something that takes no focus — the column below the
@@ -117,8 +152,8 @@ struct TabNameField: NSViewRepresentable {
                 guard let self, let field, event.window === field.window,
                       !field.bounds.contains(field.convert(event.locationInWindow, from: nil))
                 else { return event }
-                let browser = self.browser
-                DispatchQueue.main.async { browser.commitTabEdit() }
+                let commit = self.owner.commit
+                DispatchQueue.main.async { commit() }
                 return event
             }
         }

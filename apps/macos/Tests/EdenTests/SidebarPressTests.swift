@@ -417,6 +417,63 @@ final class SidebarPressTests: XCTestCase {
     }
 
     /// As PinStuckTests posts: to this app alone, taken off the queue here.
+    /// A click on the column below the rows, which takes no focus, ends a
+    /// tab's naming and keeps what was typed, as Return does.
+    func testATabsNameIsKeptOnAClickElsewhere() async throws {
+        let browser = makeBrowser()
+        let first = browser.tabs[0]
+        let window = makeWindow(browser)
+        try await settle()
+        browser.beginTabRename(first)
+        try await settle()
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView, "The row's field must have the keys")
+        editor.insertText("Renamed", replacementRange: editor.selectedRange())
+        try await clickBelowTheRows(in: window)
+        XCTAssertNil(browser.editingTab)
+        XCTAssertEqual(first.name, "Renamed")
+    }
+
+    /// A folder's or a group's name ends the same way, in its heading.
+    func testAGroupsNameIsKeptOnAClickElsewhere() async throws {
+        let browser = makeBrowser()
+        browser.prefs.usesTabGroups = true
+        let window = makeWindow(browser)
+        let id = browser.addTabGroup(containing: browser.tabs[0])
+        try await settle()
+        XCTAssertEqual(browser.editingGroupID, id)
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView, "The heading's field must have the keys")
+        XCTAssertEqual(editor.string, "Group 1")
+        XCTAssertEqual(editor.selectedRange().length, (editor.string as NSString).length, "Its name selected, so typing replaces it")
+        editor.insertText("Reading", replacementRange: editor.selectedRange())
+        try await clickBelowTheRows(in: window)
+        XCTAssertNil(browser.editingGroupID)
+        XCTAssertEqual(browser.tabGroups.first { $0.id == id }?.name, "Reading")
+    }
+
+    /// Escape leaves the name as it was, though the field, going, ends its
+    /// edit after it.
+    func testEscapeLeavesAGroupsNameAsItWas() async throws {
+        let browser = makeBrowser()
+        browser.prefs.usesTabGroups = true
+        let window = makeWindow(browser)
+        let id = browser.addTabGroup(containing: browser.tabs[0])
+        try await settle()
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        editor.insertText("Reading", replacementRange: editor.selectedRange())
+        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        try await settle()
+        XCTAssertNil(browser.editingGroupID)
+        XCTAssertEqual(browser.tabGroups.first { $0.id == id }?.name, "Group 1")
+    }
+
+    /// Well below the rows and the New Tab row, above the column's foot.
+    private func clickBelowTheRows(in window: NSWindow) async throws {
+        let point = NSPoint(x: 70, y: 150)
+        try await post(.leftMouseDown, at: point, in: window)
+        try await post(.leftMouseUp, at: point, in: window)
+        try await settle()
+    }
+
     private func post(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, clicks: Int = 1) async throws {
         NSApp.postEvent(try event(type, at: point, in: window, clicks: clicks), atStart: false)
         // Until this one is through, however many are queued before it:
