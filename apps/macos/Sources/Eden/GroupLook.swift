@@ -58,9 +58,63 @@ extension GroupColour {
     var lit: Color { color { r, g, b, dark in NSColor(srgbRed: r, green: g, blue: b, alpha: dark ? 0.46 : 0.40) } }
     /// Its fine edge.
     var edge: Color { color { r, g, b, dark in NSColor(srgbRed: r, green: g, blue: b, alpha: dark ? 0.45 : 0.40) } }
-    /// The heading's name, icon and chevron: the colour darkened on light,
-    /// lightened on dark, to read on its own surface. Stone's is the
-    /// column's own ink, as a plain heading's is.
+    /// A heading's name, icon and chevron at rest: as strong as the title of
+    /// a tab you aren't on, so a heading labels its tabs rather than
+    /// outshining them. Stone's is a tab's own grey; a colour keeps its hue,
+    /// taken lighter or darker until it is exactly as bright as that grey.
+    /// A fixed step toward the ink left the swatches as uneven as they are:
+    /// madder and umber stood out on light, ochre on dark.
+    var title: Color {
+        if self == .stone { return Palette.muted }
+        return color { r, g, b, dark in
+            let target = Self.luminance(of: Self.grey(dark: dark))
+            let (r, g, b) = Self.mixed((r, g, b), toLuminance: target)
+            return NSColor(srgbRed: r, green: g, blue: b, alpha: 1)
+        }
+    }
+
+    /// A tab's grey (Palette.NS.muted) in sRGB, on light or on dark.
+    private static func grey(dark: Bool) -> (CGFloat, CGFloat, CGFloat) {
+        var grey: (CGFloat, CGFloat, CGFloat) = (0.5, 0.5, 0.5)
+        NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+            if let srgb = Palette.NS.muted.usingColorSpace(.sRGB) {
+                grey = (srgb.redComponent, srgb.greenComponent, srgb.blueComponent)
+            }
+        }
+        return grey
+    }
+
+    /// How bright a colour reads: its relative luminance, from sRGB.
+    private static func luminance(of rgb: (CGFloat, CGFloat, CGFloat)) -> CGFloat {
+        func linear(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear(rgb.0) + 0.7152 * linear(rgb.1) + 0.0722 * linear(rgb.2)
+    }
+
+    /// The colour mixed toward white, or black, until it is `target` bright.
+    /// The mix only ever brightens, or darkens, as it goes, so halving the
+    /// step finds it.
+    private static func mixed(_ rgb: (CGFloat, CGFloat, CGFloat), toLuminance target: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+        let lighter = luminance(of: rgb) < target
+        let to: CGFloat = lighter ? 1 : 0
+        func mix(_ t: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+            (rgb.0 + (to - rgb.0) * t, rgb.1 + (to - rgb.1) * t, rgb.2 + (to - rgb.2) * t)
+        }
+        var low: CGFloat = 0, high: CGFloat = 1
+        for _ in 0..<20 {
+            let t = (low + high) / 2
+            let short = lighter ? luminance(of: mix(t)) < target : luminance(of: mix(t)) > target
+            if short { low = t } else { high = t }
+        }
+        return mix((low + high) / 2)
+    }
+    /// The same under the pointer, brighter, as a tab's title comes up under
+    /// it. Stone's is a tab's own; a colour's is its full ink, opaque: at a
+    /// tab's 70%, the surface showed through and some came up darker than
+    /// at rest.
+    var lifted: Color { self == .stone ? Palette.ink.opacity(0.7) : ink }
+    /// The colour at full strength: darkened on light, lightened on dark, to
+    /// read on its own surface, for its name being typed and the swatches
+    /// of its menu. Stone's is the column's own ink.
     var ink: Color {
         if self == .stone { return Palette.ink }
         return color { r, g, b, dark in
@@ -244,8 +298,9 @@ struct GroupLabel<Icon: View, Title: View, End: View>: View {
     }
 }
 
-/// A group's name in its heading, in the group's ink, and the chevron
-/// straight after it: pointing on while folded, down while open.
+/// A group's name in its heading, in its colour (GroupColour.title, lifted
+/// under the pointer), and the chevron straight after it: pointing on while
+/// folded, down while open.
 struct GroupName: View {
     let name: String
     let ink: Color
@@ -284,7 +339,8 @@ extension View {
 /// kept group's folder (PinFolderIcon).
 struct GroupIconView<StandIn: View>: View {
     let icon: GroupIcon?
-    let colour: GroupColour
+    /// What a symbol is drawn in: the heading's name's colour.
+    let ink: Color
     /// A tab's icon in the column (Preferences.sideMark).
     let size: CGFloat
     @ViewBuilder let standIn: StandIn
@@ -297,7 +353,7 @@ struct GroupIconView<StandIn: View>: View {
             case .symbol(let name):
                 Image(systemName: name)
                     .font(.system(size: size * 0.72, weight: .semibold))
-                    .foregroundStyle(colour.ink)
+                    .foregroundStyle(ink)
             case nil:
                 standIn
             }

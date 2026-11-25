@@ -35,6 +35,38 @@ final class GroupLookTests: XCTestCase {
         return tab
     }
 
+    /// A heading reads as bright as the title of a tab you aren't on, in
+    /// every colour, on light and on dark, and stands out more under the
+    /// pointer.
+    func testAHeadingIsAsBrightAsATabsTitle() throws {
+        func luminance(_ colour: NSColor) throws -> CGFloat {
+            let srgb = try XCTUnwrap(colour.usingColorSpace(.sRGB))
+            func linear(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            return 0.2126 * linear(srgb.redComponent) + 0.7152 * linear(srgb.greenComponent)
+                + 0.0722 * linear(srgb.blueComponent)
+        }
+        for look in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: look))
+            var failure: Error?
+            appearance.performAsCurrentDrawingAppearance {
+                do {
+                    let grey = try luminance(Palette.NS.muted)
+                    for colour in GroupColour.allCases {
+                        XCTAssertEqual(try luminance(NSColor(colour.title)), grey, accuracy: 0.002, "\(colour) on \(look.rawValue)")
+                        // Up from the ground: darker on light, brighter on dark.
+                        let lifted = try luminance(NSColor(colour.lifted))
+                        if look == .aqua {
+                            XCTAssertLessThan(lifted, grey, "\(colour) comes up on light")
+                        } else {
+                            XCTAssertGreaterThan(lifted, grey, "\(colour) comes up on dark")
+                        }
+                    }
+                } catch { failure = error }
+            }
+            if let failure { throw failure }
+        }
+    }
+
     func testAGroupFromBeforeReadsNeutralAndWithoutAnIcon() throws {
         let old = #"{"id":"8C1F2C5E-0B0B-4C33-9E59-2F2B8D3B1A10","name":"Work","collapsed":true}"#
         let group = try JSONDecoder().decode(TabGroup.self, from: Data(old.utf8))
