@@ -441,6 +441,23 @@ enum Dialogs {
 
     /// A test run's questions, in the order they would have been shown.
     static var askedInTest: [String] = []
+    /// A test run's answer to them: Cancel, unless a test says otherwise.
+    /// Nil holds each one, its answer kept in `heldInTest` for the test to
+    /// give when it chooses.
+    static var answerInTest: NSApplication.ModalResponse? = .cancel
+    static var heldInTest: [(NSApplication.ModalResponse) -> Void] = []
+
+    /// A form WebKit is about to send again with what was filled in. Send is
+    /// the first button. One that reached the site the first time may be
+    /// acted on twice, a payment taken twice.
+    static func resend(to site: String?) -> NSAlert {
+        let alert = NSAlert()
+        alert.messageText = "Send the Form Again?"
+        alert.informativeText = "What you filled in goes to \(site ?? "the site") again. If it got there the first time, the site may act on it twice."
+        alert.addButton(withTitle: "Send")
+        alert.addButton(withTitle: "Cancel")
+        return alert
+    }
 
     static func show(
         _ alert: NSAlert,
@@ -450,10 +467,10 @@ enum Dialogs {
         // A test run never shows one — a sheet, or a window of its own for a
         // page without one, would be on the screen of whoever is working
         // beside it. What it would have asked is written down (bench probe),
-        // and it is answered as if cancelled.
+        // and it is answered as if cancelled, or as a test asks.
         if Store.testing {
             askedInTest.append(alert.messageText)
-            finish(.cancel)
+            if let answer = answerInTest { finish(answer) } else { heldInTest.append(finish) }
             return
         }
         if let window = window(for: webView) {

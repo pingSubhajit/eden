@@ -69,7 +69,7 @@ struct Page: View {
             }
 
             if let failure = tab.failure {
-                Trouble(message: failure) { tab.reload() }
+                Trouble(message: failure, button: tab.retryTitle) { tab.reload() }
                     .transition(.opacity)
             }
 
@@ -696,9 +696,11 @@ final class CallWatch: NSObject {
 }
 
 /// What there is to say when the page never came. One line, and the only thing
-/// worth offering — another go.
+/// worth offering — another go, or for a form that didn't, the way back to
+/// it.
 struct Trouble: View {
     let message: String
+    let button: String
     let retry: () -> Void
 
     var body: some View {
@@ -706,7 +708,7 @@ struct Trouble: View {
             Text(message)
                 .font(.system(size: 14))
                 .foregroundStyle(Palette.ink)
-            Button("Try again", action: retry)
+            Button(button, action: retry)
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(Palette.muted)

@@ -23,6 +23,7 @@ final class LocalPageServer {
     private let source: DispatchSourceRead
     private let lock = NSLock()
     private var asked: [String] = []
+    private var heardAll: [Heard] = []
     private var sentBodies: [String: Int] = [:]
     private var stopped = false
     private let pages: [String: Page]
@@ -86,6 +87,20 @@ final class LocalPageServer {
         return asked
     }
 
+    /// A request as it came: how, where, and what it carried.
+    struct Heard: Equatable {
+        var method: String
+        var path: String
+        var body: String
+    }
+
+    /// Every request, in order, with its method and body.
+    var heard: [Heard] {
+        lock.lock()
+        defer { lock.unlock() }
+        return heardAll
+    }
+
     func bytesSent(_ path: String) -> Int {
         lock.lock()
         defer { lock.unlock() }
@@ -132,12 +147,31 @@ final class LocalPageServer {
             guard count > 0 else { return }
             data.append(contentsOf: buffer.prefix(count))
         }
-        guard let header = String(data: data, encoding: .utf8),
-              let target = header.components(separatedBy: "\r\n").first?.split(separator: " ").dropFirst().first
+        guard let end = data.range(of: Data("\r\n\r\n".utf8)),
+              let header = String(data: data[..<end.lowerBound], encoding: .utf8),
+              let line = header.components(separatedBy: "\r\n").first?.split(separator: " "),
+              line.count > 1
         else { return }
+        let method = String(line[0])
+        let target = line[1]
         let path = URLComponents(string: "http://fixture\(target)")?.path ?? String(target)
+        // The body, as long as the request says it is. A body sent in
+        // chunks, or one that stops short, isn't one this server can say it
+        // heard, and goes unanswered.
+        let fields = header.components(separatedBy: "\r\n").dropFirst().map { $0.lowercased() }
+        guard !fields.contains(where: { $0.hasPrefix("transfer-encoding:") && $0.contains("chunked") }) else { return }
+        let length = fields
+            .first { $0.hasPrefix("content-length:") }
+            .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) } ?? 0
+        var carried = Data(data[end.upperBound...])
+        while carried.count < length {
+            let count = recv(client, &buffer, buffer.count, 0)
+            guard count > 0 else { return }
+            carried.append(contentsOf: buffer.prefix(count))
+        }
         lock.lock()
         asked.append(path)
+        heardAll.append(Heard(method: method, path: path, body: String(decoding: carried, as: UTF8.self)))
         lock.unlock()
 
         let page = pages[path] ?? Page(status: "404 Not Found", type: "text/html",
