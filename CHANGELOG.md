@@ -10,6 +10,7 @@ the paragraph in `NOTES.md`. What is planned but not done yet lives in
 
 ## Unreleased
 
+- On the Mac, quitting while a file import is still going waits five seconds for it in all, then quits whatever it is doing, where each attempt to quit waited five seconds of its own and an import that stayed kept Eden from ever quitting (#67).
 - On the Mac, Try again and reload on a page that never arrived ask for it again: a tab woken offline from its history came back once the connection did, where every reload went nowhere if one had been pressed while it was still trying, and a link that failed is tried again rather than the page it was followed from (#62).
 - On the Mac, a peek whose page doesn't load says so, with Try again, where it sat on its skeleton saying nothing (#63).
 - On the Mac, a tab coming back shows its page as it was left until the page draws, where it showed nothing: as it wakes, and at launch too, from a picture of each open tab kept at its size. A page slow to come softens after a moment, more the longer it takes, and comes in over it whenever it draws; under Reduce Motion it is lightly softened from the start. Pictures of the two hundred or so most recent pages are kept, none of a private tab, each gone after a month without a visit and all with Clear History (#66).
