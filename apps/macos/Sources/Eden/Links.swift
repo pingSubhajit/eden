@@ -26,6 +26,8 @@ final class Links: NSObject, NSApplicationDelegate {
     /// A first quit waits for an import worker to remove its temporary files.
     /// AppKit calls us again when that cleanup has finished.
     private var terminationPending = false
+    /// How long a quit waits on imports, all its attempts together.
+    private var importsWait = ImportsWait()
 
     @MainActor private static var askingToQuit = false
 
@@ -55,8 +57,8 @@ final class Links: NSObject, NSApplicationDelegate {
     /// Quitting closes every window on the way out; that isn't a window
     /// closed for good, whose tabs would go (see Browsers.closing).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let waiting = MainActor.assumeIsolated { Browser.cancelAllFileImports() }
-        guard waiting else {
+        let running = MainActor.assumeIsolated { Browser.cancelAllFileImports() }
+        guard importsWait.waits(importsRunning: running) else {
             terminationPending = false
             // Only once the quit goes ahead: while it waits on an import,
             // a window closed is closed for good.
@@ -87,12 +89,11 @@ final class Links: NSObject, NSApplicationDelegate {
             }
             return .terminateLater
         }
-        if !terminationPending {
+        if !terminationPending, let until = importsWait.deadline {
             terminationPending = true
             Task { @MainActor in
-                // Five seconds at most: an import stuck on a slow disk
-                // doesn't keep Eden from quitting.
-                let until = Date().addingTimeInterval(5)
+                // Asked again once the imports are done, or once the wait is
+                // over, when the quit goes ahead whatever they are doing.
                 while Browser.hasActiveFileImports, Date() < until {
                     try? await Task.sleep(for: .milliseconds(50))
                 }
@@ -103,6 +104,29 @@ final class Links: NSObject, NSApplicationDelegate {
         // Returning from AppKit's first terminate call lets MainActor finish
         // the worker continuation and remove it from Browser's registry.
         return .terminateCancel
+    }
+
+    /// How long quitting waits on file imports to clean up after
+    /// themselves: five seconds from the first attempt, however many times
+    /// the quit is asked again meanwhile. An import stuck on a slow disk
+    /// doesn't keep Eden from quitting: each attempt used to wait five
+    /// seconds of its own, and one that found the import still there
+    /// started another.
+    struct ImportsWait {
+        static let most: TimeInterval = 5
+        private(set) var deadline: Date?
+
+        /// Whether this attempt waits, starting the wait on the first.
+        /// Once it doesn't, the next quit waits afresh.
+        mutating func waits(importsRunning: Bool, now: Date = Date()) -> Bool {
+            let until = deadline ?? now.addingTimeInterval(Self.most)
+            guard importsRunning, now < until else {
+                deadline = nil
+                return false
+            }
+            deadline = until
+            return true
+        }
     }
 
     /// Every window's pages on screen kept as pictures (Tab.keepPicture),
