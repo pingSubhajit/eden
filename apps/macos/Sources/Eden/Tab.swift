@@ -440,7 +440,35 @@ final class Tab: ObservableObject, Identifiable {
     /// connection, a process that kept dying. Shown in place of the page
     /// rather than in a dialog.
     @Published var failure: String? {
-        didSet { if failure == nil { dead = false } }
+        didSet {
+            if failure == nil {
+                dead = false
+                failedAddress = nil
+            }
+        }
+    }
+    /// Where the page that never arrived was going, which Try again asks
+    /// for (see reload).
+    private var failedAddress: URL?
+    /// Whether the page last asked for can be asked for again by its address
+    /// alone. A form sent is not: asked for by its address it would arrive
+    /// as a plain visit, without what was filled in.
+    private var askedPlainly = true
+
+    /// The page the view is about to ask for, as WebKit lets it.
+    func asking(_ request: URLRequest) {
+        askedPlainly = ["GET", "HEAD"].contains(request.httpMethod?.uppercased() ?? "GET")
+    }
+
+    /// A page that never arrived: says why, and keeps where it was going.
+    /// WebKit gives the address up as the load fails, and a link that failed
+    /// leaves the view on the page it was followed from. A form that failed
+    /// keeps nothing: Try again reloads as it always did.
+    func failedToArrive(_ message: String, at url: URL?) {
+        failure = message
+        // Set either way: a form sent from the page behind an earlier
+        // failure must not be tried again as that failure's address.
+        failedAddress = askedPlainly ? url ?? address : nil
     }
     /// How far down the page you are, nought to one. The tab's own pill fills
     /// with it. Kept apart from the rest of the tab (see Reading): it changes
@@ -2108,6 +2136,18 @@ final class Tab: ObservableObject, Identifiable {
         if dead, let address {
             failure = nil
             loadAndVerify(address)
+            return
+        }
+        // And on a page that never arrived, where it was going. WebKit
+        // reloads the page that last arrived in the view: for a failed link,
+        // the page it was followed from, and for a tab woken from its
+        // history that failed, none. A reload there is dropped, and one
+        // pressed while the page was still trying left WebKit answering with
+        // its address as if it were on the way, so the view looked whole and
+        // every reload after went nowhere (#62).
+        if let failedAddress {
+            failure = nil
+            loadAndVerify(failedAddress)
             return
         }
         // A file is read again with the folder it may read (see open).

@@ -8312,8 +8312,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         decide(webView, action) { [weak self] policy in
             // Revoke before WebKit can run the old document's unload handlers.
             // A nil target is a new window, not this tab leaving its document.
-            if policy == .allow, action.targetFrame?.isMainFrame == true {
-                self?.popupTab(for: webView)?.popupGesture.clear()
+            if policy == .allow, action.targetFrame?.isMainFrame == true, let tab = self?.popupTab(for: webView) {
+                tab.popupGesture.clear()
+                tab.asking(action.request)
             }
             if policy == .allow, action.targetFrame?.isMainFrame ?? true, let url = action.request.url {
                 let shy = self?.tab(for: webView)?.shy == true || !webView.configuration.websiteDataStore.isPersistent
@@ -9202,7 +9203,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         tab(for: webView)?.extensionReturn.finished(navigation)
-        fail(webView, error)
+        fail(webView, error, arrived: true)
     }
 
     func webView(
@@ -9211,7 +9212,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         withError error: Error
     ) {
         tab(for: webView)?.extensionReturn.finished(navigation)
-        fail(webView, error)
+        fail(webView, error, arrived: false)
     }
 
     /// A page asking to close itself.
@@ -9364,7 +9365,10 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func fail(_ webView: WKWebView, _ error: Error) {
+    /// `arrived`: the page had come, and broke off as it did, so reloading
+    /// it is WebKit's to do, a form sent again as a form. One that never
+    /// came is asked for again where it was going (see Tab.reload).
+    private func fail(_ webView: WKWebView, _ error: Error, arrived: Bool) {
         let tab = tab(for: webView) ?? littleTab(for: webView)
         tab?.uncover()
         let nsError = error as NSError
@@ -9383,7 +9387,11 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // as in Safari, while the video plays. Answered as a failure, it
         // covered the playing video with "The page didn't load".
         guard !(nsError.domain == "WebKitErrorDomain" && code == 204) else { return }
-        tab?.failure = message(for: code)
+        if arrived {
+            tab?.failure = message(for: code)
+        } else {
+            tab?.failedToArrive(message(for: code), at: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+        }
     }
 
     private func message(for code: Int) -> String {

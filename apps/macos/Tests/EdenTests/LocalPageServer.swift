@@ -11,6 +11,12 @@ final class LocalPageServer {
         var body: String
         var withoutLength = false
         var slowly = false
+        /// Never kept, as a signed-in site's pages often aren't: going back
+        /// to one asks the site again rather than taking it from the cache.
+        var uncached = false
+        /// Never answered: the request is held until the server stops, and
+        /// then dropped, as a page on a connection that goes away is.
+        var hangs = false
     }
 
     private let socket: Int32
@@ -25,7 +31,9 @@ final class LocalPageServer {
     private let acceptQueue = DispatchQueue(label: "eden.page-fixture.accept")
     private let clientsQueue = DispatchQueue(label: "eden.page-fixture.clients", attributes: .concurrent)
 
-    init(_ pages: [String: Page]) throws {
+    /// `port`: none for any free one, or one a stopped server had, to stand
+    /// in for a site that comes back where it was.
+    init(_ pages: [String: Page], port wanted: UInt16 = 0) throws {
         self.pages = pages
         let server = Darwin.socket(AF_INET, SOCK_STREAM, 0)
         guard server >= 0 else { throw Self.failure("socket") }
@@ -38,7 +46,7 @@ final class LocalPageServer {
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = 0
+        address.sin_port = wanted.bigEndian
         address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -82,6 +90,12 @@ final class LocalPageServer {
         lock.lock()
         defer { lock.unlock() }
         return sentBodies[path] ?? 0
+    }
+
+    private var isStopped: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return stopped
     }
 
     func stop() {
@@ -128,10 +142,15 @@ final class LocalPageServer {
 
         let page = pages[path] ?? Page(status: "404 Not Found", type: "text/html",
                                        body: "<!doctype html><title>Not found</title><p>Nothing here</p>")
+        if page.hangs {
+            while !isStopped { usleep(20_000) }
+            return
+        }
         let body = Data(page.body.utf8)
         let head = "HTTP/1.1 \(page.status)\r\n"
             + "Content-Type: \(page.type)\r\n"
             + (page.withoutLength ? "" : "Content-Length: \(body.count)\r\n")
+            + (page.uncached ? "Cache-Control: no-store\r\n" : "")
             + "Connection: close\r\n\r\n"
         guard send(client, Data(head.utf8)) else { return }
         if !page.slowly {
