@@ -43,15 +43,7 @@ struct Page: View {
                 // way of a click meant for the page. Up at once, since what
                 // it covers is not fit to be seen (a page waking up, or one
                 // landing from the floating window); off with a fade.
-                Image(nsImage: cover)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    // No smaller than nothing: a picture taken in a window of
-                    // another shape would otherwise ask for its own size, and
-                    // push the column aside until the page woke (#664).
-                    .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity,
-                           alignment: .topLeading)
-                    .clipped()
+                Cover(picture: cover, softens: tab.coverSoftens)
                     .allowsHitTesting(false)
                     .transition(.asymmetric(insertion: .identity, removal: .opacity))
             }
@@ -88,6 +80,71 @@ struct Page: View {
         .animation(Motion.quick, value: tab.floating)
         .animation(Motion.quick, value: tab.reader)
         .animation(Motion.timed(.easeOut(duration: 0.2)), value: tab.cover == nil)
+    }
+}
+
+/// The page as it was left, over its tab while the page is built again: as
+/// it was at first, then, if the page is slow to come, softening, the blur
+/// being how long it has been waiting (#66). A page that comes quickly is
+/// never seen to blur. Under Reduce Motion it is softened a little from the
+/// start, and stays so; with Reduce animations it stays as it was. One over a
+/// page landing from the floating window stays as it was too: that page is
+/// there, only settling.
+struct Cover: View {
+    let picture: NSImage
+    let softens: Bool
+
+    /// How long the picture stays as it was before it starts to soften.
+    static let still: Duration = .milliseconds(300)
+    /// How long it takes from there to soften all the way, slowing as it goes.
+    static let softening: TimeInterval = 1.8
+    /// How soft it gets, in points: what the page said is gone, its shape
+    /// isn't.
+    static let softest: CGFloat = 28
+    /// Under Reduce Motion, from the start.
+    static let soft: CGFloat = 12
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Eden's own Reduce animations, watched so turning it on while the
+    /// picture is up takes the blur off at once.
+    @ObservedObject private var prefs = Shared.prefs
+    @State private var blur: CGFloat = 0
+
+    /// What the blur is worked out from: a new picture, or either switch
+    /// changed while it is up, starts it again.
+    private struct Softening: Equatable {
+        let picture: ObjectIdentifier
+        let reduceMotion: Bool
+        let instant: Bool
+    }
+
+    var body: some View {
+        Image(nsImage: picture)
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            // No smaller than nothing: a picture taken in a window of
+            // another shape would otherwise ask for its own size, and
+            // push the column aside until the page woke (#664).
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity,
+                   alignment: .topLeading)
+            // Opaque: its edges stay the picture's, rather than fading to
+            // the ground as a blur's do.
+            .blur(radius: blur, opaque: true)
+            .clipped()
+            // Each picture from the start: one landing from the floating
+            // window after a waking one doesn't begin soft. Set without
+            // animating: a switch turned on mid-blur lands where it says.
+            .task(id: Softening(picture: ObjectIdentifier(picture), reduceMotion: reduceMotion,
+                                instant: prefs.instantMotion)) {
+                var still = Transaction()
+                still.disablesAnimations = true
+                withTransaction(still) { blur = softens && reduceMotion && !prefs.instantMotion ? Cover.soft : 0 }
+                guard softens, !reduceMotion else { return }
+                guard let animation = Motion.timed(.easeOut(duration: Cover.softening)) else { return }
+                try? await Task.sleep(for: Cover.still)
+                guard !Task.isCancelled else { return }
+                withAnimation(animation) { blur = Cover.softest }
+            }
     }
 }
 

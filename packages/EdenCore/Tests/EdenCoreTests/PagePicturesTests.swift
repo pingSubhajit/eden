@@ -147,4 +147,41 @@ final class PagePicturesTests: XCTestCase {
         let found = await pictures.kept(for: url, store: nil)
         XCTAssertEqual(found, Data([2]))
     }
+
+    func testPastTheirLimitThePicturesKeptLongestAgoGo() async throws {
+        let limited = PagePictures(folder: folder, most: 2)
+        let pages = (0..<3).map { page("https://example.com/\($0)") }
+        for (index, url) in pages.enumerated() {
+            limited.keep(Data([UInt8(index)]), for: url, store: nil, ticket: limited.ticket())
+            await limited.settled()
+            // Kept a minute apart, oldest first.
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date(timeIntervalSinceNow: Double(index - 3) * 60)],
+                ofItemAtPath: limited.file(for: url, store: nil).path)
+        }
+        limited.trim()
+        await limited.settled()
+        XCTAssertFalse(limited.has(pages[0], store: nil), "kept longest ago")
+        XCTAssertTrue(limited.has(pages[1], store: nil))
+        XCTAssertTrue(limited.has(pages[2], store: nil))
+    }
+
+    func testKeepingPastTheLimitTrimsAsItGoes() async {
+        let limited = PagePictures(folder: folder, most: 1)
+        for index in 0..<PagePictures.trimEvery {
+            limited.keep(Data([1]), for: page("https://example.com/\(index)"), store: nil, ticket: limited.ticket())
+        }
+        await limited.settled()
+        let left = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        XCTAssertEqual(left.count, 1)
+    }
+
+    func testWithNoLimitTrimmingKeepsEverything() async {
+        await keep(Data([1]), for: page("https://example.com/a"))
+        await keep(Data([2]), for: page("https://example.com/b"))
+        pictures.trim()
+        await pictures.settled()
+        XCTAssertTrue(pictures.has(page("https://example.com/a"), store: nil))
+        XCTAssertTrue(pictures.has(page("https://example.com/b"), store: nil))
+    }
 }

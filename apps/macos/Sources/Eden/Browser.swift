@@ -1821,8 +1821,10 @@ final class Browser: NSObject, ObservableObject {
         // The sites' icons are a list of where you have been, too, and so
         // are the searches learned from sites visited (SiteSearch.swift).
         Favicons.shared.forgetAll()
-        // The pictures of pages kept for their hover cards (PagePictures).
+        // The pictures of pages kept for their hover cards and for tabs
+        // coming back (PagePictures).
         PagePictures.shared.forgetAll()
+        PagePictures.covers.forgetAll()
         SiteSearch.forget()
         Shared.forgetDownloadAddresses()
         announce("History cleared", look: .done)
@@ -8312,8 +8314,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         decide(webView, action) { [weak self] policy in
             // Revoke before WebKit can run the old document's unload handlers.
             // A nil target is a new window, not this tab leaving its document.
-            if policy == .allow, action.targetFrame?.isMainFrame == true {
-                self?.popupTab(for: webView)?.popupGesture.clear()
+            if policy == .allow, action.targetFrame?.isMainFrame == true, let tab = self?.popupTab(for: webView) {
+                tab.popupGesture.clear()
+                tab.asking(action.request)
             }
             if policy == .allow, action.targetFrame?.isMainFrame ?? true, let url = action.request.url {
                 let shy = self?.tab(for: webView)?.shy == true || !webView.configuration.websiteDataStore.isPersistent
@@ -9202,7 +9205,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         tab(for: webView)?.extensionReturn.finished(navigation)
-        fail(webView, error)
+        fail(webView, error, arrived: true)
     }
 
     func webView(
@@ -9211,7 +9214,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         withError error: Error
     ) {
         tab(for: webView)?.extensionReturn.finished(navigation)
-        fail(webView, error)
+        fail(webView, error, arrived: false)
     }
 
     /// A page asking to close itself.
@@ -9245,12 +9248,13 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // What is open here changed, for what says so (OpenPages).
         NotificationCenter.default.post(name: OpenPages.changed, object: nil)
         guard let tab = tab(for: webView) else {
-            // A small window's page came: what failed before it is over.
-            littleTab(for: webView)?.failure = nil
-            // A peek or a small window opens at the size the site has, or
-            // the one in Settings, as a tab does: neither is in the row,
-            // and both opened at 100% (#691).
             if let page = peekTab?.built === webView ? peekTab : littleTab(for: webView) {
+                // A peek's or a small window's page came: what failed
+                // before it is over.
+                page.failure = nil
+                // Either opens at the size the site has, or the one in
+                // Settings, as a tab does: neither is in the row, and both
+                // opened at 100% (#691).
                 page.applyRememberedZoom()
             }
             return
@@ -9268,11 +9272,13 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // Whatever you last set this site to, before it draws a single frame
         // at the wrong size.
         tab.applyRememberedZoom()
-        // A tab waking from sleep: the new document is in, and a moment
-        // after it is on screen the picture of the old one can go. Its first
-        // frame takes it off sooner (see Tab.build); this is for the page
-        // that has none, or whose first frame comes later than this.
-        tab.uncover(after: 0.45)
+        // A tab waking from sleep: the new document is in. Its first frame
+        // takes the picture of the old one off (see Tab.build), and its
+        // finishing does for a page with nothing to draw; until then the
+        // view is held out of sight, and the picture is what there is to
+        // see. Only on a WebKit that doesn't say when the first frame comes
+        // does it go a moment after this.
+        if tab.built?.unpainted != true { tab.uncover(after: 0.45) }
     }
 
     /// Where the window is, for a page asking `window.outerWidth`,
@@ -9364,8 +9370,13 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func fail(_ webView: WKWebView, _ error: Error) {
-        let tab = tab(for: webView) ?? littleTab(for: webView)
+    /// `arrived`: the page had come, and broke off as it did, so reloading
+    /// it is WebKit's to do, a form sent again as a form. One that never
+    /// came is asked for again where it was going (see Tab.reload).
+    private func fail(_ webView: WKWebView, _ error: Error, arrived: Bool) {
+        // A peek's page too, which said nothing, and sat on its skeleton
+        // (#63).
+        let tab = tab(for: webView) ?? littleTab(for: webView) ?? (peekTab?.built === webView ? peekTab : nil)
         tab?.uncover()
         let nsError = error as NSError
         let code = nsError.code
@@ -9383,7 +9394,11 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // as in Safari, while the video plays. Answered as a failure, it
         // covered the playing video with "The page didn't load".
         guard !(nsError.domain == "WebKitErrorDomain" && code == 204) else { return }
-        tab?.failure = message(for: code)
+        if arrived {
+            tab?.failure = message(for: code)
+        } else {
+            tab?.failedToArrive(message(for: code), at: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+        }
     }
 
     private func message(for code: Int) -> String {
