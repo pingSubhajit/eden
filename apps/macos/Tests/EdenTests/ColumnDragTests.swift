@@ -171,7 +171,7 @@ final class ColumnDragTests: XCTestCase {
             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
             pressure: type == .leftMouseUp ? 0 : 1
         ))
-        window.sendEvent(event)
+        XCTAssertTrue(AppQueue.deliver(event, in: window), "The app never took the \(type) off its queue")
         try await Task.sleep(for: .milliseconds(20))
     }
 }
