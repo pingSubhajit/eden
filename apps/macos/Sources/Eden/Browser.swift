@@ -77,8 +77,8 @@ final class Browser: NSObject, ObservableObject {
             // gone unwatched long enough to sleep is counted from here, not
             // from when it was first picked.
             // A question the page asked while it was in the background.
-            if let id = activeID, id != oldValue, let held = heldDialogs.removeValue(forKey: id) {
-                DispatchQueue.main.async { held.forEach { $0.present() } }
+            if let id = activeID, id != oldValue, heldDialogs[id] != nil {
+                DispatchQueue.main.async { [weak self] in self?.presentHeld(for: id) { $0.activeID == id } }
             }
             guard oldValue != activeID else { return }
             // The site's controls were about the page just left. Put away
@@ -5683,8 +5683,10 @@ final class Browser: NSObject, ObservableObject {
         stepAside(from: going)
         let inFront = going.filter { $0.id == activeID }
         // Pairs among them come apart, as one tab moved leaves its pair.
-        for tab in going.filter({ $0.id != activeID }) + inFront { detach(tab) }
-        destination.receive(going, front: front.flatMap { front in going.first { $0 === front } } ?? first)
+        var questions: [Tab.ID: WaitingQuestions] = [:]
+        for tab in going.filter({ $0.id != activeID }) + inFront { questions[tab.id] = detach(tab) }
+        destination.receive(going, front: front.flatMap { front in going.first { $0 === front } } ?? first,
+                            questions: questions)
         bringUp(destination, made: target == nil, at: point)
     }
 
@@ -5739,30 +5741,66 @@ final class Browser: NSObject, ObservableObject {
         let pair = split(for: tab)
         let going = pair.map { pair in tabs.filter { pair.contains($0.id) } } ?? [tab]
         stepAside(from: going)
-        for member in going { detach(member) }
-        target.take(going, split: pair)
+        var questions: [Tab.ID: WaitingQuestions] = [:]
+        for member in going { questions[member.id] = detach(member) }
+        target.take(going, split: pair, questions: questions)
         return true
     }
 
     /// Tabs from another window at the end of the row, as they were, a
     /// split again if they were one: not put in front, nor woken, and the
     /// tab in front left as it is.
-    private func take(_ moved: [Tab], split pair: TabSplit?) {
+    private func take(_ moved: [Tab], split pair: TabSplit?, questions: [Tab.ID: WaitingQuestions]) {
         for tab in moved {
             prepare(tab)
             if !tab.shy { tab.rehome(in: spaceID) }
             tabs.append(tab)
         }
         if let pair, Browser.holds(pair, in: tabs) { splits.append(pair) }
+        for tab in moved { carry(questions[tab.id], of: tab) }
         writeSession(now: true)
     }
 
-    /// Out of this row, not closed: it is on its way to another window.
-    private func detach(_ tab: Tab) {
-        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+    /// What a tab's page asked and is still waiting on, as it leaves for
+    /// another window (detach): the page waits on each until it is answered.
+    struct WaitingQuestions {
+        /// The page that asked them.
+        var page: WKWebView?
+        var held: [HeldQuestion] = []
+        var pane: [PaneQuestion] = []
+    }
+
+    /// A moved tab's questions, here now: one held for it is shown when you
+    /// go to it, as in the window it came from; one asked over its page of a
+    /// pair stays over it when it came with its pair, and is answered as
+    /// dismissed when it didn't, as a page leaving Split View has its
+    /// answered. Left behind, nothing ever showed or answered them, and
+    /// the page waited on them for good. A page let go on the way, the tab
+    /// reopening with another space's sign-ins (rehome), has them answered
+    /// as dismissed: shown, they would pass for the new page's.
+    private func carry(_ questions: WaitingQuestions?, of tab: Tab) {
+        guard let questions else { return }
+        guard let page = questions.page, tab.built === page else {
+            questions.held.forEach { $0.dismiss() }
+            questions.pane.forEach { $0.answer(ok: false) }
+            return
+        }
+        if !questions.held.isEmpty { heldDialogs[tab.id, default: []] += questions.held }
+        if split(for: tab) != nil { paneQuestions += questions.pane }
+        else { questions.pane.forEach { $0.answer(ok: false) } }
+    }
+
+    /// Out of this row, not closed: it is on its way to another window, its
+    /// questions with it.
+    @discardableResult
+    private func detach(_ tab: Tab) -> WaitingQuestions {
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return WaitingQuestions() }
         // Its peek, hidden or not, doesn't follow it to another window.
         if peekFrom == tab.id { closePeek() }
         if let web = tab.built { cancelDisplay(for: web) }
+        let questions = WaitingQuestions(page: tab.built, held: heldDialogs.removeValue(forKey: tab.id) ?? [],
+                                         pane: paneQuestions.filter { $0.tab == tab.id })
+        paneQuestions.removeAll { $0.tab == tab.id }
         let partner = split(for: tab).flatMap { pair in tabs.first { $0.id == pair.partner(of: tab.id) } }
         leaveSplit(tab)
         if floating == tab.id { land() }
@@ -5774,6 +5812,7 @@ final class Browser: NSObject, ObservableObject {
         removeEmptyGroup(tab.groupID)
         tab.groupID = nil
         writeSession(now: true)
+        return questions
     }
 
     /// A tab from another window, in front here. An empty tab left alone
@@ -5784,8 +5823,9 @@ final class Browser: NSObject, ObservableObject {
 
     /// Tabs from another window, together where a new tab would go, in
     /// their order, `front` in front: only that one woken, if it was
-    /// asleep. An empty tab left alone there makes way for them.
-    func receive(_ moved: [Tab], front: Tab) {
+    /// asleep, and the questions its page was waiting on shown. An empty
+    /// tab left alone there makes way for them.
+    func receive(_ moved: [Tab], front: Tab, questions: [Tab.ID: WaitingQuestions] = [:]) {
         for tab in moved {
             prepare(tab)
             if !tab.shy { tab.rehome(in: spaceID) }
@@ -5794,6 +5834,7 @@ final class Browser: NSObject, ObservableObject {
         var row = tabs
         row.insert(contentsOf: moved, at: placeForNew())
         tabs = row
+        for tab in moved { carry(questions[tab.id], of: tab) }
         select(front, floatPrevious: false)
         if tabs.count - blanks.count == moved.count + pinnedCount {
             for blank in blanks { tabs.removeAll { $0 === blank }; blank.close() }
@@ -8580,7 +8621,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         }
         let name = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
         // Over its own tab only, as a page's own questions are (see ask).
-        ask(from: webView, show: {
+        ask(from: webView, show: { _ in
             let alert = NSAlert()
             alert.messageText = "Open \u{201C}\(name)\u{201D}?"
             alert.informativeText = "\(webView.url?.host() ?? "This page") wants to open \(name)."
@@ -9059,19 +9100,20 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             else if CaptureChoices.mediaDecision(.microphone, origin: site) == true { wants = "camera" }
         }
         let revision = CaptureChoices.revision(for: "capture." + key)
-        ask(from: webView, show: { [weak self] in
-            guard let self else { return decisionHandler(.deny) }
+        // Asked by the window the tab is in when it is shown, which a tab
+        // moved meanwhile has changed (see carry).
+        ask(from: webView, show: { browser in
             guard shy || revision == CaptureChoices.revision(for: "capture." + key) else { return decisionHandler(.deny) }
             // One question at a time. A second page asking while the first is
             // still waiting is refused rather than queued behind it.
-            guard !permissionBusy else { return decisionHandler(.deny) }
-            decide = decisionHandler
+            guard !browser.permissionBusy else { return decisionHandler(.deny) }
+            browser.decide = decisionHandler
             // A peek's own page, which isn't in the row: its question goes
             // when it does, or when it is hidden (see followPeek).
-            decideTab = tab(for: webView) ?? (peekTab?.built === webView ? peekTab : nil)
-            askedAbout = shy ? "" : key
-            askedRevision = shy ? nil : revision
-            asking = CaptureAsk(host: host, wants: wants)
+            browser.decideTab = browser.tab(for: webView) ?? (browser.peekTab?.built === webView ? browser.peekTab : nil)
+            browser.askedAbout = shy ? "" : key
+            browser.askedRevision = shy ? nil : revision
+            browser.asking = CaptureAsk(host: host, wants: wants)
         }, drop: { decisionHandler(.deny) })
     }
 
@@ -9090,7 +9132,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         let host = origin.host.isEmpty ? (tab.address?.host() ?? "This page") : origin.host
         let named = Browser.extensionScheme(asker.protocol) ? Browser.extensionName(asker.host) : host
         // Recheck ownership when a background tab's question is shown.
-        displayHeld = ask(from: webView, show: { [weak self, weak webView] in
+        // Never carried to another window: a tab leaving this one has it
+        // refused (detach).
+        displayHeld = ask(from: webView, show: { [weak self, weak webView] _ in
             guard let self, displayRequest == request else { return }
             guard let webView, activeID == tab.id, tab.built === webView, decide == nil else { return cancelDisplay() }
             asking = CaptureAsk(host: named, wants: "screen", screen: true, sound: systemAudio)
@@ -9171,19 +9215,19 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         else { return decisionHandler(false) }
         if let remembered = SiteNotifications.choices[site] { return decisionHandler(remembered) }
         let revision = CaptureChoices.revision(for: "capture.\(site)|notifications")
-        ask(from: webView, show: { [weak self] in
-            guard let self else { return decisionHandler(false) }
+        // Asked by the window the tab is in when it is shown (see carry).
+        ask(from: webView, show: { browser in
             guard revision == CaptureChoices.revision(for: "capture.\(site)|notifications") else { return decisionHandler(false) }
-            guard !permissionBusy else { return decisionHandler(false) }
-            decide = { decision in
+            guard !browser.permissionBusy else { return decisionHandler(false) }
+            browser.decide = { decision in
                 if decision == .grant { SiteNotifications.shared.authorize() }
                 decisionHandler(decision == .grant)
                 SiteNotifications.shared.objectWillChange.send()
             }
-            decideTab = tab
-            askedAbout = "\(site)|notifications"
-            askedRevision = revision
-            asking = CaptureAsk(host: origin.host, wants: "notifications")
+            browser.decideTab = tab
+            browser.askedAbout = "\(site)|notifications"
+            browser.askedRevision = revision
+            browser.asking = CaptureAsk(host: origin.host, wants: "notifications")
         }, drop: { decisionHandler(false) })
     }
 

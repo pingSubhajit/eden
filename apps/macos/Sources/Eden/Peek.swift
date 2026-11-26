@@ -45,8 +45,10 @@ extension Browser {
             if web.microphoneCaptureState == from { web.setMicrophoneCaptureState(to) {} }
         }
         if !shown { settleCapture(for: page) }
-        if shown, let held = heldDialogs.removeValue(forKey: page.id) {
-            DispatchQueue.main.async { held.forEach { $0.present() } }
+        if shown, heldDialogs[page.id] != nil {
+            DispatchQueue.main.async { [weak self] in
+                self?.presentHeld(for: page.id) { $0.peekTab === page && $0.peekInFront }
+            }
         }
     }
 
