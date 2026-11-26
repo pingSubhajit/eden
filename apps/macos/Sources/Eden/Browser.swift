@@ -9246,12 +9246,13 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // What is open here changed, for what says so (OpenPages).
         NotificationCenter.default.post(name: OpenPages.changed, object: nil)
         guard let tab = tab(for: webView) else {
-            // A small window's page came: what failed before it is over.
-            littleTab(for: webView)?.failure = nil
-            // A peek or a small window opens at the size the site has, or
-            // the one in Settings, as a tab does: neither is in the row,
-            // and both opened at 100% (#691).
             if let page = peekTab?.built === webView ? peekTab : littleTab(for: webView) {
+                // A peek's or a small window's page came: what failed
+                // before it is over.
+                page.failure = nil
+                // Either opens at the size the site has, or the one in
+                // Settings, as a tab does: neither is in the row, and both
+                // opened at 100% (#691).
                 page.applyRememberedZoom()
             }
             return
@@ -9369,7 +9370,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
     /// it is WebKit's to do, a form sent again as a form. One that never
     /// came is asked for again where it was going (see Tab.reload).
     private func fail(_ webView: WKWebView, _ error: Error, arrived: Bool) {
-        let tab = tab(for: webView) ?? littleTab(for: webView)
+        // A peek's page too, which said nothing, and sat on its skeleton
+        // (#63).
+        let tab = tab(for: webView) ?? littleTab(for: webView) ?? (peekTab?.built === webView ? peekTab : nil)
         tab?.uncover()
         let nsError = error as NSError
         let code = nsError.code

@@ -7,7 +7,8 @@ import XCTest
 /// Try again, and ⌘R, on a page that never arrived. A tab woken offline
 /// from its history had nothing in its view for WebKit to reload, and
 /// every reload went nowhere once the connection was back (#62). A link
-/// that failed was retried as the page it was on.
+/// that failed was retried as the page it was on, and a peek never said it
+/// had failed (#63).
 @MainActor
 final class RetryFailedLoadTests: XCTestCase {
     override class func setUp() {
@@ -192,6 +193,35 @@ final class RetryFailedLoadTests: XCTestCase {
             Self.pages(here) == 2 && tab.failure == nil
         }
         XCTAssertEqual(back.requests, [], "neither the link nor the form's address is visited")
+    }
+
+    /// A peek that failed said nothing and sat on its skeleton (#63). It
+    /// says so, and Try again brings it.
+    func testAPeekThatFailsSaysSoAndComesBackOnTryAgain() async throws {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.prohibited)
+        let here = try LocalPageServer(["/": Self.page("Here")])
+        defer { here.stop() }
+        let port = try Self.freePort()
+        let browser = Browser(record: WindowRecord())
+        defer { browser.closePeek(); browser.closeAll() }
+        browser.newTab()
+        let tab = try XCTUnwrap(browser.active)
+        let window = Self.window()
+        defer { window.close() }
+        window.contentView = tab.web
+        tab.go(to: here.url("/"))
+        try await until("the page loads") { await self.title(tab.web) == "Here" }
+
+        browser.peek(try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/")), from: tab)
+        let peek = try XCTUnwrap(browser.peekTab)
+        try await until("the peek says it didn't come") { peek.failure != nil }
+
+        let back = try LocalPageServer(["/": Self.page("There")], port: port)
+        defer { back.stop() }
+        peek.reload()
+        try await until("Try again brings the peek's page") { await self.title(peek.web) == "There" }
+        XCTAssertNil(peek.failure)
     }
 
     /// A port with nothing behind it, for now.
