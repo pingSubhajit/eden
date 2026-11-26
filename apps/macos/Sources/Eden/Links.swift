@@ -23,11 +23,9 @@ final class Links: NSObject, NSApplicationDelegate {
     /// Whether the app has finished launching: a small window's link that
     /// comes before then is what launched it (see little).
     private static var launched = false
-    /// A first quit waits for an import worker to remove its temporary files.
-    /// AppKit calls us again when that cleanup has finished.
-    private var terminationPending = false
-    /// How long a quit waits on imports, all its attempts together.
-    private var importsWait = ImportsWait()
+    /// Whether a quit is being answered: its imports cleaning up, its
+    /// writes before going (applicationShouldTerminate).
+    private var answering = false
 
     @MainActor private static var askingToQuit = false
 
@@ -56,76 +54,62 @@ final class Links: NSObject, NSApplicationDelegate {
 
     /// Quitting closes every window on the way out; that isn't a window
     /// closed for good, whose tabs would go (see Browsers.closing).
+    ///
+    /// Answered later, never turned down and asked again: a quit the system
+    /// asks for, to log out, restart or shut down, or the updater's, goes
+    /// ahead once Eden has answered, where one turned down stayed turned
+    /// down, and Eden quitting by itself afterwards left the Mac logged in
+    /// (#69). A file import first cleans up after itself, five seconds at
+    /// most, so one stuck on a slow disk doesn't keep Eden from quitting.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let running = MainActor.assumeIsolated { Browser.cancelAllFileImports() }
-        guard importsWait.waits(importsRunning: running) else {
-            terminationPending = false
-            // Only once the quit goes ahead: while it waits on an import,
-            // a window closed is closed for good.
-            MainActor.assumeIsolated { Browsers.quitting = true }
-            // Before going, together: the sites' sessions written down
-            // (SessionCookies), one changed a moment ago still on its way;
-            // and the pages on screen pictured as they are now, scrolled
-            // where they were left, for the tabs coming back next time
-            // (Tab.keepPicture), not as they were when they came in. Two
-            // seconds at most, so a stuck write doesn't keep Eden from
-            // quitting. Whichever comes first, the writes or the two seconds,
-            // answers; the other, finding it answered, says nothing.
-            var answered = false
-            let quit = { @MainActor in
-                guard !answered else { return }
-                answered = true
-                sender.reply(toApplicationShouldTerminate: true)
-            }
-            Task { @MainActor in
-                async let pictured: Void = Links.pictureThePagesOnScreen()
-                if SessionCookies.shared.unwritten { await SessionCookies.shared.flush() }
-                await pictured
-                quit()
-            }
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(2))
-                quit()
-            }
-            return .terminateLater
+        // Asked again while the first is being answered, ⌘Q pressed twice:
+        // that answer stands.
+        guard !answering else { return .terminateCancel }
+        answering = true
+        let importing = MainActor.assumeIsolated { Browser.cancelAllFileImports() }
+        Task { @MainActor in
+            if importing { await Links.wait(while: Browser.hasActiveFileImports, atMost: 5) }
+            Links.goAway(sender)
         }
-        if !terminationPending, let until = importsWait.deadline {
-            terminationPending = true
-            Task { @MainActor in
-                // Asked again once the imports are done, or once the wait is
-                // over, when the quit goes ahead whatever they are doing.
-                while Browser.hasActiveFileImports, Date() < until {
-                    try? await Task.sleep(for: .milliseconds(50))
-                }
-                self.terminationPending = false
-                sender.terminate(nil)
-            }
-        }
-        // Returning from AppKit's first terminate call lets MainActor finish
-        // the worker continuation and remove it from Browser's registry.
-        return .terminateCancel
+        return .terminateLater
     }
 
-    /// How long quitting waits on file imports to clean up after
-    /// themselves: five seconds from the first attempt, however many times
-    /// the quit is asked again meanwhile. An import stuck on a slow disk
-    /// doesn't keep Eden from quitting: each attempt used to wait five
-    /// seconds of its own, and one that found the import still there
-    /// started another.
-    struct ImportsWait {
-        static let most: TimeInterval = 5
-        private(set) var deadline: Date?
+    /// Until `busy` is false, or `most` seconds have gone.
+    @MainActor static func wait(while busy: @autoclosure () -> Bool, atMost most: TimeInterval) async {
+        let until = Date().addingTimeInterval(most)
+        while busy(), Date() < until {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
 
-        /// Whether this attempt waits, starting the wait on the first.
-        /// Once it doesn't, the next quit waits afresh.
-        mutating func waits(importsRunning: Bool, now: Date = Date()) -> Bool {
-            let until = deadline ?? now.addingTimeInterval(Self.most)
-            guard importsRunning, now < until else {
-                deadline = nil
-                return false
-            }
-            deadline = until
-            return true
+    /// The quit going ahead, answered once what has to be written is.
+    @MainActor private static func goAway(_ sender: NSApplication) {
+        // Only once the quit goes ahead: while it waits on an import, a
+        // window closed is closed for good.
+        Browsers.quitting = true
+        // Before going, together: the sites' sessions written down
+        // (SessionCookies), one changed a moment ago still on its way; and
+        // the pages on screen pictured as they are now, scrolled where they
+        // were left, for the tabs coming back next time (Tab.keepPicture),
+        // not as they were when they came in. Two seconds at most, so a
+        // stuck write doesn't keep Eden from quitting. Whichever comes
+        // first, the writes or the two seconds, answers; the other, finding
+        // it answered, says nothing.
+        var answered = false
+        let quit = { @MainActor in
+            guard !answered else { return }
+            answered = true
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        Task { @MainActor in
+            async let pictured: Void = Links.pictureThePagesOnScreen()
+            if SessionCookies.shared.unwritten { await SessionCookies.shared.flush() }
+            await pictured
+            quit()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            quit()
         }
     }
 
