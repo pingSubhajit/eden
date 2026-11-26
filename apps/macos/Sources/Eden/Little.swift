@@ -424,7 +424,7 @@ struct LittleView: View {
                 WebStage(page: tab.built ?? tab.web)
                 // A page that never came says so, with Try again, as in a tab.
                 if let failure = tab.failure {
-                    Trouble(message: failure) { tab.reload() }
+                    Trouble(message: failure, button: tab.retryTitle) { tab.reload() }
                         .transition(.opacity)
                 }
                 Swiping(pulling: tab.pulling)

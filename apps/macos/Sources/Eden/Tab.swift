@@ -443,32 +443,52 @@ final class Tab: ObservableObject, Identifiable {
         didSet {
             if failure == nil {
                 dead = false
-                failedAddress = nil
+                retry = nil
             }
         }
     }
-    /// Where the page that never arrived was going, which Try again asks
-    /// for (see reload).
-    private var failedAddress: URL?
-    /// Whether the page last asked for can be asked for again by its address
-    /// alone. A form sent is not: asked for by its address it would arrive
-    /// as a plain visit, without what was filled in.
-    private var askedPlainly = true
+    /// What the card offers for a page that never arrived (see reload).
+    private enum Retry {
+        /// Where it was going, asked for again.
+        case visit(URL)
+        /// A form that didn't go, from the page still in the view, filled in
+        /// as it was left: the card comes off it, to send it again from there.
+        case backToForm
+    }
+    private var retry: Retry?
+    /// Whether the page last asked for was a form sent. Eden never sends one
+    /// again itself: asked for by its address it would arrive as a plain
+    /// visit, without what was filled in (#64), and WebKit asks before it
+    /// sends one again with it (Browser's policy).
+    private(set) var askedForm = false
+
+    /// The card's button for a page that never arrived.
+    var retryTitle: String {
+        if case .backToForm = retry { return "Back to the Form" }
+        return "Try again"
+    }
 
     /// The page the view is about to ask for, as WebKit lets it.
     func asking(_ request: URLRequest) {
-        askedPlainly = ["GET", "HEAD"].contains(request.httpMethod?.uppercased() ?? "GET")
+        askedForm = !["GET", "HEAD"].contains(request.httpMethod?.uppercased() ?? "GET")
     }
 
-    /// A page that never arrived: says why, and keeps where it was going.
-    /// WebKit gives the address up as the load fails, and a link that failed
-    /// leaves the view on the page it was followed from. A form that failed
-    /// keeps nothing: Try again reloads as it always did.
+    /// A page that never arrived: says why, and how to have it. WebKit gives
+    /// the address up as the load fails, and a link that failed leaves the
+    /// view on the page it was followed from, as a form does the page it was
+    /// sent from, still filled in. That page is the tab's address again, so
+    /// nothing that reads it, putting the tab away, the session, Duplicate,
+    /// asks for the form's address alone. A form with no page to stay on
+    /// is the browser's to see to (Browser.formWentNowhere).
     func failedToArrive(_ message: String, at url: URL?) {
-        failure = message
-        // Set either way: a form sent from the page behind an earlier
-        // failure must not be tried again as that failure's address.
-        failedAddress = askedPlainly ? url ?? address : nil
+        guard askedForm, let page = built?.backForwardList.currentItem?.url else {
+            failure = message
+            retry = (url ?? address).map(Retry.visit)
+            return
+        }
+        if address != page { address = page }
+        failure = "The form didn't go."
+        retry = .backToForm
     }
     /// How far down the page you are, nought to one. The tab's own pill fills
     /// with it. Kept apart from the rest of the tab (see Reading): it changes
@@ -2222,10 +2242,16 @@ final class Tab: ObservableObject, Identifiable {
         // pressed while the page was still trying left WebKit answering with
         // its address as if it were on the way, so the view looked whole and
         // every reload after went nowhere (#62).
-        if let failedAddress {
+        switch retry {
+        case .visit(let url):
             failure = nil
-            loadAndVerify(failedAddress)
+            loadAndVerify(url)
             return
+        case .backToForm:
+            failure = nil
+            return
+        case nil:
+            break
         }
         // A file is read again with the folder it may read (see open).
         if let address, hollow || address.isFileURL {

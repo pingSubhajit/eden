@@ -182,6 +182,19 @@ final class Browser: NSObject, ObservableObject {
         return Set(pair.tabs)
     }
 
+    /// Whether this page is one you can see: in a window on screen, on the
+    /// desktop you are on, not one tucked away or another profile's put
+    /// aside, and there the peek's
+    /// while it is in front, a page of what is on screen with no peek over
+    /// it, either half of a pair included, or a small window's.
+    func inSight(_ webView: WKWebView) -> Bool {
+        guard let window = webView.window, window.isVisible, window.isOnActiveSpace else { return false }
+        if let peek = peekTab, peek.built === webView { return peekInFront }
+        if littleTab(for: webView) != nil { return true }
+        guard let tab = tab(for: webView) else { return false }
+        return !peekInFront && visibleTabIDs.contains(tab.id)
+    }
+
     /// Whether a pair can stand as it is in a row: all its tabs there, next
     /// to each other in its order, none pinned, of one kind and one group.
     /// A pair kept while Split View was off may have come apart since.
@@ -8352,6 +8365,35 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         preferences: WKWebpagePreferences,
         decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
     ) {
+        // A form WebKit is about to send again, with what was filled in: a
+        // reload of the page one brought, or a step back or forward to it,
+        // in any frame. Asked first, over a page you can see; one out of
+        // sight, behind or under a peek, doing it by itself (a script
+        // stepping back, an extension reloading it) is turned down, as there
+        // is no one to ask, and a question kept for later could be about a
+        // page that has changed.
+        if action.navigationType == .formResubmitted, action.targetFrame != nil {
+            guard inSight(webView) else { return decisionHandler(.cancel, preferences) }
+            // Send counts only if the page is still in sight as it is given:
+            // one an extension put behind meanwhile isn't sent the form.
+            Dialogs.show(Dialogs.resend(to: action.request.url?.host()), over: webView) { [weak self, weak webView] answer in
+                guard answer == .alertFirstButtonReturn, let self, let webView, self.inSight(webView) else {
+                    return decisionHandler(.cancel, preferences)
+                }
+                self.decided(webView, action, preferences: preferences, decisionHandler: decisionHandler)
+            }
+            return
+        }
+        decided(webView, action, preferences: preferences, decisionHandler: decisionHandler)
+    }
+
+    /// The navigation decided as any other, a form sent again once agreed to.
+    private func decided(
+        _ webView: WKWebView,
+        _ action: WKNavigationAction,
+        preferences: WKWebpagePreferences,
+        decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
+    ) {
         decide(webView, action) { [weak self] policy in
             // Revoke before WebKit can run the old document's unload handlers.
             // A nil target is a new window, not this tab leaving its document.
@@ -8892,6 +8934,26 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         keep(download, from: webView)
     }
 
+    /// A form that opened a tab of its own and didn't go: the tab has shown
+    /// nothing, and holds only the form's address, which asked for again,
+    /// put away and woken, duplicated or reopened would arrive as a plain
+    /// visit without what was filled in (#64). It forgets it, as a tab whose
+    /// page turned out to be a file does (dropEmpty), and goes when a page's
+    /// form opened it: you are back on that page, still filled in, told to
+    /// send it again from there, in the window it is in. A small window or
+    /// a site's own pop-up window holding it goes too, having nothing else.
+    private func formWentNowhere(_ tab: Tab) {
+        tab.forget()
+        let from = tab.opener.flatMap { id in Browsers.all.first { $0.tabs.contains { $0.id == id } } } ?? self
+        from.announce("The form didn't go. Send it again from its page.")
+        if let little = LittleWindow.holding(tab.id) { return little.close() }
+        if websitePopup { return closeWindow() }
+        guard tab.pin == nil, let opener = tab.opener, tabs.count > 1,
+              tabs.contains(where: { $0 === tab }) else { return }
+        if tab.id == activeID, let home = tabs.first(where: { $0.id == opener }) { select(home) }
+        close(tab)
+    }
+
     /// A tab that has shown nothing, and whose first page turned out to be a
     /// file: a download link that opens in a new tab, as a course site's
     /// attachments do. The file goes on arriving without it. Kept, the tab
@@ -9420,7 +9482,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
     private func fail(_ webView: WKWebView, _ error: Error, arrived: Bool) {
         // A peek's page too, which said nothing, and sat on its skeleton
         // (#63).
-        let tab = tab(for: webView) ?? littleTab(for: webView) ?? (peekTab?.built === webView ? peekTab : nil)
+        // In another space too: a form failing there is seen to as one
+        // failing here is.
+        let tab = popupTab(for: webView)
         tab?.uncover()
         let nsError = error as NSError
         let code = nsError.code
@@ -9440,6 +9504,8 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         guard !(nsError.domain == "WebKitErrorDomain" && code == 204) else { return }
         if arrived {
             tab?.failure = message(for: code)
+        } else if let tab, tab.askedForm, tab.built?.backForwardList.currentItem == nil {
+            formWentNowhere(tab)
         } else {
             tab?.failedToArrive(message(for: code), at: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
         }
