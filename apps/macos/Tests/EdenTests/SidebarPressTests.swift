@@ -484,22 +484,8 @@ final class SidebarPressTests: XCTestCase {
     /// than selecting it, and a split's half, a row or a pin wasn't selected
     /// on press now and then (#55).
     private func post(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, clicks: Int = 1) async throws {
-        NSApp.postEvent(try event(type, at: point, in: window, clicks: clicks), atStart: false)
-        // Until this one is through, however many are queued before it:
-        // what earlier tests left on the queue (their windows' AppKit events,
-        // forty and more by this point of a full run) ran past a count of
-        // twenty, and the press was never sent. Its kind in its window is
-        // this one: each test has a window of its own, and each event of
-        // the test's is through before the next is posted.
-        var sent = false
-        let deadline = Date().addingTimeInterval(2)
-        while !sent, Date() < deadline {
-            guard let queued = NSApp.nextEvent(matching: .any, until: Date(timeIntervalSinceNow: 0.2),
-                                               inMode: .default, dequeue: true) else { break }
-            NSApp.sendEvent(queued)
-            sent = queued.type == type && queued.window === window
-        }
-        XCTAssertTrue(sent, "The app never took the \(type) off its queue")
+        let event = try event(type, at: point, in: window, clicks: clicks)
+        XCTAssertTrue(AppQueue.deliver(event, in: window), "The app never took the \(type) off its queue")
         try await Task.sleep(for: .milliseconds(30))
     }
 
