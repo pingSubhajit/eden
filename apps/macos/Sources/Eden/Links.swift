@@ -61,12 +61,14 @@ final class Links: NSObject, NSApplicationDelegate {
             // Only once the quit goes ahead: while it waits on an import,
             // a window closed is closed for good.
             MainActor.assumeIsolated { Browsers.quitting = true }
-            // The sites' sessions written down before going (SessionCookies):
-            // one changed a moment ago is still on its way. Two seconds at
-            // most, so a stuck write doesn't keep Eden from quitting.
-            guard MainActor.assumeIsolated({ SessionCookies.shared.unwritten }) else { return .terminateNow }
-            // Whichever comes first, the write or the two seconds, answers;
-            // the other, finding it answered, says nothing.
+            // Before going, together: the sites' sessions written down
+            // (SessionCookies), one changed a moment ago still on its way;
+            // and the pages on screen pictured as they are now, scrolled
+            // where they were left, for the tabs coming back next time
+            // (Tab.keepPicture), not as they were when they came in. Two
+            // seconds at most, so a stuck write doesn't keep Eden from
+            // quitting. Whichever comes first, the writes or the two seconds,
+            // answers; the other, finding it answered, says nothing.
             var answered = false
             let quit = { @MainActor in
                 guard !answered else { return }
@@ -74,7 +76,9 @@ final class Links: NSObject, NSApplicationDelegate {
                 sender.reply(toApplicationShouldTerminate: true)
             }
             Task { @MainActor in
-                await SessionCookies.shared.flush()
+                async let pictured: Void = Links.pictureThePagesOnScreen()
+                if SessionCookies.shared.unwritten { await SessionCookies.shared.flush() }
+                await pictured
                 quit()
             }
             Task { @MainActor in
@@ -99,6 +103,22 @@ final class Links: NSObject, NSApplicationDelegate {
         // Returning from AppKit's first terminate call lets MainActor finish
         // the worker continuation and remove it from Browser's registry.
         return .terminateCancel
+    }
+
+    /// Every window's pages on screen kept as pictures (Tab.keepPicture),
+    /// returning once they are on disk. All asked for at once: one page
+    /// whose picture never comes doesn't keep the others from theirs.
+    @MainActor private static func pictureThePagesOnScreen() async {
+        let shown = Browsers.all.flatMap { browser in browser.tabs.filter { browser.visibleTabIDs.contains($0.id) } }
+        await withTaskGroup(of: Void.self) { group in
+            for tab in shown {
+                group.addTask { @MainActor in
+                    await withCheckedContinuation { (kept: CheckedContinuation<Void, Never>) in
+                        tab.keepPicture { kept.resume() }
+                    }
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -178,8 +198,11 @@ final class Links: NSObject, NSApplicationDelegate {
         // in the middle of it — a Safari export's passwords in the clear
         // among it — goes (Security).
         DispatchQueue.global(qos: .utility).async { ImportFile.sweepScratch() }
-        // Pictures of pages not seen for a month (PagePictures).
+        // Pictures of pages not seen for a month (PagePictures), and those
+        // at full size past the most kept.
         PagePictures.shared.prune()
+        PagePictures.covers.prune()
+        PagePictures.covers.trim()
         Trim.start()
         MainActor.assumeIsolated {
             Shared.prefs.followFile()

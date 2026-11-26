@@ -1821,8 +1821,10 @@ final class Browser: NSObject, ObservableObject {
         // The sites' icons are a list of where you have been, too, and so
         // are the searches learned from sites visited (SiteSearch.swift).
         Favicons.shared.forgetAll()
-        // The pictures of pages kept for their hover cards (PagePictures).
+        // The pictures of pages kept for their hover cards and for tabs
+        // coming back (PagePictures).
         PagePictures.shared.forgetAll()
+        PagePictures.covers.forgetAll()
         SiteSearch.forget()
         Shared.forgetDownloadAddresses()
         announce("History cleared", look: .done)
@@ -9270,11 +9272,13 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // Whatever you last set this site to, before it draws a single frame
         // at the wrong size.
         tab.applyRememberedZoom()
-        // A tab waking from sleep: the new document is in, and a moment
-        // after it is on screen the picture of the old one can go. Its first
-        // frame takes it off sooner (see Tab.build); this is for the page
-        // that has none, or whose first frame comes later than this.
-        tab.uncover(after: 0.45)
+        // A tab waking from sleep: the new document is in. Its first frame
+        // takes the picture of the old one off (see Tab.build), and its
+        // finishing does for a page with nothing to draw; until then the
+        // view is held out of sight, and the picture is what there is to
+        // see. Only on a WebKit that doesn't say when the first frame comes
+        // does it go a moment after this.
+        if tab.built?.unpainted != true { tab.uncover(after: 0.45) }
     }
 
     /// Where the window is, for a page asking `window.outerWidth`,

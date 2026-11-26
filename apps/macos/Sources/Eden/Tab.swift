@@ -922,6 +922,11 @@ final class Tab: ObservableObject, Identifiable {
     /// That picture, over the stage while the page is rebuilt underneath it:
     /// coming back to a tab that slept starts from what you left, not white.
     @Published private(set) var cover: NSImage?
+    /// Whether the picture up softens as the page takes its time (see
+    /// Stage's Cover): one of a page being built again does, one over a page
+    /// landing from the floating window, which is only settling, doesn't.
+    /// Set with the picture, before it, so the stage reads both together.
+    private(set) var coverSoftens = false
 
     private var watch: [NSKeyValueObservation] = []
 
@@ -1185,7 +1190,13 @@ final class Tab: ObservableObject, Identifiable {
                 }
             },
             web.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.loading = self?.built?.isLoading ?? false }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.loading = self.built?.isLoading ?? false
+                    // Stopped, turned into a download or failed before it
+                    // drew: nothing is coming to take the picture's place.
+                    if !self.loading, !self.painted { self.uncover() }
+                }
             },
             web.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.steps() }
@@ -1813,38 +1824,70 @@ final class Tab: ObservableObject, Identifiable {
         built != nil || picture != nil || (!shy && pageAddress.map { PagePictures.shared.has($0, store: store.identifier) } == true)
     }
 
-    /// The page as it shows now, small, kept on disk by its address and its
-    /// website store for the hover card to show at the next launch, before
-    /// the page is loaded again (PagePictures). Taken as the tab is left and
-    /// as its page comes in on screen. Never a private tab's, nor a script's.
-    func keepPicture() {
+    /// The page as it shows now, kept on disk by its address and its website
+    /// store for the next launch, before the page is loaded again: small for
+    /// the hover card (PagePictures.shared), and at its size for the tab's
+    /// stage while the page is built again (PagePictures.covers). One
+    /// picture, drawn once, for both. Taken as the tab is left and as its
+    /// page comes in on screen. Never a private tab's, nor a script's.
+    /// `done`, once both are on disk, or there is none to keep: for Eden
+    /// quitting, which waits on the pictures of the pages on screen.
+    func keepPicture(then done: (@MainActor @Sendable () -> Void)? = nil) {
         // Filed under the page drawn, which is the one committed: the address
         // moves on as soon as a navigation starts, while the old page is
         // still what shows, and before the first page commits there is only
         // a blank one.
-        guard !shy, !bench, let page = committed, let built else { return }
-        let pictures = PagePictures.shared
-        let ticket = pictures.ticket()
+        guard !shy, !bench, let page = committed, let built else {
+            done?()
+            return
+        }
+        let cards = PagePictures.shared
+        let covers = PagePictures.covers
+        let tickets = (cards.ticket(), covers.ticket())
         let store = self.store.identifier
-        let configuration = WKSnapshotConfiguration()
-        // Sharp at the card's width on a Retina screen.
-        configuration.snapshotWidth = NSNumber(value: Double(Tab.keptWidth))
-        built.takeSnapshot(with: configuration) { [weak self] image, _ in
+        // At the page's own size, and the screen's pixels.
+        built.takeSnapshot(with: nil) { [weak self] image, _ in
             // Another page committed while it was drawn: the picture could
             // be either, so it is no one's.
             let same = MainActor.assumeIsolated { self?.committed == page }
             guard same, let image, image.size.width > 0,
-                  let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+                  let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                MainActor.assumeIsolated { done?() }
+                return
+            }
             let scale = CGFloat(cg.width) / image.size.width
             Task.detached(priority: .utility) {
-                guard let data = Tab.jpeg(cg, scale: scale) else { return }
-                pictures.keep(data, for: page, store: store, ticket: ticket)
+                if let data = Tab.jpeg(cg, scale: scale) {
+                    covers.keep(data, for: page, store: store, ticket: tickets.1)
+                }
+                // Sharp at the card's width on a Retina screen.
+                if let card = Tab.shrunk(cg, to: Tab.keptWidth * scale), let data = Tab.jpeg(card, scale: scale) {
+                    cards.keep(data, for: page, store: store, ticket: tickets.0)
+                }
+                guard let done else { return }
+                await covers.settled()
+                await cards.settled()
+                await done()
             }
         }
     }
 
+    /// `image` drawn `width` pixels wide, its shape kept. Never larger.
+    nonisolated private static func shrunk(_ image: CGImage, to width: CGFloat) -> CGImage? {
+        guard CGFloat(image.width) > width else { return image }
+        let height = (CGFloat(image.height) * width / CGFloat(image.width)).rounded()
+        guard let context = CGContext(
+            data: nil, width: Int(width), height: Int(height), bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
+    }
+
     /// The width, in points, of a picture kept on disk: the hover card's.
-    private static let keptWidth: CGFloat = 260
+    nonisolated private static let keptWidth: CGFloat = 260
 
     /// A JPEG shrunk to `width`, off the main thread.
     private static func thumbnail(_ data: Data, width: CGFloat, _ done: @escaping (NSImage?) -> Void) {
@@ -1889,6 +1932,9 @@ final class Tab: ObservableObject, Identifiable {
     /// The picture comes off the moment there is something better under it
     /// — the page, painted — or you reach for the page yourself.
     func uncover(after delay: TimeInterval = 0) {
+        // Counted whether or not one is up: a picture still being read for
+        // this view isn't put up after (see coverFromDisk).
+        coversEnded &+= 1
         guard let shown = cover else { return }
         guard delay > 0 else {
             cover = nil
@@ -1903,8 +1949,12 @@ final class Tab: ObservableObject, Identifiable {
     /// The page as it was when its video went out to the floating window,
     /// over it while it lands (see Browser.land).
     func cover(with picture: NSImage) {
+        coverSoftens = false
         cover = picture
     }
+
+    /// How many times the picture has been asked off (see uncover).
+    private var coversEnded = 0
 
     /// That picture off, if it is still the one up.
     func uncover(_ picture: NSImage) {
@@ -2076,14 +2126,41 @@ final class Tab: ObservableObject, Identifiable {
         immersed = false
         let state = memory
         memory = nil
-        if let picture, let image = NSImage(data: picture) {
-            cover = image
-            // Whatever happens to the page, the picture doesn't outstay it.
-            uncover(after: 4)
+        // The page as it was left, over the view while it is built again,
+        // until it draws (Tab.build) or its load ends without it (watch):
+        // the picture taken as it went to sleep, or, for a tab brought back
+        // at launch, the one kept on disk for its page.
+        let kept = picture.flatMap(NSImage.init(data:))
+        if let kept {
+            coverSoftens = true
+            cover = kept
         }
         picture = nil
         loadAndVerify(url, state: state)
+        // After the view it covers is made, which loadAndVerify does.
+        if kept == nil, !shy, !bench { coverFromDisk(url) }
         return true
+    }
+
+    /// The picture kept for `url` at its size (PagePictures.covers), over
+    /// the view, if it is read before the view has anything of its own: the
+    /// same load, asked for nothing since (Stop, another page), and no
+    /// picture taken down meanwhile, which a read landing after would put
+    /// back with nothing left to take it off.
+    private func coverFromDisk(_ url: URL) {
+        let view = built
+        let store = self.store.identifier
+        let load = loadGeneration
+        let ended = coversEnded
+        Task { [weak self] in
+            guard let kept = await PagePictures.covers.kept(for: url, store: store),
+                  let image = NSImage(data: kept),
+                  let self, self.built === view, self.loadGeneration == load, self.coversEnded == ended,
+                  !self.painted, self.cover == nil, self.failure == nil
+            else { return }
+            self.coverSoftens = true
+            self.cover = image
+        }
     }
 
     /// A tab opened by a link is not blank, even though WebKit hasn't started
