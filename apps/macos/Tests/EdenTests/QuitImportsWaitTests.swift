@@ -1,30 +1,40 @@
+import AppKit
 import XCTest
 @testable import Eden
 
-/// Quitting waits on file imports once, five seconds in all (#67): asked
-/// again while one was still there, it used to start five seconds over, and
-/// an import that stayed kept Eden from ever quitting.
+/// Quitting waits on file imports once, five seconds at most (#67), inside
+/// the one answer to the quit (#69): no more than that, however long the
+/// import goes on, and no longer than the import takes.
+@MainActor
 final class QuitImportsWaitTests: XCTestCase {
-    func testTheWaitEndsFiveSecondsAfterTheFirstAttemptHoweverOftenItIsAsked() {
-        var wait = Links.ImportsWait()
+    func testTheWaitEndsAtItsMostWhateverTheImportIsDoing() async {
         let start = Date()
-        XCTAssertTrue(wait.waits(importsRunning: true, now: start))
-        XCTAssertEqual(wait.deadline, start.addingTimeInterval(5))
-        XCTAssertTrue(wait.waits(importsRunning: true, now: start.addingTimeInterval(4)))
-        XCTAssertEqual(wait.deadline, start.addingTimeInterval(5), "asked again, the same five seconds")
-        XCTAssertFalse(wait.waits(importsRunning: true, now: start.addingTimeInterval(5)),
-                       "past it, the quit goes ahead with the import still there")
-        XCTAssertNil(wait.deadline)
+        await Links.wait(while: true, atMost: 0.3)
+        let waited = Date().timeIntervalSince(start)
+        XCTAssertGreaterThanOrEqual(waited, 0.3)
+        XCTAssertLessThan(waited, 1, "not past it")
     }
 
-    func testNothingRunningQuitsAtOnceAndTheNextQuitWaitsAfresh() {
-        var wait = Links.ImportsWait()
+    func testTheWaitEndsAsTheImportDoes() async {
         let start = Date()
-        XCTAssertFalse(wait.waits(importsRunning: false, now: start))
-        XCTAssertTrue(wait.waits(importsRunning: true, now: start))
-        XCTAssertFalse(wait.waits(importsRunning: false, now: start.addingTimeInterval(1)), "the imports are done")
-        let later = start.addingTimeInterval(60)
-        XCTAssertTrue(wait.waits(importsRunning: true, now: later))
-        XCTAssertEqual(wait.deadline, later.addingTimeInterval(5))
+        let done = start.addingTimeInterval(0.2)
+        await Links.wait(while: Date() < done, atMost: 5)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1, "not the five seconds")
+        await Links.wait(while: false, atMost: 5)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1, "nothing running, no wait")
+    }
+
+    /// While a quit waits to be answered, AppKit runs the app in its modal
+    /// panel mode: the import's own end, the wait and the writes before
+    /// going are main-actor work, and go on in it.
+    func testMainActorWorkGoesOnWhileAQuitIsAnswered() {
+        _ = NSApplication.shared
+        var ran = false
+        Task { @MainActor in ran = true }
+        let until = Date().addingTimeInterval(2)
+        while !ran, Date() < until {
+            _ = RunLoop.current.run(mode: .modalPanel, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(ran)
     }
 }
