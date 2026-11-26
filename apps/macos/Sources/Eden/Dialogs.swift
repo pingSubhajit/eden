@@ -13,21 +13,23 @@ import WebKit
 
 /// A question held for a tab in the background. WebKit wants every one of
 /// them answered; one let go without being shown answers as dismissed.
+/// Shown by the window the tab is in by then, which may not be the one it
+/// was asked in (Browser.carry).
 @MainActor
 final class HeldQuestion {
-    private let show: () -> Void
+    private let show: (Browser) -> Void
     private var drop: (() -> Void)?
 
-    init(show: @escaping () -> Void, drop: @escaping () -> Void) {
+    init(show: @escaping (Browser) -> Void, drop: @escaping () -> Void) {
         self.show = show
         self.drop = drop
     }
 
-    func present() {
+    func present(in browser: Browser) {
         // A dismissed or already presented question must not be shown again.
         guard drop != nil else { return }
         drop = nil
-        show()
+        show(browser)
     }
 
     func dismiss() {
@@ -109,6 +111,18 @@ extension Browser {
         for question in dropping { question.answer(ok: false) }
     }
 
+    /// The questions held for a tab come to be shown, a moment after it
+    /// came in front: only if it still is (`inFront`). Kept in the queue
+    /// until then, not taken out as it came: a tab left again at once, as
+    /// an extension moving tabs one by one leaves each for the next, had
+    /// its questions shown over the tab after it, where Allow would answer
+    /// for the wrong page; and a window closed meanwhile answers what is
+    /// still queued (closeAll).
+    func presentHeld(for id: Tab.ID, if inFront: (Browser) -> Bool) {
+        guard inFront(self), let held = heldDialogs.removeValue(forKey: id) else { return }
+        held.forEach { $0.present(in: self) }
+    }
+
     // MARK: - alert, confirm, prompt
 
     /// A page's question goes over its own page only. One from a tab in the
@@ -118,7 +132,7 @@ extension Browser {
     /// answer a dismissed dialog gives. A peek hidden behind another tab
     /// (see peekInFront) waits the same way, until it is in front again.
     @discardableResult
-    func ask(from webView: WKWebView, show: @escaping () -> Void, drop: @escaping () -> Void) -> HeldQuestion? {
+    func ask(from webView: WKWebView, show: @escaping (Browser) -> Void, drop: @escaping () -> Void) -> HeldQuestion? {
         let known = tabs + parkedTabs + [peekTab].compactMap { $0 }
         // Questions from tabs that have gone some other way than close(_:).
         for id in heldDialogs.keys where !known.contains(where: { $0.id == id }) {
@@ -126,7 +140,7 @@ extension Browser {
         }
         guard let tab = known.first(where: { $0.built === webView }), tab.id != activeID,
               tab.id != peekTab?.id || !peekInFront else {
-            show()
+            show(self)
             return nil
         }
         let question = HeldQuestion(show: show, drop: drop)
@@ -143,7 +157,7 @@ extension Browser {
         if let tab = paneAsking(webView) {
             return askInPane(tab, frame: frame, message: message, kind: .alert) { _, _ in completionHandler() }
         }
-        ask(from: webView, show: {
+        ask(from: webView, show: { _ in
             let alert = Dialogs.alert(from: frame, saying: message)
             alert.addButton(withTitle: "OK")
             Dialogs.show(alert, over: webView) { _ in completionHandler() }
@@ -159,7 +173,7 @@ extension Browser {
         if let tab = paneAsking(webView) {
             return askInPane(tab, frame: frame, message: message, kind: .confirm) { ok, _ in completionHandler(ok) }
         }
-        ask(from: webView, show: {
+        ask(from: webView, show: { _ in
             let alert = Dialogs.alert(from: frame, saying: message)
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")
@@ -181,7 +195,7 @@ extension Browser {
                 completionHandler(ok ? (text ?? "") : nil)
             }
         }
-        ask(from: webView, show: {
+        ask(from: webView, show: { _ in
             let alert = Dialogs.alert(from: frame, saying: prompt)
             alert.addButton(withTitle: "OK")
             alert.addButton(withTitle: "Cancel")
@@ -212,7 +226,7 @@ extension Browser {
             Dialogs.askedInTest.append("Choose a file (\(frame.securityOrigin.host))")
             return completionHandler(nil)
         }
-        ask(from: webView, show: {
+        ask(from: webView, show: { _ in
             let panel = NSOpenPanel()
             panel.canChooseFiles = true
             panel.canChooseDirectories = parameters.allowsDirectories
@@ -286,7 +300,7 @@ extension Browser {
             return
         }
         // Over its own tab only, as a page's own questions are (see ask).
-        ask(from: webView, show: {
+        ask(from: webView, show: { _ in
             let alert = NSAlert()
             alert.messageText = "\(host) can't prove who it is"
             alert.informativeText = "Its certificate isn't trusted by this Mac. Someone could be reading what you send. Continue only if you know why it looks like this."
@@ -318,8 +332,8 @@ extension Browser {
         // A tab behind yours asking for a name and a password would put the
         // question over the page you are looking at, where it would pass for
         // that page's. It waits for its own tab, as a page's questions do.
-        ask(from: webView, show: { [weak self] in
-            self?.askSignIn(webView, challenge, completionHandler)
+        ask(from: webView, show: { browser in
+            browser.askSignIn(webView, challenge, completionHandler)
         }, drop: { completionHandler(.cancelAuthenticationChallenge, nil) })
     }
 
